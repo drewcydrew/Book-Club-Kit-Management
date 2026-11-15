@@ -1,12 +1,22 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useStore } from '../state/store';
+import { useShared } from '../state/shared';
 
 export function Page({ title, children }: { title: string; children: React.ReactNode }) {
-  const { error } = useStore();
+  const { data, error } = useStore();
+  const shared = useShared();
+  const missingLocalReferences =
+    data.people.some((person) => person.clubId && !data.clubs.some((club) => club.id === person.clubId)) ||
+    data.cycles.some((cycle) => cycle.slots.some((slot) => !data.clubs.some((club) => club.id === slot.clubId))) ||
+    data.assignments.some((assignment) => !data.clubs.some((club) => club.id === assignment.clubId) || !data.kits.some((kit) => kit.id === assignment.kitId)) ||
+    data.ballots.some((ballot) => !data.clubs.some((club) => club.id === ballot.clubId) || ballot.ranking.some((id) => !data.titles.some((title) => title.id === id))) ||
+    data.events.some((event) => !data.kits.some((kit) => kit.id === event.kitId));
   return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
     <Text accessibilityRole="header" style={styles.heading}>{title}</Text>
     {error ? <Text style={styles.error}>Unable to save: {error}</Text> : null}
+    {shared.error ? <Text style={styles.error}>{shared.error}</Text> : null}
+    {missingLocalReferences ? <Text style={styles.error}>Some local demo records reference shared clubs, titles or kits that are no longer available. Affected actions may be unavailable.</Text> : null}
     {children}
   </ScrollView>;
 }

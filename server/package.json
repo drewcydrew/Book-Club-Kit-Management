@@ -2,16 +2,19 @@
   "name": "book-club-kit-server",
   "version": "1.0.0",
   "private": true,
-  "description": "Health-only backend scaffold for the book club kit app",
+  "description": "Shared-data API for the book club kit app",
   "main": "src/app.js",
   "engines": {
     "node": ">=22 <23"
   },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "migrate": "node src/migrate.js",
+    "seed": "node src/seed.js"
   },
   "dependencies": {
-    "express": "^5.3.0"
+    "express": "^5.3.0",
+    "pg": "^8.16.3"
   }
 }

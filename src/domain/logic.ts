@@ -9,7 +9,7 @@ export function rankings(data: Data, cycle: Cycle, clubId: string, includeHistor
   const history = includeHistory ? [] : data.clubs.find((club) => club.id === clubId)?.history ?? [];
   const scores = new Map<string, number>();
   data.ballots.filter((b) => b.cycleId === cycle.id && b.clubId === clubId).forEach((ballot) => {
-    ballot.ranking.filter((titleId) => !history.includes(titleId) && ballot.marks[titleId] === 'selected')
+    ballot.ranking.filter((titleId) => !history.includes(titleId) && ballot.marks[titleId] === 'selected' && data.titles.some((title) => title.id === titleId))
       .forEach((titleId, index, list) => scores.set(titleId, (scores.get(titleId) ?? 0) + list.length - index));
   });
   return [...scores].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([titleId]) => titleId);
