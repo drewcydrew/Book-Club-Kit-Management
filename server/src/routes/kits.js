@@ -2,12 +2,9 @@ const express = require('express');
 const { randomUUID } = require('node:crypto');
 const { getPool } = require('../db');
 const { HttpError, object, text, integer, revision, checkUpdated } = require('../http');
+const { kitSelect: select } = require('./shared-selects');
 
 const router = express.Router();
-const select = `SELECT k.id,k.title_id AS "titleId",k.branch,k.copies,k.extras,k.revision,
-  (SELECT identifier FROM kit_identifiers WHERE kit_id=k.id AND kind='kit') AS barcode,
-  ARRAY(SELECT identifier FROM kit_identifiers WHERE kit_id=k.id AND kind='copy' ORDER BY identifier) AS components
-  FROM kits k`;
 
 function validate(body) {
   const b = object(body);
@@ -39,6 +36,7 @@ router.post('/', async (req, res) => {
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(180313022)');
     const title = await client.query('SELECT 1 FROM titles WHERE id=$1', [kit.titleId]);
     if (!title.rowCount) throw new HttpError(404, 'Title not found.');
     await client.query('INSERT INTO kits(id,title_id,branch,copies,extras) VALUES($1,$2,$3,$4,$5)', [id, kit.titleId, kit.branch, kit.copies, kit.extras]);
@@ -57,6 +55,12 @@ router.put('/:id', async (req, res) => {
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(180313022)');
+    const usage = await client.query('SELECT 1 FROM schedule_assignments WHERE kit_id=$1 LIMIT 1', [req.params.id]);
+    if (usage.rowCount) {
+      const existing = await client.query('SELECT title_id FROM kits WHERE id=$1', [req.params.id]);
+      if (existing.rowCount && existing.rows[0].title_id !== kit.titleId) throw new HttpError(409, 'Cannot change the title of a scheduled kit.');
+    }
     const title = await client.query('SELECT 1 FROM titles WHERE id=$1', [kit.titleId]);
     if (!title.rowCount) throw new HttpError(404, 'Title not found.');
     const updated = await client.query('UPDATE kits SET title_id=$3,branch=$4,copies=$5,extras=$6,revision=revision+1 WHERE id=$1 AND revision=$2 RETURNING id',

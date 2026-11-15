@@ -8,7 +8,9 @@ export default function Home() {
   const { data } = useStore();
   return <Page title="Welcome">
     <Card><Label>Explore a fictional library</Label>
-      <Note>Clubs, titles and kit links are shared and publicly writable; use fictional data only. Members, voting, schedules and circulation remain local to this device and are not encrypted.</Note>
+      <Note>Users, memberships, clubs, titles, kits, preferences, cycles, schedules, lending settings, reading history and circulation are shared and publicly writable. Use fictional data only. Your selected user and club remain on this device. Previous local shared records are not imported.</Note>
+      {!data.people.some((person) => person.role === 'admin') && <Note>No shared admin exists. Run the explicit demo seed, or restore an admin through the API if it was already seeded.</Note>}
+      {data.people.length > 0 && !data.selectedPersonId && <Note>Select a shared demo user in Settings to begin.</Note>}
       <Text>{data.titles.length} titles · {data.kits.length} kits · {data.clubs.length} clubs · {data.cycles.length} cycles</Text>
     </Card>
     <Card><Label>Start here</Label>

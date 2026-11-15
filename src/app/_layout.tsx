@@ -10,7 +10,7 @@ function Shell() {
   return <View style={{ flex: 1, backgroundColor: '#f3f7f4' }}>
     <View style={{ backgroundColor: '#183f37', padding: 14, gap: 6 }}>
       <Text style={{ color: 'white', fontSize: 19, fontWeight: '700' }}>{data.library.name} · Book club kits</Text>
-      <Text style={{ color: '#e1efe8' }}>Public demo · {person?.name} · Catalog and clubs shared; schedules and circulation local</Text>
+      <Text style={{ color: '#e1efe8' }}>Public writable demo · {person ? `${person.name} · ${data.selectedClubId ? data.clubs.find((club) => club.id === data.selectedClubId)?.name ?? 'unavailable club' : 'no club selected'}` : 'no user selected'} · Users, clubs, voting and schedules shared</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 18, paddingVertical: 8 }}>
         <Link href="/" style={{ color: 'white' }}>Home</Link>
         <Link href="/catalog" style={{ color: 'white' }}>Catalog & kits</Link>

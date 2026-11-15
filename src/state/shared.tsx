@@ -6,6 +6,7 @@ import type { SharedData } from './api';
 type SharedState = {
   data: SharedData;
   error: string | null;
+  saving: boolean;
   refresh: () => Promise<void>;
   mutate: <T>(operation: () => Promise<T>) => Promise<T>;
 };
@@ -15,6 +16,7 @@ export function SharedProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<SharedData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [savingState, setSavingState] = useState(false);
   const sequence = useRef(0);
   const stale = useRef(false);
   const saving = useRef(false);
@@ -47,6 +49,7 @@ export function SharedProvider({ children }: { children: React.ReactNode }) {
       throw new Error(message);
     }
     saving.current = true;
+    setSavingState(true);
     try {
       ++sequence.current;
       let result: T;
@@ -64,13 +67,14 @@ export function SharedProvider({ children }: { children: React.ReactNode }) {
       return result;
     } finally {
       saving.current = false;
+      setSavingState(false);
     }
   }, [load]);
   useEffect(() => { void refresh().catch(() => undefined); }, [refresh]);
   if (!data) return <View style={{ padding: 30, gap: 12 }}>
     {loading ? <ActivityIndicator /> : <><Text>Unable to load shared data: {error}</Text><Button title="Retry" onPress={() => { setLoading(true); void refresh().catch(() => undefined); }} /></>}
   </View>;
-  return <Context.Provider value={{ data, error, refresh, mutate }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ data, error, saving: savingState, refresh, mutate }}>{children}</Context.Provider>;
 }
 
 export function useShared(): SharedState {
