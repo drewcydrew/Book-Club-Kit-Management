@@ -1,5 +1,15 @@
-import React, { useState } from "react";
-import { Text } from "react-native";
+import { usePreventRemove } from "expo-router";
+import React, { useEffect, useState } from "react";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useNavigationGuard } from "../components/navigation-guard";
 import {
   Action,
   Actions,
@@ -34,9 +44,19 @@ const blankClub = (branch: string): Club => ({
   membershipRevision: 0,
 });
 
+function snapshot(
+  value: Club,
+  sizeText: string,
+  members: Membership[],
+  history: string[],
+) {
+  return JSON.stringify({ value, sizeText, members, history });
+}
+
 export default function Clubs() {
   const { data } = useStore();
   const shared = useShared();
+  const navigationGuard = useNavigationGuard();
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const staff = person?.role === "admin" || person?.role === "staff";
   const [club, setClub] = useState<Club>(() =>
@@ -57,7 +77,50 @@ export default function Clubs() {
     kitId: string;
   } | null>(null);
 
+  const [formOpen, setFormOpen] = useState(false);
+  const [initial, setInitial] = useState("");
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<
+    (() => void) | null
+  >(null);
+  const dirty =
+    formOpen &&
+    snapshot(club, size, membershipDraft, historyDraft) !== initial;
+  const busy = shared.saving;
+
+  const disablePrevention = usePreventRemove(
+    dirty || (formOpen && busy),
+    ({ repeat }) => {
+      if (busy) {
+        setMessage("Wait for the shared change to finish before leaving.");
+        return;
+      }
+      setPendingNavigation(() => repeat);
+      setConfirmDiscard(true);
+    },
+  );
+
+  useEffect(() => {
+    if (!formOpen || (!dirty && !busy)) return;
+    return navigationGuard.register((continueNavigation) => {
+      if (busy) {
+        setMessage("Wait for the shared change to finish before leaving.");
+        return;
+      }
+      setPendingNavigation(() => () => {
+        disablePrevention();
+        continueNavigation();
+      });
+      setConfirmDiscard(true);
+    });
+  }, [busy, dirty, disablePrevention, formOpen, navigationGuard]);
+
   function edit(value: Club) {
+    const sizeText = String(value.size);
+    const members = data.memberships.filter(
+      (membership) => membership.clubId === value.id,
+    );
+    const history = [...value.history];
     setClub(value);
     setClubRevision(
       value.id
@@ -65,12 +128,31 @@ export default function Clubs() {
             null)
         : null,
     );
-    setSize(String(value.size));
-    setMembershipDraft(
-      data.memberships.filter((membership) => membership.clubId === value.id),
-    );
-    setHistoryDraft([...value.history]);
+    setSize(sizeText);
+    setMembershipDraft(members);
+    setHistoryDraft(history);
     setMessage("");
+    setInitial(snapshot(value, sizeText, members, history));
+    setConfirmDiscard(false);
+    setPendingNavigation(null);
+    setFormOpen(true);
+  }
+
+  function closeForm() {
+    if (busy) return;
+    if (dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    setFormOpen(false);
+  }
+
+  function discardForm() {
+    const navigate = pendingNavigation;
+    setFormOpen(false);
+    setConfirmDiscard(false);
+    setPendingNavigation(null);
+    if (navigate) navigate();
   }
 
   function save() {
@@ -115,6 +197,9 @@ export default function Clubs() {
         setClub(current);
         setClubRevision(saved.revision);
         setSize(String(saved.size));
+        setInitial(
+          snapshot(current, String(saved.size), membershipDraft, historyDraft),
+        );
         setMessage(
           "Shared club saved. Membership, leadership and reading history are managed separately.",
         );
@@ -142,7 +227,9 @@ export default function Clubs() {
     void shared
       .mutate(() => saveMemberships(club.id, selected, club.membershipRevision))
       .then((membershipRevision) => {
-        setClub((currentClub) => ({ ...currentClub, membershipRevision }));
+        const nextClub = { ...club, membershipRevision };
+        setClub(nextClub);
+        setInitial(snapshot(nextClub, size, membershipDraft, historyDraft));
         setMessage("Shared memberships and club leadership saved.");
       })
       .catch((error: unknown) =>
@@ -171,6 +258,8 @@ export default function Clubs() {
           revision,
         }));
         setClubRevision(revision);
+        const nextClub = { ...club, history: historyDraft, revision };
+        setInitial(snapshot(nextClub, size, membershipDraft, historyDraft));
         setMessage("Shared club reading history saved.");
       })
       .catch((error: unknown) =>
@@ -200,6 +289,13 @@ export default function Clubs() {
             void shared.refresh().catch(() => undefined);
           }}
         />
+        {staff && (
+          <Action
+            tone="primary"
+            title="Add club"
+            onPress={() => edit(blankClub(data.library.branches[0] ?? ""))}
+          />
+        )}
       </Actions>
       <Note>
         Clubs, membership, leadership, reading history and kit links are shared.
@@ -387,8 +483,52 @@ export default function Clubs() {
         );
       })}
       {staff && (
-        <Card>
-          <Label>{club.id ? "Edit shared club" : "Add shared club"}</Label>
+        <Modal
+          transparent
+          visible={formOpen}
+          onRequestClose={
+            confirmDiscard
+              ? () => {
+                  setConfirmDiscard(false);
+                  setPendingNavigation(null);
+                }
+              : closeForm
+          }
+          accessibilityLabel={club.id ? "Edit shared club" : "Add shared club"}
+        >
+          <KeyboardAvoidingView
+            style={modalStyles.backdrop}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <View style={modalStyles.dialog}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={modalStyles.content}
+              >
+                {confirmDiscard ? (
+                  <>
+                    <Label>Discard unsaved changes?</Label>
+                    <Note>Your changes have not been saved.</Note>
+                    <Actions>
+                      <Action
+                        tone="danger"
+                        title="Discard changes"
+                        onPress={discardForm}
+                      />
+                      <Action
+                        title="Keep editing"
+                        onPress={() => {
+                          setConfirmDiscard(false);
+                          setPendingNavigation(null);
+                        }}
+                      />
+                    </Actions>
+                  </>
+                ) : (
+                  <>
+                    <Label>
+                      {club.id ? "Edit shared club" : "Add shared club"}
+                    </Label>
           <Field
             label="Club name"
             value={club.name}
@@ -422,11 +562,13 @@ export default function Clubs() {
             />
           )}
           <Actions>
-            <Action tone="primary" title="Save club" onPress={save} />
             <Action
-              title="Clear club form"
-              onPress={() => edit(blankClub(data.library.branches[0] ?? ""))}
+              tone="primary"
+              title="Save club"
+              disabled={busy}
+              onPress={save}
             />
+            <Action title="Cancel" disabled={busy} onPress={closeForm} />
           </Actions>
           {!!club.id && (
             <>
@@ -511,10 +653,32 @@ export default function Clubs() {
               />
             </>
           )}
-          {message ? <Text>{message}</Text> : null}
-        </Card>
+                {message ? <Text>{message}</Text> : null}
+                  </>
+                )}
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
       )}
-      {message && !staff ? <Text>{message}</Text> : null}
+      {message && !formOpen ? <Text>{message}</Text> : null}
     </Page>
   );
 }
+
+const modalStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+  },
+  dialog: {
+    width: "100%",
+    maxWidth: 650,
+    maxHeight: "90%",
+    backgroundColor: "#fffefa",
+  },
+  content: { padding: 20, gap: 12 },
+});

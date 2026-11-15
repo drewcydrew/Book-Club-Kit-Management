@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { Text } from 'react-native';
+import { usePreventRemove } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useNavigationGuard } from '../components/navigation-guard';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import { id } from '../domain/logic';
 import type { Library, Person, Role } from '../domain/model';
@@ -8,6 +10,10 @@ import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
 
 const roles: Role[] = ['member', 'staff', 'admin'];
+
+function userSnapshot(name: string, role: Role) {
+  return JSON.stringify({ name, role });
+}
 
 export default function Settings() {
   const { data, update, reset } = useStore();
@@ -21,27 +27,82 @@ export default function Settings() {
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const canManageUsers = person?.role === 'admin';
   const canManageSettings = person?.role === 'admin';
+  const navigationGuard = useNavigationGuard();
+  const [formOpen, setFormOpen] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [initial, setInitial] = useState('');
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  const dirty = formOpen && userSnapshot(userName, userRole) !== initial;
+  const busy = shared.saving;
+
+  const disablePrevention = usePreventRemove(dirty || (formOpen && busy), ({ repeat }) => {
+    if (busy) {
+      setFormError('Wait for the shared change to finish before leaving.');
+      return;
+    }
+    setPendingNavigation(() => repeat);
+    setConfirmDiscard(true);
+  });
+
+  useEffect(() => {
+    if (!formOpen || (!dirty && !busy)) return;
+    return navigationGuard.register((continueNavigation) => {
+      if (busy) {
+        setFormError('Wait for the shared change to finish before leaving.');
+        return;
+      }
+      setPendingNavigation(() => () => { disablePrevention(); continueNavigation(); });
+      setConfirmDiscard(true);
+    });
+  }, [busy, dirty, disablePrevention, formOpen, navigationGuard]);
 
   function choosePerson(idValue: string) {
     void update((d) => ({ ...d, selectedPersonId: idValue })).then(() => setMessage('Selected demo user saved on this device.')).catch((error: unknown) =>
       setMessage(error instanceof Error ? error.message : 'Unable to save selected user.'));
   }
 
-  function editUser(value?: Person) {
+  function openUserForm(value?: Person) {
+    const name = value?.name ?? '';
+    const role = value?.role ?? 'member';
     setEditing(value ?? null);
-    setUserName(value?.name ?? '');
-    setUserRole(value?.role ?? 'member');
+    setUserName(name);
+    setUserRole(role);
+    setInitial(userSnapshot(name, role));
+    setFormError('');
+    setConfirmDiscard(false);
+    setPendingNavigation(null);
     setMessage('');
+    setFormOpen(true);
+  }
+
+  function closeUserForm() {
+    if (busy) return;
+    if (dirty) { setConfirmDiscard(true); return; }
+    setFormOpen(false);
+  }
+
+  function discardUserForm() {
+    const navigate = pendingNavigation;
+    setFormOpen(false);
+    setConfirmDiscard(false);
+    setPendingNavigation(null);
+    if (navigate) navigate();
   }
 
   function savePerson() {
-    if (!userName.trim()) { setMessage('Enter a fictional user name.'); return; }
+    if (!userName.trim()) { setFormError('Enter a fictional user name.'); return; }
     const value = editing
       ? { id: editing.id, name: userName.trim(), role: userRole, revision: editing.revision }
       : { id: id(), name: userName.trim(), role: userRole };
+    setFormError('');
     void shared.mutate(() => saveUser(value))
-      .then(() => { editUser(); setMessage(editing ? 'Shared user updated.' : 'Shared user created.'); })
-      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to save user.'));
+      .then(() => {
+        setFormOpen(false);
+        setEditing(null);
+        setMessage(editing ? 'Shared user updated.' : 'Shared user created.');
+      })
+      .catch((error: unknown) => setFormError(error instanceof Error ? error.message : 'Unable to save user.'));
   }
 
   function removePerson(value: Person) {
@@ -75,18 +136,36 @@ export default function Settings() {
 
     {canManageUsers && <Card><Label>Shared demo users</Label>
       <Note>Creating the first admin is an explicit server seed operation; users are not seeded by the app.</Note>
+      <Actions><Action tone="primary" title="Add user" disabled={busy} onPress={() => openUserForm()} /></Actions>
       {data.people.map((value) => <Actions key={value.id}>
         <Text>{value.name} · {value.role}</Text>
-        <Action title="Edit" onPress={() => editUser(value)} />
+        <Action title="Edit" onPress={() => openUserForm(value)} />
         <Action tone="danger" title="Delete" onPress={() => setDeleting(value)} />
       </Actions>)}
       {deleting && <><Note>Delete {deleting.name}? Existing preferences, memberships and history may restrict deletion.</Note>
         <Actions><Action tone="danger" title="Confirm delete" onPress={() => removePerson(deleting)} /><Action title="Cancel" onPress={() => setDeleting(null)} /></Actions></>}
-      <Field label={editing ? 'Edit user name' : 'New fictional user name'} value={userName} onChangeText={setUserName} />
-      <Label>Demo role</Label><Actions>{roles.map((role) => <Action key={role} selected={userRole === role} title={`${role}${userRole === role ? ' ✓' : ''}`} onPress={() => setUserRole(role)} />)}</Actions>
-      <Actions><Action tone="primary" title={editing ? 'Save user' : 'Create user'} onPress={savePerson} />
-        {!!editing && <Action title="Cancel edit" onPress={() => editUser()} />}</Actions>
     </Card>}
+    {canManageUsers && formOpen && <Modal transparent visible onRequestClose={confirmDiscard ? () => { setConfirmDiscard(false); setPendingNavigation(null); } : closeUserForm}
+      accessibilityLabel={editing ? 'Edit user' : 'Add user'}>
+      <KeyboardAvoidingView style={modalStyles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={modalStyles.dialog}>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={modalStyles.content}>
+            {confirmDiscard ? <>
+              <Label>Discard unsaved changes?</Label><Note>Your changes have not been saved.</Note>
+              <Actions><Action tone="danger" title="Discard changes" onPress={discardUserForm} />
+                <Action title="Keep editing" onPress={() => { setConfirmDiscard(false); setPendingNavigation(null); }} /></Actions>
+            </> : <>
+              <Label>{editing ? 'Edit shared user' : 'Add shared user'}</Label>
+              <Field editable={!busy} label={editing ? 'Edit user name' : 'New fictional user name'} value={userName} onChangeText={setUserName} />
+              <Label>Demo role</Label><Actions>{roles.map((role) => <Action key={role} disabled={busy} selected={userRole === role} title={`${role}${userRole === role ? ' ✓' : ''}`} onPress={() => setUserRole(role)} />)}</Actions>
+              {formError ? <Text accessibilityRole="alert" style={modalStyles.error}>{formError}</Text> : null}
+              <Actions><Action tone="primary" title={editing ? 'Save user' : 'Create user'} disabled={busy} onPress={savePerson} />
+                <Action title="Cancel" disabled={busy} onPress={closeUserForm} /></Actions>
+            </>}
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>}
 
     {canManageSettings && <SharedLibrarySettings key={data.library.revision} library={data.library} />}
 
@@ -128,3 +207,10 @@ function SharedLibrarySettings({ library }: { library: Library }) {
     {message ? <Text>{message}</Text> : null}
   </Card>;
 }
+
+const modalStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 16 },
+  dialog: { width: '100%', maxWidth: 650, maxHeight: '90%', backgroundColor: '#fffefa' },
+  content: { padding: 20, gap: 12 },
+  error: { color: '#a22525', fontWeight: '600' },
+});
