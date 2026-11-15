@@ -33,8 +33,8 @@ export function Label({ children }: { children: React.ReactNode }) {
   return <Text style={styles.label}>{children}</Text>;
 }
 
-export function Field({ label, value, onChangeText, placeholder }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string }) {
-  return <View style={{ gap: 5 }}><Label>{label}</Label><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} style={styles.input} /></View>;
+export function Field({ label, value, onChangeText, placeholder, editable = true }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; editable?: boolean }) {
+  return <View style={{ gap: 5 }}><Label>{label}</Label><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} editable={editable} style={styles.input} /></View>;
 }
 
 export function Action({ title, onPress, disabled = false, selected, tone = 'default' }: {
