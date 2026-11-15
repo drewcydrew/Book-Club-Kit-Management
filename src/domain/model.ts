@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'staff' | 'leader' | 'member';
+export type Role = 'admin' | 'staff' | 'member';
 export type CycleStatus = 'open' | 'collecting' | 'drafted' | 'published';
 export type KitStatus = 'available' | 'reserved' | 'out' | 'inspection' | 'unavailable';
 export type Mark = 'selected' | 'read' | 'wont';
@@ -7,7 +7,13 @@ export interface Person {
   id: string;
   name: string;
   role: Role;
-  clubId?: string;
+  revision: number;
+}
+
+export interface Membership {
+  personId: string;
+  clubId: string;
+  leader: boolean;
 }
 
 export interface Title {
@@ -43,6 +49,8 @@ export interface Club {
   pickup: 'pickup' | 'delivery';
   address: string;
   history: string[];
+  revision: number;
+  membershipRevision: number;
 }
 
 export interface Ballot {
@@ -51,6 +59,7 @@ export interface Ballot {
   personId: string;
   marks: Record<string, Mark>;
   ranking: string[];
+  revision: number;
 }
 
 export interface Slot {
@@ -66,6 +75,7 @@ export interface Cycle {
   status: CycleStatus;
   slots: Slot[];
   finalized: Record<string, string[]>;
+  revision: number;
 }
 
 export interface Assignment {
@@ -95,12 +105,14 @@ export interface Library {
   branches: string[];
   loanDays: number;
   bufferDays: number;
+  revision: number;
 }
 
 export interface Data {
   version: 1;
   library: Library;
   people: Person[];
+  memberships: Membership[];
   titles: Title[];
   kits: Kit[];
   clubs: Club[];
@@ -109,4 +121,5 @@ export interface Data {
   assignments: Assignment[];
   events: Event[];
   selectedPersonId: string;
+  selectedClubId: string;
 }

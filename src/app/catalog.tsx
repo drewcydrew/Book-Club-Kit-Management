@@ -1,5 +1,4 @@
-import { useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useState } from 'react';
 import { Text } from 'react-native';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import type { Kit, Title } from '../domain/model';
@@ -13,7 +12,6 @@ const blankKit = (branch: string): Kit => ({ id: '', titleId: '', barcode: '', b
 export default function Catalog() {
   const { data } = useStore();
   const shared = useShared();
-  const { refresh } = shared;
   const [query, setQuery] = useState('');
   const [title, setTitle] = useState<Title>(blankTitle);
   const [pages, setPages] = useState('');
@@ -24,7 +22,6 @@ export default function Catalog() {
   const [titleRevision, setTitleRevision] = useState<number | null>(null);
   const [kitRevision, setKitRevision] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<{ kind: 'titles' | 'kits'; id: string; revision: number; name: string } | null>(null);
-  useFocusEffect(useCallback(() => { void refresh().catch(() => undefined); }, [refresh]));
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const staff = person?.role === 'staff' || person?.role === 'admin';
   const search = query.trim().toLowerCase();
@@ -46,13 +43,13 @@ export default function Catalog() {
     const { status: _status, ...fields } = kit;
     const value = { ...fields, barcode: kit.barcode.trim(), branch: kit.branch.trim(), copies: count, components: identifiers, ...(kitRevision === null ? {} : { revision: kitRevision }) };
     const old = data.kits.find((item) => item.id === kit.id);
-    if (old && old.titleId !== kit.titleId && data.assignments.some((item) => item.kitId === kit.id)) { setMessage('Cannot change the title of a kit used by a local schedule.'); return; }
+    if (old && old.titleId !== kit.titleId && data.assignments.some((item) => item.kitId === kit.id)) { setMessage('Cannot change the title of a kit referenced by a shared schedule.'); return; }
     void shared.mutate(() => saveRecord('kits', value))
       .then(() => { editKit(blankKit(data.library.branches[0] ?? '')); setMessage('Kit saved.'); }).catch(() => undefined);
   }
   return <Page title="Catalog & kits">
     <Actions><Action title="Refresh shared catalog" onPress={() => { void shared.refresh().catch(() => undefined); }} /></Actions>
-    <Note>Catalog and kits are shared. Circulation status is local to this device.</Note>
+    <Note>Titles, kits, kit status and circulation are shared across devices.</Note>
     {deleting && <Card><Label>Delete {deleting.name}?</Label><Note>This affects every user and may fail if the record is referenced.</Note><Actions>
       <Action title="Confirm deletion" onPress={() => { void shared.mutate(() => deleteRecord(deleting.kind, deleting.id, deleting.revision)).then(() => { setDeleting(null); setMessage('Record deleted.'); }).catch(() => undefined); }} />
       <Action title="Cancel deletion" onPress={() => setDeleting(null)} /></Actions></Card>}

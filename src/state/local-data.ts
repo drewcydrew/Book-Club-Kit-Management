@@ -1,39 +1,37 @@
-import type { Club, Data, Kit } from '../domain/model';
-import { seed } from '../domain/seed';
+import type { Data } from '../domain/model';
 import type { SharedData } from './api';
 
-type LocalKit = Pick<Kit, 'id' | 'status'>;
-type LocalClub = Pick<Club, 'id' | 'leaderId' | 'history'>;
-export type LocalData = Omit<Data, 'titles' | 'kits' | 'clubs'> & { kits: LocalKit[]; clubs: LocalClub[] };
+export type LocalData = Pick<Data, 'version' | 'selectedPersonId' | 'selectedClubId'>;
 
 export function initialLocalData(): LocalData {
-  const { titles: _titles, kits, clubs, ...rest } = seed();
-  return {
-    ...rest,
-    kits: kits.map(({ id, status }) => ({ id, status })),
-    clubs: clubs.map(({ id, leaderId, history }) => ({ id, leaderId, history })),
-  };
+  return { version: 1, selectedPersonId: '', selectedClubId: '' };
 }
 
 export function combineData(local: LocalData, shared: SharedData): Data {
+  const clubs = shared.clubs.map((club) => {
+    const membership = shared.memberships.find((item) => item.clubId === club.id && item.leader);
+    const history = shared.history.find((item) => item.clubId === club.id);
+    const membershipRevision = shared.membershipRevisions.find((item) => item.clubId === club.id);
+    return {
+      ...club,
+      leaderId: membership?.personId ?? '',
+      history: history?.titles ?? [],
+      membershipRevision: membershipRevision?.revision ?? 0,
+    };
+  });
   return {
-    ...local,
+    version: 1,
+    library: shared.library,
+    people: shared.people,
+    memberships: shared.memberships,
     titles: shared.titles,
-    kits: shared.kits.map((kit) => ({ ...kit, status: local.kits.find((item) => item.id === kit.id)?.status ?? 'available' })),
-    clubs: shared.clubs.map((club) => {
-      const current = local.clubs.find((item) => item.id === club.id);
-      return { ...club, leaderId: current?.leaderId ?? '', history: current?.history ?? [] };
-    }),
-  };
-}
-
-export function localFromData(data: Data, previous: LocalData): LocalData {
-  const { titles: _titles, kits, clubs, ...rest } = data;
-  const kitIds = new Set(kits.map((kit) => kit.id));
-  const clubIds = new Set(clubs.map((club) => club.id));
-  return {
-    ...rest,
-    kits: [...previous.kits.filter((kit) => !kitIds.has(kit.id)), ...kits.map(({ id, status }) => ({ id, status }))],
-    clubs: [...previous.clubs.filter((club) => !clubIds.has(club.id)), ...clubs.map(({ id, leaderId, history }) => ({ id, leaderId, history }))],
+    kits: shared.kits,
+    clubs,
+    cycles: shared.cycles,
+    ballots: shared.ballots,
+    assignments: shared.assignments,
+    events: shared.events,
+    selectedPersonId: local.selectedPersonId,
+    selectedClubId: local.selectedClubId,
   };
 }

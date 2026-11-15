@@ -1,10 +1,11 @@
 const { records } = require('./records');
 const { object, text, integer, HttpError } = require('../http');
+const { clubColumns } = require('./shared-selects');
 
 module.exports = records({
   table: 'clubs',
   columns: ['name', 'branch', 'size', 'cadence', 'pickup', 'address'],
-  select: 'id,name,branch,size,cadence,pickup,address,revision',
+  select: clubColumns,
   validate(value) {
     const b = object(value);
     const pickup = text(b.pickup, 'pickup', true, 20);

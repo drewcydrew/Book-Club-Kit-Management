@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { useStore } from '../state/store';
 import { useShared } from '../state/shared';
 
 export function Page({ title, children }: { title: string; children: React.ReactNode }) {
   const { data, error } = useStore();
   const shared = useShared();
-  const missingLocalReferences =
-    data.people.some((person) => person.clubId && !data.clubs.some((club) => club.id === person.clubId)) ||
+  const { refresh } = shared;
+  useFocusEffect(useCallback(() => { void refresh().catch(() => undefined); }, [refresh]));
+  const missingSharedReferences =
+    data.memberships.some((membership) => !data.people.some((person) => person.id === membership.personId) || !data.clubs.some((club) => club.id === membership.clubId)) ||
     data.cycles.some((cycle) => cycle.slots.some((slot) => !data.clubs.some((club) => club.id === slot.clubId))) ||
     data.assignments.some((assignment) => !data.clubs.some((club) => club.id === assignment.clubId) || !data.kits.some((kit) => kit.id === assignment.kitId)) ||
     data.ballots.some((ballot) => !data.clubs.some((club) => club.id === ballot.clubId) || ballot.ranking.some((id) => !data.titles.some((title) => title.id === id))) ||
@@ -15,8 +18,9 @@ export function Page({ title, children }: { title: string; children: React.React
   return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
     <Text accessibilityRole="header" style={styles.heading}>{title}</Text>
     {error ? <Text style={styles.error}>Unable to save: {error}</Text> : null}
-    {shared.error ? <Text style={styles.error}>{shared.error}</Text> : null}
-    {missingLocalReferences ? <Text style={styles.error}>Some local demo records reference shared clubs, titles or kits that are no longer available. Affected actions may be unavailable.</Text> : null}
+    {shared.error ? <><Text style={styles.error}>{shared.error}</Text>
+      <Action title="Refresh shared data" disabled={shared.saving} onPress={() => { void refresh().catch(() => undefined); }} /></> : null}
+    {missingSharedReferences ? <Text style={styles.error}>Some shared records reference unavailable users, clubs, titles or kits. Refresh or contact the demo administrator.</Text> : null}
     {children}
   </ScrollView>;
 }

@@ -25,6 +25,13 @@ app.use('/api/titles', require('./routes/titles'));
 app.use('/api/kits', require('./routes/kits'));
 app.use('/api/clubs', require('./routes/clubs'));
 app.use('/api', require('./routes/club-kits'));
+app.use('/api', require('./routes/users'));
+app.use('/api', require('./routes/cycles').router);
+app.use('/api', require('./routes/ballots').router);
+app.use('/api', require('./routes/schedules'));
+app.use('/api', require('./routes/settings-history'));
+app.use('/api', require('./routes/circulation'));
+app.use('/api', require('./routes/shared'));
 app.use(errorHandler);
 
 module.exports = app;

@@ -1,11 +1,12 @@
 const express = require('express');
 const { getPool } = require('../db');
 const { HttpError } = require('../http');
+const { linksSelect } = require('./shared-selects');
 
 const router = express.Router();
 
 router.get('/club-kits', async (_req, res) => {
-  const result = await getPool().query('SELECT club_id AS "clubId",kit_id AS "kitId" FROM club_kits ORDER BY club_id,kit_id');
+  const result = await getPool().query(linksSelect);
   res.json(result.rows);
 });
 router.get('/clubs/:clubId/kits', async (req, res) => {
