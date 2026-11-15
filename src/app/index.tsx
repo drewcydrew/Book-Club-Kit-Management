@@ -14,9 +14,9 @@ export default function Home() {
       <Text>{data.titles.length} titles · {data.kits.length} kits · {data.clubs.length} clubs · {data.cycles.length} cycles</Text>
     </Card>
     <Card><Label>Start here</Label>
-      <Link href="/preferences">Vote and review preferences →</Link>
-      <Link href="/schedule">Create and review a schedule →</Link>
-      <Link href="/circulation">Record kit circulation →</Link>
+      <Link href="/preferences" style={{ color: '#245e51', textDecorationLine: 'underline', paddingVertical: 8 }}>Vote and review preferences →</Link>
+      <Link href="/schedule" style={{ color: '#245e51', textDecorationLine: 'underline', paddingVertical: 8 }}>Create and review a schedule →</Link>
+      <Link href="/circulation" style={{ color: '#245e51', textDecorationLine: 'underline', paddingVertical: 8 }}>Record kit circulation →</Link>
     </Card>
   </Page>;
 }

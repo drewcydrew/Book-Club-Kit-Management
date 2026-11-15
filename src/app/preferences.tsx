@@ -69,12 +69,12 @@ export default function Preferences() {
   if (!person) return <Page title="Preferences"><Note>No demo user is selected on this device. Choose a shared user in Settings; no user is selected automatically.</Note></Page>;
   if (!cycle) return <Page title="Preferences"><Note>No shared voting cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   return <Page title="Preferences">
-    <Card><Label>Choose a cycle</Label><Actions>{data.cycles.map((value) => <Action key={value.id} title={`${value.name}${value.id === cycle.id ? ' ✓' : ''}`} onPress={() => { setSelectedId(value.id); setReview(null); }} />)}</Actions></Card>
+    <Card><Label>Choose a cycle</Label><Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} title={`${value.name}${value.id === cycle.id ? ' ✓' : ''}`} onPress={() => { setSelectedId(value.id); setReview(null); }} />)}</Actions></Card>
     <Card><Label>{cycle.name}</Label><Note>Status: {cycle.status} · Deadline: {cycle.deadline}. Voting is {editable ? 'open' : 'closed'}.</Note>
       {cycle.status !== 'collecting' && <Note>Voting is not open for this cycle.</Note>}
       {cycle.status === 'collecting' && today() > cycle.deadline && <Note>The preference deadline has passed.</Note>}
     </Card>
-    {availableClubs.length > 0 && <Card><Label>Choose a club</Label><Actions>{availableClubs.map((value) => <Action key={value.id} title={`${value.name}${value.id === data.selectedClubId ? ' ✓' : ''}`} onPress={() => chooseClub(value.id)} />)}</Actions></Card>}
+    {availableClubs.length > 0 && <Card><Label>Choose a club</Label><Actions>{availableClubs.map((value) => <Action key={value.id} selected={value.id === data.selectedClubId} title={`${value.name}${value.id === data.selectedClubId ? ' ✓' : ''}`} onPress={() => chooseClub(value.id)} />)}</Actions></Card>}
     {person.role === 'member' && availableClubs.length === 0 && <Note>This user has no club memberships. Staff can add memberships on the Clubs page.</Note>}
     {person.role === 'member' && availableClubs.length > 0 && !club && <Note>Choose a club to view this user’s independent preferences. Memberships and preferences are shared across devices.</Note>}
     {club && <><Card><Label>1. Choose titles for {club.name}</Label>
@@ -84,7 +84,7 @@ export default function Preferences() {
         {club.history.includes(title.id) ? <><Note>Excluded: this club has already read this title.{ballot?.marks[title.id] ? ` Existing mark: ${ballot.marks[title.id]}.` : ''}</Note>
           {ballot?.marks[title.id] && <Action title="Clear existing mark" disabled={!editable || !isMember || shared.saving} onPress={() => mark(title.id, null)} />}
         </> : <Actions>
-          {(['selected', 'read', 'wont'] as const).map((value) => <Action key={value} title={`${value === 'selected' ? 'Select' : value === 'read' ? 'Already read' : 'Won’t read'}${ballot?.marks[title.id] === value ? ' ✓' : ''}`} disabled={!editable || !isMember || shared.saving} onPress={() => mark(title.id, value)} />)}
+          {(['selected', 'read', 'wont'] as const).map((value) => <Action key={value} selected={ballot?.marks[title.id] === value} title={`${value === 'selected' ? 'Select' : value === 'read' ? 'Already read' : 'Won’t read'}${ballot?.marks[title.id] === value ? ' ✓' : ''}`} disabled={!editable || !isMember || shared.saving} onPress={() => mark(title.id, value)} />)}
           <Action title="Clear" disabled={!editable || !isMember || shared.saving} onPress={() => mark(title.id, null)} />
         </Actions>}
       </React.Fragment>)}
@@ -102,7 +102,7 @@ export default function Preferences() {
         <Action title="↑" disabled={!editable || shared.saving || index === 0} onPress={() => setReview({ key: reviewKey, ranking: moved(list, index, -1) })} />
         <Action title="↓" disabled={!editable || shared.saving || index === list.length - 1} onPress={() => setReview({ key: reviewKey, ranking: moved(list, index, 1) })} />
       </Actions>)}
-      <Action title="Finalize club ranking" disabled={!editable || shared.saving} onPress={() => {
+      <Action tone="primary" title="Finalize club ranking" disabled={!editable || shared.saving} onPress={() => {
         const order = reviewRanking ?? cycle.finalized[club.id] ?? rankings(data, cycle, club.id);
         void shared.mutate(() => finalizeRanking(cycle.id, club.id, order, cycle.revision))
           .then(() => setReview(null)).catch(() => undefined);

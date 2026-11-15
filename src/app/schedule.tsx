@@ -53,14 +53,14 @@ export default function Schedule() {
   }
 
   return <Page title="Schedule">
-    <Card><Label>Choose a cycle</Label><Actions>{data.cycles.map((value) => <Action key={value.id} title={`${value.name}${value.id === cycle.id ? ' ✓' : ''}`} onPress={() => {
+    <Card><Label>Choose a cycle</Label><Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} title={`${value.name}${value.id === cycle.id ? ' ✓' : ''}`} onPress={() => {
       setSelectedId(value.id); setMessages([]); setReplacement(null); setSwap(null);
     }} />)}</Actions></Card>
     <Card><Label>{cycle.name} · {cycle.status}</Label>
       <Note>Schedule proposals use shared preferences, reading history, kit availability and lending settings. Drafts and publication are checked again by the server; revisions reject stale writes. Loans include a {data.library.bufferDays}-day turnaround buffer.</Note>
       {staff && <Actions>
         <Action title="Generate / re-run shared draft" disabled={shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={generate} />
-        <Action title="Publish schedule" disabled={shared.saving || cycle.status !== 'drafted'} onPress={publish} />
+        <Action tone="primary" title="Publish schedule" disabled={shared.saving || cycle.status !== 'drafted'} onPress={publish} />
         <Action title="Refresh shared schedule" disabled={shared.saving} onPress={() => { void shared.refresh().catch((error: unknown) => setMessages([error instanceof Error ? error.message : 'Unable to refresh.'])); }} />
       </Actions>}
       {!staff && !isMember && <Note>This user is not a member of the selected club. Choose a club membership in Settings.</Note>}
@@ -84,10 +84,10 @@ export default function Schedule() {
         </Actions>}
         {staff && !assignment.locked && (cycle.status === 'drafted' || (cycle.status === 'published' && !!problem)) && <>
           <Note>Choose a feasible replacement kit:</Note><Actions>{data.kits.filter((kitOption) => kitOption.id !== assignment.kitId &&
-            !assignmentProblem(data, { ...assignment, kitId: kitOption.id }, data.assignments)).map((kitOption) => <Action key={kitOption.id}
+            !assignmentProblem(data, { ...assignment, kitId: kitOption.id }, data.assignments)).map((kitOption) => <Action key={kitOption.id} selected={replacement?.assignmentId === assignment.id && replacement.kitId === kitOption.id}
               title={`${kitOption.barcode} · ${data.titles.find((item) => item.id === kitOption.titleId)?.name ?? 'Unavailable title'}`}
               onPress={() => setReplacement({ assignmentId: assignment.id, kitId: kitOption.id })} />)}</Actions>
-          {replacement?.assignmentId === assignment.id && <Actions><Action title="Confirm replacement" disabled={shared.saving} onPress={() => {
+          {replacement?.assignmentId === assignment.id && <Actions><Action tone="primary" title="Confirm replacement" disabled={shared.saving} onPress={() => {
             const changed = { ...assignment, kitId: replacement.kitId };
             const next = data.assignments.map((item) => item.id === assignment.id ? changed : item);
             const conflict = assignmentProblem(data, changed, next);
@@ -96,10 +96,10 @@ export default function Schedule() {
             setReplacement(null);
           }} /><Action title="Cancel replacement" onPress={() => setReplacement(null)} /></Actions>}
           {cycle.status === 'drafted' && <><Note>Swap with another unlocked meeting:</Note><Actions>{assignments.filter((other) =>
-            other.id !== assignment.id && !other.locked && other.kitId !== assignment.kitId).map((other) => <Action key={other.id}
+            other.id !== assignment.id && !other.locked && other.kitId !== assignment.kitId).map((other) => <Action key={other.id} selected={swap?.firstId === assignment.id && swap.secondId === other.id}
               title={`${data.clubs.find((item) => item.id === other.clubId)?.name ?? 'Club'} · ${other.meeting}`}
               onPress={() => setSwap({ firstId: assignment.id, secondId: other.id })} />)}</Actions>
-            {swap?.firstId === assignment.id && <Actions><Action title="Confirm swap" disabled={shared.saving} onPress={() => {
+            {swap?.firstId === assignment.id && <Actions><Action tone="primary" title="Confirm swap" disabled={shared.saving} onPress={() => {
               const first = data.assignments.find((item) => item.id === swap.firstId);
               const second = data.assignments.find((item) => item.id === swap.secondId);
               if (!first || !second || first.locked || second.locked) { setMessages(['Assignments no longer exist or are locked. Refresh and retry.']); return; }
