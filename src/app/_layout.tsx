@@ -2,6 +2,7 @@ import { Link, Slot } from 'expo-router';
 import React from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { StoreProvider, useStore } from '../state/store';
+import { SharedProvider } from '../state/shared';
 
 function Shell() {
   const { data } = useStore();
@@ -9,7 +10,7 @@ function Shell() {
   return <View style={{ flex: 1, backgroundColor: '#f3f7f4' }}>
     <View style={{ backgroundColor: '#183f37', padding: 14, gap: 6 }}>
       <Text style={{ color: 'white', fontSize: 19, fontWeight: '700' }}>{data.library.name} · Book club kits</Text>
-      <Text style={{ color: '#e1efe8' }}>Local demo only · {person?.name} · No login or shared data</Text>
+      <Text style={{ color: '#e1efe8' }}>Public demo · {person?.name} · Catalog and clubs shared; schedules and circulation local</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 18, paddingVertical: 8 }}>
         <Link href="/" style={{ color: 'white' }}>Home</Link>
         <Link href="/catalog" style={{ color: 'white' }}>Catalog & kits</Link>
@@ -26,5 +27,5 @@ function Shell() {
 }
 
 export default function Layout() {
-  return <StoreProvider><Shell /></StoreProvider>;
+  return <SharedProvider><StoreProvider><Shell /></StoreProvider></SharedProvider>;
 }

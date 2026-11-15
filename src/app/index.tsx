@@ -8,7 +8,7 @@ export default function Home() {
   const { data } = useStore();
   return <Page title="Welcome">
     <Card><Label>Explore a fictional library</Label>
-      <Note>Switch demo people in Settings, then explore member voting, leader review, staff scheduling and kit circulation. All data remains on this device or browser and is not encrypted.</Note>
+      <Note>Clubs, titles and kit links are shared and publicly writable; use fictional data only. Members, voting, schedules and circulation remain local to this device and are not encrypted.</Note>
       <Text>{data.titles.length} titles · {data.kits.length} kits · {data.clubs.length} clubs · {data.cycles.length} cycles</Text>
     </Card>
     <Card><Label>Start here</Label>
