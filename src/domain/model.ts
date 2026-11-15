@@ -121,5 +121,4 @@ export interface Data {
   assignments: Assignment[];
   events: Event[];
   selectedPersonId: string;
-  selectedClubId: string;
 }

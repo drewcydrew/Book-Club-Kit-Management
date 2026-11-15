@@ -17,13 +17,12 @@ export default function Schedule() {
   const [replacement, setReplacement] = useState<{ assignmentId: string; kitId: string } | null>(null);
   const [swap, setSwap] = useState<{ firstId: string; secondId: string } | null>(null);
   const cycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
-  if (!person) return <Page title="Schedule"><Note>No demo user is selected on this device. Choose a user and club in Settings.</Note></Page>;
+  if (!person) return <Page title="Schedule"><Note>No demo user is selected on this device. Choose a user in Settings.</Note></Page>;
   if (!cycle) return <Page title="Schedule"><Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const staff = person.role === 'staff' || person.role === 'admin';
-  const isMember = data.memberships.some((membership) =>
-    membership.personId === person.id && membership.clubId === data.selectedClubId);
+  const enrolledClubIds = data.memberships.filter((membership) => membership.personId === person.id).map((membership) => membership.clubId);
   const assignments = data.assignments.filter((a) => a.cycleId === cycle.id &&
-    (staff || (cycle.status === 'published' && isMember && a.clubId === data.selectedClubId)));
+    (staff || (cycle.status === 'published' && enrolledClubIds.includes(a.clubId))));
   const cycleAssignments = data.assignments.filter((assignment) => assignment.cycleId === cycle.id);
 
   function persist(assignmentsToSave: Assignment[], publish: boolean, success: string, problems: string[] = []) {
@@ -63,11 +62,11 @@ export default function Schedule() {
         <Action tone="primary" title="Publish schedule" disabled={shared.saving || cycle.status !== 'drafted'} onPress={publish} />
         <Action title="Refresh shared schedule" disabled={shared.saving} onPress={() => { void shared.refresh().catch((error: unknown) => setMessages([error instanceof Error ? error.message : 'Unable to refresh.'])); }} />
       </Actions>}
-      {!staff && !isMember && <Note>This user is not a member of the selected club. Choose a club membership in Settings.</Note>}
+      {!staff && enrolledClubIds.length === 0 && <Note>You are not enrolled in any clubs. Enrol in a club in Settings.</Note>}
       {messages.map((message, index) => <Text key={`${message}-${index}`} style={{ color: '#a22525' }}>{message}</Text>)}
       {message ? <Text>{message}</Text> : null}
     </Card>
-    {assignments.length === 0 && <Note>{staff ? 'No assignments yet.' : cycle.status === 'published' && isMember ? 'No published schedule for this club.' : 'Only published schedules are visible to members.'}</Note>}
+    {assignments.length === 0 && <Note>{staff ? 'No assignments yet.' : cycle.status === 'published' && enrolledClubIds.length > 0 ? 'No published schedule for your clubs.' : 'Only published schedules are visible to members.'}</Note>}
     {assignments.map((assignment) => {
       const kit = data.kits.find((item) => item.id === assignment.kitId);
       const title = data.titles.find((item) => item.id === kit?.titleId);

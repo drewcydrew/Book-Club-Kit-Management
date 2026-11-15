@@ -56,6 +56,5 @@ export function seed(): Data {
     assignments: [],
     events: [{ id: 'event1', kitId: 'k5', action: 'inspected', at: new Date().toISOString(), notes: 'Demo kit inspected and ready.' }],
     selectedPersonId: 'p1',
-    selectedClubId: 'c1',
   };
 }

@@ -188,6 +188,14 @@ export async function saveMemberships(clubId: string, members: Membership[], rev
   }));
 }
 
+export async function enrolInClub(personId: string, clubId: string, revision: number): Promise<number> {
+  return requireRevision(await request(`/api/users/${encodeURIComponent(personId)}/clubs/${encodeURIComponent(clubId)}`, 'PUT', { revision }));
+}
+
+export async function leaveClub(personId: string, clubId: string, revision: number): Promise<number> {
+  return requireRevision(await request(`/api/users/${encodeURIComponent(personId)}/clubs/${encodeURIComponent(clubId)}`, 'DELETE', undefined, revision));
+}
+
 export async function saveCycle(cycle: Omit<Cycle, 'revision'> & Partial<Pick<Cycle, 'revision'>>): Promise<Cycle> {
   const exists = cycle.revision !== undefined;
   const value = await request(`/api/cycles${exists ? `/${encodeURIComponent(cycle.id)}` : ''}`, exists ? 'PUT' : 'POST',

@@ -16,11 +16,10 @@ function readLocal(raw: string | null): LocalData {
   if (!parsed || typeof parsed !== 'object' || !('version' in parsed) || parsed.version !== 1) {
     throw new Error('Unsupported or invalid saved selections.');
   }
-  const value = parsed as { selectedPersonId?: unknown; selectedClubId?: unknown };
+  const value = parsed as { selectedPersonId?: unknown };
   return {
     version: 1,
     selectedPersonId: typeof value.selectedPersonId === 'string' ? value.selectedPersonId : '',
-    selectedClubId: typeof value.selectedClubId === 'string' ? value.selectedClubId : '',
   };
 }
 
@@ -47,7 +46,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const next: LocalData = {
         version: 1,
         selectedPersonId: nextData.selectedPersonId,
-        selectedClubId: nextData.selectedClubId,
       };
       await AsyncStorage.setItem(KEY, JSON.stringify(next));
       current.current = next;
@@ -71,7 +69,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setError(null);
     } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Unable to reset selections.'); }
   }, []);
-  if (!local) return <View style={{ padding: 30, gap: 12 }}>{failed ? <><Text>Could not load local selections: {error}</Text><Text>Resetting replaces only the selected user and club.</Text><Button title="Reset selections" onPress={() => { void reset(); }} /></> : <ActivityIndicator />}</View>;
+  if (!local) return <View style={{ padding: 30, gap: 12 }}>{failed ? <><Text>Could not load local selections: {error}</Text>  <Text>Resetting replaces only the selected user.</Text><Button title="Reset selections" onPress={() => { void reset(); }} /></> : <ActivityIndicator />}</View>;
   return <Context.Provider value={{ data: combineData(local, shared.data), update, reset, error }}>{children}</Context.Provider>;
 }
 

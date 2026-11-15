@@ -1,4 +1,4 @@
-import { Link, router, Slot } from 'expo-router';
+import { Redirect, Link, router, Slot, usePathname } from 'expo-router';
 import type { Href } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -6,25 +6,33 @@ import { NavigationGuardProvider, useNavigationGuard } from '../components/navig
 import { StoreProvider, useStore } from '../state/store';
 import { SharedProvider } from '../state/shared';
 
+const staffOnlyRoutes = ['/catalog', '/clubs', '/cycles'];
+
 function Shell() {
   const { data } = useStore();
+  const pathname = usePathname();
   const person = data.people.find((p) => p.id === data.selectedPersonId);
+  const member = person?.role === 'member';
+  const blocked = member && staffOnlyRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+  const enrolled = data.memberships.filter((membership) => membership.personId === person?.id)
+    .map((membership) => data.clubs.find((club) => club.id === membership.clubId)?.name)
+    .filter((name): name is string => !!name);
   return <View style={styles.shell}>
     <View style={styles.header}>
       <Text style={styles.brand}>{data.library.name} · Book club kits</Text>
-      <Text style={styles.context}>Public writable demo · {person ? `${person.name} · ${data.selectedClubId ? data.clubs.find((club) => club.id === data.selectedClubId)?.name ?? 'unavailable club' : 'no club selected'}` : 'no user selected'} · Users, clubs, voting and schedules shared</Text>
+      <Text style={styles.context}>Public writable demo · {person ? `${person.name} · ${person.role}${member ? ` · ${enrolled.length > 0 ? enrolled.join(', ') : 'no clubs enrolled'}` : ''}` : 'no user selected'} · Users, clubs, voting and schedules shared</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.navigation}>
         <NavigationLink href="/">Home</NavigationLink>
-        <NavigationLink href="/catalog">Catalog & kits</NavigationLink>
-        <NavigationLink href="/clubs">Clubs</NavigationLink>
-        <NavigationLink href="/cycles">Cycles</NavigationLink>
+        {!member && <NavigationLink href="/catalog">Catalog & kits</NavigationLink>}
+        {!member && <NavigationLink href="/clubs">Clubs</NavigationLink>}
+        {!member && <NavigationLink href="/cycles">Cycles</NavigationLink>}
         <NavigationLink href="/preferences">Preferences</NavigationLink>
         <NavigationLink href="/schedule">Schedule</NavigationLink>
         <NavigationLink href="/circulation">Circulation</NavigationLink>
         <NavigationLink href="/settings">Settings</NavigationLink>
       </ScrollView>
     </View>
-    <Slot />
+    {blocked ? <Redirect href="/preferences" /> : <Slot />}
   </View>;
 }
 

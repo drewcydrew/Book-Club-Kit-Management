@@ -1,10 +1,10 @@
 import type { Data } from '../domain/model';
 import type { SharedData } from './api';
 
-export type LocalData = Pick<Data, 'version' | 'selectedPersonId' | 'selectedClubId'>;
+export type LocalData = Pick<Data, 'version' | 'selectedPersonId'>;
 
 export function initialLocalData(): LocalData {
-  return { version: 1, selectedPersonId: '', selectedClubId: '' };
+  return { version: 1, selectedPersonId: '' };
 }
 
 export function combineData(local: LocalData, shared: SharedData): Data {
@@ -32,6 +32,5 @@ export function combineData(local: LocalData, shared: SharedData): Data {
     assignments: shared.assignments,
     events: shared.events,
     selectedPersonId: local.selectedPersonId,
-    selectedClubId: local.selectedClubId,
   };
 }

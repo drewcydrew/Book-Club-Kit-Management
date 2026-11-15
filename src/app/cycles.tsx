@@ -17,7 +17,7 @@ export default function Cycles() {
   const [name, setName] = useState('');
   const [deadline, setDeadline] = useState(today());
   const [meeting, setMeeting] = useState('');
-  const [clubId, setClubId] = useState(data.selectedClubId || data.clubs[0]?.id || '');
+  const [clubId, setClubId] = useState(data.clubs[0]?.id ?? '');
   const [message, setMessage] = useState('');
   const [deleteId, setDeleteId] = useState('');
   const cycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
