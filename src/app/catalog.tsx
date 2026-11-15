@@ -1,55 +1,157 @@
-import React, { useState } from 'react';
-import { Text } from 'react-native';
+import { usePreventRemove } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useNavigationGuard } from '../components/navigation-guard';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import type { Kit, Title } from '../domain/model';
-import { useStore } from '../state/store';
 import { deleteRecord, saveRecord } from '../state/api';
+import { saveCatalogChange } from '../state/catalog-save';
 import { useShared } from '../state/shared';
+import { useStore } from '../state/store';
 
 const blankTitle = (): Title => ({ id: '', name: '', author: '', isbn: '', pages: 0, genres: '', notes: '', largePrint: false, audio: false });
 const blankKit = (branch: string): Kit => ({ id: '', titleId: '', barcode: '', branch, copies: 1, extras: '', components: [], status: 'available' });
 
+type TitleDraft = { kind: 'title'; value: Title; pages: string; revision: number | null };
+type KitDraft = { kind: 'kit'; value: Kit; copies: string; components: string; revision: number | null };
+type Draft = TitleDraft | KitDraft;
+
+function titleDraft(value: Title, revision: number | null): TitleDraft {
+  return { kind: 'title', value, pages: value.pages ? String(value.pages) : '', revision };
+}
+function kitDraft(value: Kit, revision: number | null): KitDraft {
+  return { kind: 'kit', value, copies: String(value.copies), components: value.components.join(', '), revision };
+}
+
 export default function Catalog() {
   const { data } = useStore();
   const shared = useShared();
+  const navigationGuard = useNavigationGuard();
   const [query, setQuery] = useState('');
-  const [title, setTitle] = useState<Title>(blankTitle);
-  const [pages, setPages] = useState('');
-  const [kit, setKit] = useState<Kit>(() => blankKit(data.library.branches[0] ?? ''));
-  const [copies, setCopies] = useState('1');
-  const [components, setComponents] = useState('');
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [initial, setInitial] = useState('');
   const [message, setMessage] = useState('');
-  const [titleRevision, setTitleRevision] = useState<number | null>(null);
-  const [kitRevision, setKitRevision] = useState<number | null>(null);
+  const [formError, setFormError] = useState('');
+  const [recovery, setRecovery] = useState<'conflict' | 'uncertain' | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  const saving = useRef(false);
   const [deleting, setDeleting] = useState<{ kind: 'titles' | 'kits'; id: string; revision: number; name: string } | null>(null);
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const staff = person?.role === 'staff' || person?.role === 'admin';
   const search = query.trim().toLowerCase();
-  function editTitle(value: Title) { setTitle(value); setTitleRevision(shared.data.titles.find((item) => item.id === value.id)?.revision ?? null); setPages(value.pages ? String(value.pages) : ''); }
-  function editKit(value: Kit) { setKit(value); setKitRevision(shared.data.kits.find((item) => item.id === value.id)?.revision ?? null); setCopies(String(value.copies)); setComponents(value.components.join(', ')); }
-  function saveTitle() {
-    const count = pages.trim() ? Number(pages) : 0;
-    if (!title.name.trim() || !title.author.trim() || !Number.isInteger(count) || count < 0) { setMessage('Enter a title, author and a nonnegative whole page count.'); return; }
-    const value = { ...title, name: title.name.trim(), author: title.author.trim(), pages: count, ...(titleRevision === null ? {} : { revision: titleRevision }) };
-    void shared.mutate(() => saveRecord('titles', value))
-      .then(() => { editTitle(blankTitle()); setMessage('Title saved.'); }).catch(() => undefined);
-  }
-  function saveKit() {
-    const count = Number(copies);
-    const identifiers = components.split(',').map((v) => v.trim()).filter(Boolean);
-    if (!kit.titleId || !kit.barcode.trim() || !kit.branch.trim() || !Number.isInteger(count) || count < 1 || identifiers.length > count) {
-      setMessage('Select a title, enter a barcode and branch, and use a positive copy count at least as large as the component list.'); return;
+  const dirty = draft !== null && JSON.stringify(draft) !== initial;
+  const busy = shared.saving || refreshing;
+
+  const disablePrevention = usePreventRemove(dirty || (draft !== null && busy), ({ repeat }) => {
+    if (busy) {
+      setFormError('Wait for the shared change to finish before leaving.');
+      return;
     }
-    const { status: _status, ...fields } = kit;
-    const value = { ...fields, barcode: kit.barcode.trim(), branch: kit.branch.trim(), copies: count, components: identifiers, ...(kitRevision === null ? {} : { revision: kitRevision }) };
-    const old = data.kits.find((item) => item.id === kit.id);
-    if (old && old.titleId !== kit.titleId && data.assignments.some((item) => item.kitId === kit.id)) { setMessage('Cannot change the title of a kit referenced by a shared schedule.'); return; }
-    void shared.mutate(() => saveRecord('kits', value))
-      .then(() => { editKit(blankKit(data.library.branches[0] ?? '')); setMessage('Kit saved.'); }).catch(() => undefined);
+    setPendingNavigation(() => repeat);
+    setConfirmDiscard(true);
+  });
+
+  useEffect(() => {
+    if (!draft || (!dirty && !busy)) return;
+    return navigationGuard.register((continueNavigation) => {
+      if (busy) {
+        setFormError('Wait for the shared change to finish before leaving.');
+        return;
+      }
+      setPendingNavigation(() => () => { disablePrevention(); continueNavigation(); });
+      setConfirmDiscard(true);
+    });
+  }, [busy, dirty, disablePrevention, draft, navigationGuard]);
+
+  function open(next: Draft) {
+    setDraft(next);
+    setInitial(JSON.stringify(next));
+    setFormError('');
+    setRecovery(null);
+    setConfirmDiscard(false);
+    setPendingNavigation(null);
+    setMessage('');
   }
+  function close() {
+    if (busy || saving.current) return;
+    if (dirty) { setConfirmDiscard(true); return; }
+    setDraft(null);
+  }
+  function discard() {
+    const navigate = pendingNavigation;
+    setDraft(null);
+    setConfirmDiscard(false);
+    setPendingNavigation(null);
+    if (navigate) navigate();
+  }
+
+  async function save() {
+    if (!draft || saving.current || shared.saving || recovery) return;
+    setFormError('');
+    try {
+      let operation: () => Promise<unknown>;
+      if (draft.kind === 'title') {
+        const pages = draft.pages.trim() ? Number(draft.pages) : 0;
+        if (!draft.value.name.trim() || !draft.value.author.trim() || !Number.isInteger(pages) || pages < 0) {
+          setFormError('Enter a title, author and a nonnegative whole page count.'); return;
+        }
+        const value = { ...draft.value, name: draft.value.name.trim(), author: draft.value.author.trim(), pages,
+          ...(draft.revision === null ? {} : { revision: draft.revision }) };
+        operation = () => saveRecord('titles', value);
+      } else {
+        const copies = Number(draft.copies);
+        const components = draft.components.split(',').map((value) => value.trim()).filter(Boolean);
+        if (!draft.value.titleId || !draft.value.barcode.trim() || !draft.value.branch.trim() ||
+          !Number.isInteger(copies) || copies < 1 || components.length > copies) {
+          setFormError('Select a title, enter a barcode and branch, and use a positive copy count at least as large as the component list.'); return;
+        }
+        const old = data.kits.find((item) => item.id === draft.value.id);
+        if (old && old.titleId !== draft.value.titleId && data.assignments.some((item) => item.kitId === draft.value.id)) {
+          setFormError('Cannot change the title of a kit referenced by a shared schedule.'); return;
+        }
+        const { status: _status, ...fields } = draft.value;
+        const value = { ...fields, barcode: draft.value.barcode.trim(), branch: draft.value.branch.trim(), copies, components,
+          ...(draft.revision === null ? {} : { revision: draft.revision }) };
+        operation = () => saveRecord('kits', value);
+      }
+      saving.current = true;
+      const result = await saveCatalogChange(shared.mutate, operation);
+      if (!result.ok) {
+        setFormError(result.message);
+        setRecovery(result.recovery);
+        return;
+      }
+      setDraft(null);
+      setMessage(draft.kind === 'title' ? 'Title saved.' : 'Kit saved.');
+    } finally {
+      saving.current = false;
+    }
+  }
+
+  async function refreshAndReload() {
+    if (!draft || busy) return;
+    setRefreshing(true);
+    try {
+      await shared.refresh();
+      // Refresh completes before React updates the shared context; reload is explicit below.
+      setFormError('Shared data refreshed. Close this form and reopen the record to review the latest version.');
+      setRecovery('uncertain');
+    } catch (error: unknown) {
+      setFormError(error instanceof Error ? error.message : 'Unable to refresh shared data.');
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return <Page title="Catalog & kits">
-    <Actions><Action title="Refresh shared catalog" onPress={() => { void shared.refresh().catch(() => undefined); }} /></Actions>
+    <Actions><Action title="Refresh shared catalog" onPress={() => { void shared.refresh().catch(() => undefined); }} />
+      {staff && <><Action tone="primary" title="Add title" onPress={() => open(titleDraft(blankTitle(), null))} />
+        <Action tone="primary" title="Add kit" onPress={() => open(kitDraft(blankKit(data.library.branches[0] ?? ''), null))} /></>}
+    </Actions>
     <Note>Titles, kits, kit status and circulation are shared across devices.</Note>
+    {message ? <Text>{message}</Text> : null}
     {deleting && <Card><Label>Delete {deleting.name}?</Label><Note>This affects every user and may fail if the record is referenced.</Note><Actions>
       <Action tone="danger" title="Confirm deletion" onPress={() => { void shared.mutate(() => deleteRecord(deleting.kind, deleting.id, deleting.revision)).then(() => { setDeleting(null); setMessage('Record deleted.'); }).catch(() => undefined); }} />
       <Action title="Cancel deletion" onPress={() => setDeleting(null)} /></Actions></Card>}
@@ -58,28 +160,70 @@ export default function Catalog() {
       <Card key={item.id}><Label>{item.name}</Label><Note>{item.author} {item.isbn ? `· ISBN ${item.isbn}` : ''}</Note>
         <Note>{item.genres || 'No genres'} · {item.pages || 'Unknown'} pages · {item.largePrint ? 'Large print' : 'No large print'} · {item.audio ? 'Audio available' : 'No audio'}</Note>
         {item.notes ? <Text>Content notes: {item.notes}</Text> : null}
-        {staff && <Actions><Action title="Edit title" onPress={() => editTitle(item)} /><Action tone="danger" title="Delete title" onPress={() => {
+        {staff && <Actions><Action title="Edit title" onPress={() => {
+          const record = shared.data.titles.find((title) => title.id === item.id);
+          if (record) open(titleDraft(item, record.revision));
+          else setMessage('This title is no longer available. Refresh the shared catalog.');
+        }} /><Action tone="danger" title="Delete title" onPress={() => {
           const record = shared.data.titles.find((title) => title.id === item.id);
           if (record) setDeleting({ kind: 'titles', id: record.id, revision: record.revision, name: record.name });
         }} /></Actions>}
         {data.kits.filter((k) => k.titleId === item.id).map((value) => <React.Fragment key={value.id}><Text>{value.barcode} · {value.branch} · {value.copies} copies · {value.status}{value.extras ? ` · ${value.extras}` : ''}</Text>
           {value.components.length > 0 && <Note>Copies: {value.components.join(', ')}</Note>}
-          {staff && <Actions><Action title={`Edit ${value.barcode}`} onPress={() => editKit(value)} /><Action tone="danger" title={`Delete ${value.barcode}`} onPress={() => {
+          {staff && <Actions><Action title={`Edit ${value.barcode}`} onPress={() => {
+            const record = shared.data.kits.find((kit) => kit.id === value.id);
+            if (record) open(kitDraft(value, record.revision));
+            else setMessage('This kit is no longer available. Refresh the shared catalog.');
+          }} /><Action tone="danger" title={`Delete ${value.barcode}`} onPress={() => {
             const record = shared.data.kits.find((item) => item.id === value.id);
             if (record) setDeleting({ kind: 'kits', id: record.id, revision: record.revision, name: record.barcode });
           }} /></Actions>}
         </React.Fragment>)}
       </Card>)}
-    {staff && <><Card><Label>{title.id ? 'Edit title' : 'Add title'}</Label>
-      <Field label="Title" value={title.name} onChangeText={(name) => setTitle({ ...title, name })} /><Field label="Author" value={title.author} onChangeText={(author) => setTitle({ ...title, author })} />
-      <Field label="ISBN" value={title.isbn} onChangeText={(isbn) => setTitle({ ...title, isbn })} /><Field label="Pages" value={pages} onChangeText={setPages} />
-      <Field label="Genres" value={title.genres} onChangeText={(genres) => setTitle({ ...title, genres })} /><Field label="Content notes" value={title.notes} onChangeText={(notes) => setTitle({ ...title, notes })} />
-      <Actions><Action selected={title.largePrint} title={`Large print: ${title.largePrint ? 'yes' : 'no'}`} onPress={() => setTitle({ ...title, largePrint: !title.largePrint })} /><Action selected={title.audio} title={`Audio: ${title.audio ? 'yes' : 'no'}`} onPress={() => setTitle({ ...title, audio: !title.audio })} /></Actions>
-      <Actions><Action tone="primary" title="Save title" onPress={saveTitle} /><Action title="Clear title form" onPress={() => editTitle(blankTitle())} /></Actions>
-    </Card><Card><Label>{kit.id ? 'Edit kit' : 'Add physical kit'}</Label><Note>Select the title:</Note><Actions>{data.titles.map((t) => <Action key={t.id} selected={kit.titleId === t.id} title={`${t.name}${kit.titleId === t.id ? ' ✓' : ''}`} onPress={() => setKit({ ...kit, titleId: t.id })} />)}</Actions>
-      <Field label="Kit barcode" value={kit.barcode} onChangeText={(barcode) => setKit({ ...kit, barcode })} /><Field label="Branch" value={kit.branch} onChangeText={(branch) => setKit({ ...kit, branch })} />
-      <Field label="Number of copies" value={copies} onChangeText={setCopies} /><Field label="Extras" value={kit.extras} onChangeText={(extras) => setKit({ ...kit, extras })} />
-      <Field label="Copy barcodes (comma separated)" value={components} onChangeText={setComponents} /><Actions><Action tone="primary" title="Save kit" onPress={saveKit} /><Action title="Clear kit form" onPress={() => editKit(blankKit(data.library.branches[0] ?? ''))} /></Actions>
-    </Card>{message ? <Text>{message}</Text> : null}</>}
+    {draft && <Modal transparent visible onRequestClose={confirmDiscard ? () => { setConfirmDiscard(false); setPendingNavigation(null); } : close}
+      accessibilityLabel={`${draft.value.id ? 'Edit' : 'Add'} ${draft.kind}`}>
+      <KeyboardAvoidingView style={modalStyles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={modalStyles.dialog}>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={modalStyles.content}>
+            {confirmDiscard ? <>
+              <Label>Discard unsaved changes?</Label><Note>Your changes have not been saved.</Note>
+              <Actions><Action tone="danger" title="Discard changes" onPress={discard} /><Action title="Keep editing" onPress={() => { setConfirmDiscard(false); setPendingNavigation(null); }} /></Actions>
+            </> : <>
+              <Label>{draft.value.id ? `Edit ${draft.kind}` : `Add ${draft.kind}`}</Label>
+              {draft.kind === 'title' ? <>
+                <Field editable={!shared.saving} label="Title" value={draft.value.name} onChangeText={(name) => setDraft({ ...draft, value: { ...draft.value, name } })} />
+                <Field editable={!shared.saving} label="Author" value={draft.value.author} onChangeText={(author) => setDraft({ ...draft, value: { ...draft.value, author } })} />
+                <Field editable={!shared.saving} label="ISBN" value={draft.value.isbn} onChangeText={(isbn) => setDraft({ ...draft, value: { ...draft.value, isbn } })} />
+                <Field editable={!shared.saving} label="Pages" value={draft.pages} onChangeText={(pages) => setDraft({ ...draft, pages })} />
+                <Field editable={!shared.saving} label="Genres" value={draft.value.genres} onChangeText={(genres) => setDraft({ ...draft, value: { ...draft.value, genres } })} />
+                <Field editable={!shared.saving} label="Content notes" value={draft.value.notes} onChangeText={(notes) => setDraft({ ...draft, value: { ...draft.value, notes } })} />
+                <Actions><Action disabled={shared.saving} selected={draft.value.largePrint} title={`Large print: ${draft.value.largePrint ? 'yes' : 'no'}`} onPress={() => setDraft({ ...draft, value: { ...draft.value, largePrint: !draft.value.largePrint } })} />
+                  <Action disabled={shared.saving} selected={draft.value.audio} title={`Audio: ${draft.value.audio ? 'yes' : 'no'}`} onPress={() => setDraft({ ...draft, value: { ...draft.value, audio: !draft.value.audio } })} /></Actions>
+              </> : <>
+                <Note>Select the title:</Note><Actions>{data.titles.map((title) => <Action key={title.id} disabled={shared.saving} selected={draft.value.titleId === title.id} title={`${title.name}${draft.value.titleId === title.id ? ' ✓' : ''}`} onPress={() => setDraft({ ...draft, value: { ...draft.value, titleId: title.id } })} />)}</Actions>
+                {data.titles.length === 0 && <Note>Add a title before creating a kit.</Note>}
+                <Field editable={!shared.saving} label="Kit barcode" value={draft.value.barcode} onChangeText={(barcode) => setDraft({ ...draft, value: { ...draft.value, barcode } })} />
+                <Field editable={!shared.saving} label="Branch" value={draft.value.branch} onChangeText={(branch) => setDraft({ ...draft, value: { ...draft.value, branch } })} />
+                <Field editable={!shared.saving} label="Number of copies" value={draft.copies} onChangeText={(copies) => setDraft({ ...draft, copies })} />
+                <Field editable={!shared.saving} label="Extras" value={draft.value.extras} onChangeText={(extras) => setDraft({ ...draft, value: { ...draft.value, extras } })} />
+                <Field editable={!shared.saving} label="Copy barcodes (comma separated)" value={draft.components} onChangeText={(components) => setDraft({ ...draft, components })} />
+              </>}
+              {formError ? <Text accessibilityRole="alert" style={modalStyles.error}>{formError}</Text> : null}
+              {recovery && <><Note>Refresh and inspect the shared catalog before retrying. Close and reopen an existing record to edit the latest version.</Note>
+                <Action title="Refresh shared data" disabled={busy} onPress={() => { void refreshAndReload(); }} /></>}
+              <Actions><Action tone="primary" title={`Save ${draft.kind}`} disabled={busy || !!recovery} onPress={() => { void save(); }} />
+                <Action title="Cancel" disabled={busy} onPress={close} /></Actions>
+            </>}
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>}
   </Page>;
 }
+
+const modalStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 16 },
+  dialog: { width: '100%', maxWidth: 650, maxHeight: '90%', backgroundColor: '#fffefa' },
+  content: { padding: 20, gap: 12 },
+  error: { color: '#a22525', fontWeight: '600' },
+});

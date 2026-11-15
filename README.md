@@ -72,6 +72,8 @@ For a physical device, use a server address reachable from the device, not `loca
 
 Choose a demo person in Settings; switching to an admin exposes the admin interface. The demo roles are only interface controls: anyone can switch users or call the API directly. Create users and manage their club memberships, then select a user and club to set cycle preferences. Open or refresh the relevant screens on a second device to see changes. Conflicting edits require a refresh before retrying. Deletion of referenced records is restricted. Resetting local selections does not delete shared database records.
 
+In Catalog & kits, staff and admins can use **Add title** or **Add kit**, or an existing record's edit button, to open a dialog. Canceling a changed form asks before discarding it. If a save's outcome is uncertain or conflicts with another edit, refresh and inspect the shared catalog before reopening the form.
+
 The last administrator cannot be deleted or demoted. Memberships and users referenced by saved ballots cannot be removed; clearing individual marks does not remove a ballot record.
 
 Increasing the turnaround buffer is rejected if it would make existing assignments overlap. Existing assignments retain their original loan dates when the loan length changes.
