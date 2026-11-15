@@ -1,15 +1,19 @@
-import React, { useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import { Text } from 'react-native';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
-import { id } from '../domain/logic';
 import type { Kit, Title } from '../domain/model';
 import { useStore } from '../state/store';
+import { deleteRecord, saveRecord } from '../state/api';
+import { useShared } from '../state/shared';
 
 const blankTitle = (): Title => ({ id: '', name: '', author: '', isbn: '', pages: 0, genres: '', notes: '', largePrint: false, audio: false });
 const blankKit = (branch: string): Kit => ({ id: '', titleId: '', barcode: '', branch, copies: 1, extras: '', components: [], status: 'available' });
 
 export default function Catalog() {
-  const { data, update } = useStore();
+  const { data } = useStore();
+  const shared = useShared();
+  const { refresh } = shared;
   const [query, setQuery] = useState('');
   const [title, setTitle] = useState<Title>(blankTitle);
   const [pages, setPages] = useState('');
@@ -17,16 +21,20 @@ export default function Catalog() {
   const [copies, setCopies] = useState('1');
   const [components, setComponents] = useState('');
   const [message, setMessage] = useState('');
+  const [titleRevision, setTitleRevision] = useState<number | null>(null);
+  const [kitRevision, setKitRevision] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<{ kind: 'titles' | 'kits'; id: string; revision: number; name: string } | null>(null);
+  useFocusEffect(useCallback(() => { void refresh().catch(() => undefined); }, [refresh]));
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const staff = person?.role === 'staff' || person?.role === 'admin';
   const search = query.trim().toLowerCase();
-  function editTitle(value: Title) { setTitle(value); setPages(value.pages ? String(value.pages) : ''); }
-  function editKit(value: Kit) { setKit(value); setCopies(String(value.copies)); setComponents(value.components.join(', ')); }
+  function editTitle(value: Title) { setTitle(value); setTitleRevision(shared.data.titles.find((item) => item.id === value.id)?.revision ?? null); setPages(value.pages ? String(value.pages) : ''); }
+  function editKit(value: Kit) { setKit(value); setKitRevision(shared.data.kits.find((item) => item.id === value.id)?.revision ?? null); setCopies(String(value.copies)); setComponents(value.components.join(', ')); }
   function saveTitle() {
     const count = pages.trim() ? Number(pages) : 0;
     if (!title.name.trim() || !title.author.trim() || !Number.isInteger(count) || count < 0) { setMessage('Enter a title, author and a nonnegative whole page count.'); return; }
-    const value = { ...title, id: title.id || id(), name: title.name.trim(), author: title.author.trim(), pages: count };
-    void update((d) => ({ ...d, titles: [...d.titles.filter((t) => t.id !== value.id), value] }))
+    const value = { ...title, name: title.name.trim(), author: title.author.trim(), pages: count, ...(titleRevision === null ? {} : { revision: titleRevision }) };
+    void shared.mutate(() => saveRecord('titles', value))
       .then(() => { editTitle(blankTitle()); setMessage('Title saved.'); }).catch(() => undefined);
   }
   function saveKit() {
@@ -35,27 +43,34 @@ export default function Catalog() {
     if (!kit.titleId || !kit.barcode.trim() || !kit.branch.trim() || !Number.isInteger(count) || count < 1 || identifiers.length > count) {
       setMessage('Select a title, enter a barcode and branch, and use a positive copy count at least as large as the component list.'); return;
     }
-    const value = { ...kit, id: kit.id || id(), barcode: kit.barcode.trim(), branch: kit.branch.trim(), copies: count, components: identifiers };
-    void update((d) => {
-      const old = d.kits.find((k) => k.id === value.id);
-      if (!d.titles.some((t) => t.id === value.titleId)) throw new Error('Selected title no longer exists.');
-      if (old && old.titleId !== value.titleId && d.assignments.some((a) => a.kitId === old.id)) throw new Error('Cannot change the title of a kit with assignments.');
-      const identifiersToCheck = [value.barcode, ...value.components].map((s) => s.toLowerCase());
-      const existing = d.kits.filter((k) => k.id !== value.id).flatMap((k) => [k.barcode, ...k.components]).map((s) => s.toLowerCase());
-      if (new Set(identifiersToCheck).size !== identifiersToCheck.length || identifiersToCheck.some((s) => existing.includes(s))) throw new Error('Kit and copy barcodes must be unique.');
-      return { ...d, kits: [...d.kits.filter((k) => k.id !== value.id), value] };
-    }).then(() => { editKit(blankKit(data.library.branches[0] ?? '')); setMessage('Kit saved.'); }).catch(() => undefined);
+    const { status: _status, ...fields } = kit;
+    const value = { ...fields, barcode: kit.barcode.trim(), branch: kit.branch.trim(), copies: count, components: identifiers, ...(kitRevision === null ? {} : { revision: kitRevision }) };
+    const old = data.kits.find((item) => item.id === kit.id);
+    if (old && old.titleId !== kit.titleId && data.assignments.some((item) => item.kitId === kit.id)) { setMessage('Cannot change the title of a kit used by a local schedule.'); return; }
+    void shared.mutate(() => saveRecord('kits', value))
+      .then(() => { editKit(blankKit(data.library.branches[0] ?? '')); setMessage('Kit saved.'); }).catch(() => undefined);
   }
   return <Page title="Catalog & kits">
+    <Actions><Action title="Refresh shared catalog" onPress={() => { void shared.refresh().catch(() => undefined); }} /></Actions>
+    <Note>Catalog and kits are shared. Circulation status is local to this device.</Note>
+    {deleting && <Card><Label>Delete {deleting.name}?</Label><Note>This affects every user and may fail if the record is referenced.</Note><Actions>
+      <Action title="Confirm deletion" onPress={() => { void shared.mutate(() => deleteRecord(deleting.kind, deleting.id, deleting.revision)).then(() => { setDeleting(null); setMessage('Record deleted.'); }).catch(() => undefined); }} />
+      <Action title="Cancel deletion" onPress={() => setDeleting(null)} /></Actions></Card>}
     <Field label="Search titles, authors or kit barcode" value={query} onChangeText={setQuery} />
     {data.titles.filter((t) => !search || `${t.name} ${t.author} ${t.isbn}`.toLowerCase().includes(search) || data.kits.some((k) => k.titleId === t.id && [k.barcode, ...k.components].some((b) => b.toLowerCase().includes(search)))).map((item) =>
       <Card key={item.id}><Label>{item.name}</Label><Note>{item.author} {item.isbn ? `· ISBN ${item.isbn}` : ''}</Note>
         <Note>{item.genres || 'No genres'} · {item.pages || 'Unknown'} pages · {item.largePrint ? 'Large print' : 'No large print'} · {item.audio ? 'Audio available' : 'No audio'}</Note>
         {item.notes ? <Text>Content notes: {item.notes}</Text> : null}
-        {staff && <Action title="Edit title" onPress={() => editTitle(item)} />}
+        {staff && <Actions><Action title="Edit title" onPress={() => editTitle(item)} /><Action title="Delete title" onPress={() => {
+          const record = shared.data.titles.find((title) => title.id === item.id);
+          if (record) setDeleting({ kind: 'titles', id: record.id, revision: record.revision, name: record.name });
+        }} /></Actions>}
         {data.kits.filter((k) => k.titleId === item.id).map((value) => <React.Fragment key={value.id}><Text>{value.barcode} · {value.branch} · {value.copies} copies · {value.status}{value.extras ? ` · ${value.extras}` : ''}</Text>
           {value.components.length > 0 && <Note>Copies: {value.components.join(', ')}</Note>}
-          {staff && <Action title={`Edit ${value.barcode}`} onPress={() => editKit(value)} />}
+          {staff && <Actions><Action title={`Edit ${value.barcode}`} onPress={() => editKit(value)} /><Action title={`Delete ${value.barcode}`} onPress={() => {
+            const record = shared.data.kits.find((item) => item.id === value.id);
+            if (record) setDeleting({ kind: 'kits', id: record.id, revision: record.revision, name: record.barcode });
+          }} /></Actions>}
         </React.Fragment>)}
       </Card>)}
     {staff && <><Card><Label>{title.id ? 'Edit title' : 'Add title'}</Label>

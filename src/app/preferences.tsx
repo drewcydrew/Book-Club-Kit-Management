@@ -54,6 +54,7 @@ export default function Preferences() {
   return <Page title="Preferences">
     <Card><Label>Choose a cycle</Label><Actions>{data.cycles.map((c) => <Action key={c.id} title={`${c.name}${c.id === cycle.id ? ' ✓' : ''}`} onPress={() => { setSelectedId(c.id); setReview(null); }} />)}</Actions></Card>
     <Card><Label>{cycle.name}</Label><Note>Status: {cycle.status} · Deadline: {cycle.deadline}. Voting is {editable ? 'open' : 'closed'}.</Note></Card>
+    {!staff && person.clubId && !club && <Note>Your local demo membership references a club that is no longer available.</Note>}
     {club && <><Card><Label>1. Choose titles for {club.name}</Label>
       {data.titles.map((title) => <React.Fragment key={title.id}>
         <Text style={{ fontWeight: '600' }}>{title.name} — {title.author}</Text>
@@ -63,9 +64,9 @@ export default function Preferences() {
         </Actions>}
       </React.Fragment>)}
     </Card><Card><Label>2. Rank selected titles</Label><Note>Move your favorite to the top. Changes save locally.</Note>
-      {(ballot?.ranking ?? []).map((titleId, index) => <Actions key={titleId}><Text>{index + 1}. {data.titles.find((t) => t.id === titleId)?.name}</Text>
-        <Action title="↑" disabled={!editable || index === 0} onPress={() => changeBallot((b) => ({ ...b, ranking: moved(b.ranking, index, -1) }))} />
-        <Action title="↓" disabled={!editable || index === (ballot?.ranking.length ?? 0) - 1} onPress={() => changeBallot((b) => ({ ...b, ranking: moved(b.ranking, index, 1) }))} />
+      {(ballot?.ranking ?? []).map((titleId, index) => <Actions key={titleId}><Text>{index + 1}. {data.titles.find((t) => t.id === titleId)?.name ?? 'Unavailable title'}</Text>
+        <Action title="↑" disabled={!editable || index === 0 || !data.titles.some((t) => t.id === titleId)} onPress={() => changeBallot((b) => ({ ...b, ranking: moved(b.ranking, index, -1) }))} />
+        <Action title="↓" disabled={!editable || index === (ballot?.ranking.length ?? 0) - 1 || !data.titles.some((t) => t.id === titleId)} onPress={() => changeBallot((b) => ({ ...b, ranking: moved(b.ranking, index, 1) }))} />
       </Actions>)}
     </Card>
     {person.role === 'leader' && <Card><Label>Leader review</Label><Note>Member rankings are combined using points for each ranked position. Ties are resolved by title ID. Finalizing saves your ordering without changing ballots.</Note>

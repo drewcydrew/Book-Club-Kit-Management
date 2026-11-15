@@ -41,7 +41,7 @@ export default function Schedule() {
     const title = data.titles.find((t) => t.id === kit?.titleId);
     const club = data.clubs.find((c) => c.id === a.clubId);
     const problem = assignmentProblem(data, a, data.assignments);
-    return <Card key={a.id}><Label>{club?.name} · {title?.name}</Label><Text>{kit?.barcode} · Ready {a.ready} · Meeting {a.meeting} · Due {a.due}</Text>
+    return <Card key={a.id}><Label>{club?.name ?? 'Unavailable club'} · {title?.name ?? 'Unavailable title'}</Label><Text>{kit?.barcode ?? 'Unavailable kit'} · Ready {a.ready} · Meeting {a.meeting} · Due {a.due}</Text>
       {problem && <Text style={{ color: '#a22525' }}>Needs review: {problem}</Text>}
       {staff && (cycle.status === 'drafted' || (cycle.status === 'published' && !!problem && a.locked)) && <Actions><Action title={a.locked ? 'Unlock' : 'Lock'} onPress={() => {
         void update((d) => ({ ...d, assignments: d.assignments.map((item) => item.id === a.id ? { ...item, locked: !item.locked } : item) })).catch(() => undefined);

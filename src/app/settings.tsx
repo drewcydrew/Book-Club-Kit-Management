@@ -29,7 +29,7 @@ export default function Settings() {
       {message ? <Text>{message}</Text> : null}
       <Action title="Save settings" onPress={save} />
     </Card>}
-    <Card><Label>Reset local demo</Label><Note>This permanently replaces local changes with fictional sample data.</Note>
+    <Card><Label>Reset local demo</Label><Note>This permanently replaces local settings, members and schedules with fictional sample data. Shared clubs and kits are not reset.</Note>
       {confirm ? <Actions><Action title="Confirm reset" onPress={() => { void reset(); setConfirm(false); }} /><Action title="Cancel" onPress={() => setConfirm(false)} /></Actions> : <Action title="Reset demo" onPress={() => setConfirm(true)} />}
     </Card>
   </Page>;
