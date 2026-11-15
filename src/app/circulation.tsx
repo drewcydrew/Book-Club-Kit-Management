@@ -64,10 +64,10 @@ export default function Circulation() {
           {kit.status === 'unavailable' && <Action title="Resolve and make available" disabled={shared.saving} onPress={() => record(kit.id, 'resolved')} />}
         </Actions>
         {inspectId === kit.id && kit.status === 'inspection' && <><Field label="Copies returned" value={returned} onChangeText={setReturned} />
-          <Note>Mark missing components:</Note><Actions>{kit.components.map((part) => <Action key={part} title={`${part}${missing.includes(part) ? ' · missing' : ''}`} onPress={() =>
+          <Note>Mark missing components:</Note><Actions>{kit.components.map((part) => <Action key={part} selected={missing.includes(part)} title={`${part}${missing.includes(part) ? ' · missing' : ''}`} onPress={() =>
             setMissing(missing.includes(part) ? missing.filter((value) => value !== part) : [...missing, part])} />)}</Actions>
-          <Action title={`Damage or other issue: ${complete ? 'no' : 'yes'}`} onPress={() => setComplete(!complete)} />
-          <Actions><Action title="Save inspection" disabled={shared.saving} onPress={() => record(kit.id, 'inspected')} /><Action title="Cancel inspection" onPress={() => setInspectId('')} /></Actions>
+          <Action selected={!complete} title={`Damage or other issue: ${complete ? 'no' : 'yes'}`} onPress={() => setComplete(!complete)} />
+          <Actions><Action tone="primary" title="Save inspection" disabled={shared.saving} onPress={() => record(kit.id, 'inspected')} /><Action title="Cancel inspection" onPress={() => setInspectId('')} /></Actions>
         </>}
         {data.events.filter((event) => event.kitId === kit.id).slice().sort((a, b) => b.at.localeCompare(a.at)).map((event) =>
           <Text key={event.id}>{new Date(event.at).toLocaleString()} · {event.action}{event.returnedCopies !== undefined ? ` · ${event.returnedCopies} returned` : ''}{event.missingComponents?.length ? ` · Missing: ${event.missingComponents.join(', ')}` : ''}{event.notes ? ` · ${event.notes}` : ''}</Text>)}

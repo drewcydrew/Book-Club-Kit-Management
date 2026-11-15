@@ -51,20 +51,20 @@ export default function Catalog() {
     <Actions><Action title="Refresh shared catalog" onPress={() => { void shared.refresh().catch(() => undefined); }} /></Actions>
     <Note>Titles, kits, kit status and circulation are shared across devices.</Note>
     {deleting && <Card><Label>Delete {deleting.name}?</Label><Note>This affects every user and may fail if the record is referenced.</Note><Actions>
-      <Action title="Confirm deletion" onPress={() => { void shared.mutate(() => deleteRecord(deleting.kind, deleting.id, deleting.revision)).then(() => { setDeleting(null); setMessage('Record deleted.'); }).catch(() => undefined); }} />
+      <Action tone="danger" title="Confirm deletion" onPress={() => { void shared.mutate(() => deleteRecord(deleting.kind, deleting.id, deleting.revision)).then(() => { setDeleting(null); setMessage('Record deleted.'); }).catch(() => undefined); }} />
       <Action title="Cancel deletion" onPress={() => setDeleting(null)} /></Actions></Card>}
     <Field label="Search titles, authors or kit barcode" value={query} onChangeText={setQuery} />
     {data.titles.filter((t) => !search || `${t.name} ${t.author} ${t.isbn}`.toLowerCase().includes(search) || data.kits.some((k) => k.titleId === t.id && [k.barcode, ...k.components].some((b) => b.toLowerCase().includes(search)))).map((item) =>
       <Card key={item.id}><Label>{item.name}</Label><Note>{item.author} {item.isbn ? `· ISBN ${item.isbn}` : ''}</Note>
         <Note>{item.genres || 'No genres'} · {item.pages || 'Unknown'} pages · {item.largePrint ? 'Large print' : 'No large print'} · {item.audio ? 'Audio available' : 'No audio'}</Note>
         {item.notes ? <Text>Content notes: {item.notes}</Text> : null}
-        {staff && <Actions><Action title="Edit title" onPress={() => editTitle(item)} /><Action title="Delete title" onPress={() => {
+        {staff && <Actions><Action title="Edit title" onPress={() => editTitle(item)} /><Action tone="danger" title="Delete title" onPress={() => {
           const record = shared.data.titles.find((title) => title.id === item.id);
           if (record) setDeleting({ kind: 'titles', id: record.id, revision: record.revision, name: record.name });
         }} /></Actions>}
         {data.kits.filter((k) => k.titleId === item.id).map((value) => <React.Fragment key={value.id}><Text>{value.barcode} · {value.branch} · {value.copies} copies · {value.status}{value.extras ? ` · ${value.extras}` : ''}</Text>
           {value.components.length > 0 && <Note>Copies: {value.components.join(', ')}</Note>}
-          {staff && <Actions><Action title={`Edit ${value.barcode}`} onPress={() => editKit(value)} /><Action title={`Delete ${value.barcode}`} onPress={() => {
+          {staff && <Actions><Action title={`Edit ${value.barcode}`} onPress={() => editKit(value)} /><Action tone="danger" title={`Delete ${value.barcode}`} onPress={() => {
             const record = shared.data.kits.find((item) => item.id === value.id);
             if (record) setDeleting({ kind: 'kits', id: record.id, revision: record.revision, name: record.barcode });
           }} /></Actions>}
@@ -74,12 +74,12 @@ export default function Catalog() {
       <Field label="Title" value={title.name} onChangeText={(name) => setTitle({ ...title, name })} /><Field label="Author" value={title.author} onChangeText={(author) => setTitle({ ...title, author })} />
       <Field label="ISBN" value={title.isbn} onChangeText={(isbn) => setTitle({ ...title, isbn })} /><Field label="Pages" value={pages} onChangeText={setPages} />
       <Field label="Genres" value={title.genres} onChangeText={(genres) => setTitle({ ...title, genres })} /><Field label="Content notes" value={title.notes} onChangeText={(notes) => setTitle({ ...title, notes })} />
-      <Actions><Action title={`Large print: ${title.largePrint ? 'yes' : 'no'}`} onPress={() => setTitle({ ...title, largePrint: !title.largePrint })} /><Action title={`Audio: ${title.audio ? 'yes' : 'no'}`} onPress={() => setTitle({ ...title, audio: !title.audio })} /></Actions>
-      <Actions><Action title="Save title" onPress={saveTitle} /><Action title="Clear title form" onPress={() => editTitle(blankTitle())} /></Actions>
-    </Card><Card><Label>{kit.id ? 'Edit kit' : 'Add physical kit'}</Label><Note>Select the title:</Note><Actions>{data.titles.map((t) => <Action key={t.id} title={`${t.name}${kit.titleId === t.id ? ' ✓' : ''}`} onPress={() => setKit({ ...kit, titleId: t.id })} />)}</Actions>
+      <Actions><Action selected={title.largePrint} title={`Large print: ${title.largePrint ? 'yes' : 'no'}`} onPress={() => setTitle({ ...title, largePrint: !title.largePrint })} /><Action selected={title.audio} title={`Audio: ${title.audio ? 'yes' : 'no'}`} onPress={() => setTitle({ ...title, audio: !title.audio })} /></Actions>
+      <Actions><Action tone="primary" title="Save title" onPress={saveTitle} /><Action title="Clear title form" onPress={() => editTitle(blankTitle())} /></Actions>
+    </Card><Card><Label>{kit.id ? 'Edit kit' : 'Add physical kit'}</Label><Note>Select the title:</Note><Actions>{data.titles.map((t) => <Action key={t.id} selected={kit.titleId === t.id} title={`${t.name}${kit.titleId === t.id ? ' ✓' : ''}`} onPress={() => setKit({ ...kit, titleId: t.id })} />)}</Actions>
       <Field label="Kit barcode" value={kit.barcode} onChangeText={(barcode) => setKit({ ...kit, barcode })} /><Field label="Branch" value={kit.branch} onChangeText={(branch) => setKit({ ...kit, branch })} />
       <Field label="Number of copies" value={copies} onChangeText={setCopies} /><Field label="Extras" value={kit.extras} onChangeText={(extras) => setKit({ ...kit, extras })} />
-      <Field label="Copy barcodes (comma separated)" value={components} onChangeText={setComponents} /><Actions><Action title="Save kit" onPress={saveKit} /><Action title="Clear kit form" onPress={() => editKit(blankKit(data.library.branches[0] ?? ''))} /></Actions>
+      <Field label="Copy barcodes (comma separated)" value={components} onChangeText={setComponents} /><Actions><Action tone="primary" title="Save kit" onPress={saveKit} /><Action title="Clear kit form" onPress={() => editKit(blankKit(data.library.branches[0] ?? ''))} /></Actions>
     </Card>{message ? <Text>{message}</Text> : null}</>}
   </Page>;
 }

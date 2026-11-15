@@ -63,10 +63,10 @@ export default function Settings() {
       <Note>Roles only change the interface. There is no authentication or authorization; anyone with API access can change shared demo data. Use fictional information only.</Note>
       {data.people.length === 0 && <Note>No shared users are available. Run the server demo seed, or create an admin through the API if the seed was already run.</Note>}
       {data.people.length > 0 && !data.people.some((value) => value.role === 'admin') && <Note>No administrator exists. The demo seed creates one only on its first run; if already seeded, restore an admin through the API.</Note>}
-      <Actions>{data.people.map((value) => <Action key={value.id} title={`${value.name} · ${value.role}${value.id === person?.id ? ' ✓' : ''}`} onPress={() => choosePerson(value.id)} />)}</Actions>
+      <Actions>{data.people.map((value) => <Action key={value.id} selected={value.id === person?.id} title={`${value.name} · ${value.role}${value.id === person?.id ? ' ✓' : ''}`} onPress={() => choosePerson(value.id)} />)}</Actions>
       <Label>Selected club (this device)</Label>
       {visibleClubs.length === 0 ? <Note>{person?.role === 'member' ? 'This user has no club memberships.' : 'No clubs are available.'}</Note> : <Actions>
-        {visibleClubs.map((club) => <Action key={club.id} title={`${club.name}${data.selectedClubId === club.id ? ' ✓' : ''}`} onPress={() => {
+        {visibleClubs.map((club) => <Action key={club.id} selected={data.selectedClubId === club.id} title={`${club.name}${data.selectedClubId === club.id ? ' ✓' : ''}`} onPress={() => {
           void update((d) => ({ ...d, selectedClubId: club.id })).then(() => setMessage('Selected club saved on this device.')).catch((error: unknown) =>
             setMessage(error instanceof Error ? error.message : 'Unable to save selected club.'));
         }} />)}
@@ -78,13 +78,13 @@ export default function Settings() {
       {data.people.map((value) => <Actions key={value.id}>
         <Text>{value.name} · {value.role}</Text>
         <Action title="Edit" onPress={() => editUser(value)} />
-        <Action title="Delete" onPress={() => setDeleting(value)} />
+        <Action tone="danger" title="Delete" onPress={() => setDeleting(value)} />
       </Actions>)}
       {deleting && <><Note>Delete {deleting.name}? Existing preferences, memberships and history may restrict deletion.</Note>
-        <Actions><Action title="Confirm delete" onPress={() => removePerson(deleting)} /><Action title="Cancel" onPress={() => setDeleting(null)} /></Actions></>}
+        <Actions><Action tone="danger" title="Confirm delete" onPress={() => removePerson(deleting)} /><Action title="Cancel" onPress={() => setDeleting(null)} /></Actions></>}
       <Field label={editing ? 'Edit user name' : 'New fictional user name'} value={userName} onChangeText={setUserName} />
-      <Label>Demo role</Label><Actions>{roles.map((role) => <Action key={role} title={`${role}${userRole === role ? ' ✓' : ''}`} onPress={() => setUserRole(role)} />)}</Actions>
-      <Actions><Action title={editing ? 'Save user' : 'Create user'} onPress={savePerson} />
+      <Label>Demo role</Label><Actions>{roles.map((role) => <Action key={role} selected={userRole === role} title={`${role}${userRole === role ? ' ✓' : ''}`} onPress={() => setUserRole(role)} />)}</Actions>
+      <Actions><Action tone="primary" title={editing ? 'Save user' : 'Create user'} onPress={savePerson} />
         {!!editing && <Action title="Cancel edit" onPress={() => editUser()} />}</Actions>
     </Card>}
 
@@ -92,7 +92,7 @@ export default function Settings() {
 
     <Card><Label>Device-local selection</Label>
       <Note>Only your selected demo user and club are stored on this device. Previous local users, ballots, cycles, schedules and circulation are not imported. Reset does not delete shared data.</Note>
-      {confirmReset ? <Actions><Action title="Confirm reset selections" onPress={() => { void reset(); setConfirmReset(false); }} /><Action title="Cancel" onPress={() => setConfirmReset(false)} /></Actions>
+      {confirmReset ? <Actions><Action tone="danger" title="Confirm reset selections" onPress={() => { void reset(); setConfirmReset(false); }} /><Action title="Cancel" onPress={() => setConfirmReset(false)} /></Actions>
         : <Action title="Reset local selections" onPress={() => setConfirmReset(true)} />}
     </Card>
     {message ? <Text>{message}</Text> : null}
@@ -124,7 +124,7 @@ function SharedLibrarySettings({ library }: { library: Library }) {
     <Field label="Branches (comma separated)" value={branches} onChangeText={setBranches} />
     <Field label="Loan length in days" value={loan} onChangeText={setLoan} />
     <Field label="Turnaround buffer in days" value={buffer} onChangeText={setBuffer} />
-    <Action title="Save shared settings" disabled={shared.saving} onPress={save} />
+    <Action tone="primary" title="Save shared settings" disabled={shared.saving} onPress={save} />
     {message ? <Text>{message}</Text> : null}
   </Card>;
 }

@@ -37,8 +37,13 @@ export function Field({ label, value, onChangeText, placeholder }: { label: stri
   return <View style={{ gap: 5 }}><Label>{label}</Label><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} style={styles.input} /></View>;
 }
 
-export function Action({ title, onPress, disabled = false }: { title: string; onPress: () => void; disabled?: boolean }) {
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[styles.button, disabled && styles.disabled]}><Text style={styles.buttonText}>{title}</Text></Pressable>;
+export function Action({ title, onPress, disabled = false, selected, tone = 'default' }: {
+  title: string; onPress: () => void; disabled?: boolean; selected?: boolean; tone?: 'default' | 'primary' | 'danger';
+}) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={selected === undefined ? undefined : `${title}, ${selected ? 'selected' : 'not selected'}`} accessibilityState={{ disabled, ...(selected === undefined ? {} : { selected }) }} disabled={disabled} onPress={onPress}
+    style={({ pressed }) => [styles.button, tone === 'primary' && styles.primaryButton, tone === 'danger' && styles.dangerButton, selected && styles.selectedButton, pressed && styles.pressed, disabled && styles.disabled]}>
+    <Text style={[styles.buttonText, tone === 'primary' && styles.primaryButtonText, tone === 'danger' && styles.dangerButtonText, selected && styles.selectedButtonText]}>{title}</Text>
+  </Pressable>;
 }
 
 export function Actions({ children }: { children: React.ReactNode }) {
@@ -50,15 +55,22 @@ export function Note({ children }: { children: React.ReactNode }) {
 }
 
 export const styles = StyleSheet.create({
-  page: { padding: 20, gap: 16, width: '100%', maxWidth: 1050, alignSelf: 'center', paddingBottom: 60 },
-  heading: { fontSize: 28, fontWeight: '700', color: '#183a36' },
-  label: { fontWeight: '700', color: '#183a36', fontSize: 15 },
-  card: { backgroundColor: '#ffffff', padding: 16, borderRadius: 10, borderWidth: 1, borderColor: '#d9e3df', gap: 10 },
-  input: { borderWidth: 1, borderColor: '#809c94', borderRadius: 6, padding: 10, color: '#173832', backgroundColor: '#fff', minHeight: 44 },
-  button: { backgroundColor: '#245e51', paddingHorizontal: 14, paddingVertical: 11, borderRadius: 6, minHeight: 44, justifyContent: 'center' },
-  buttonText: { color: '#fff', fontWeight: '600', textAlign: 'center' },
-  disabled: { opacity: 0.45 },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  page: { paddingHorizontal: 20, paddingTop: 24, gap: 18, width: '100%', maxWidth: 1050, alignSelf: 'center', paddingBottom: 60 },
+  heading: { fontSize: 30, fontWeight: '700', color: '#183a36', letterSpacing: -0.5 },
+  label: { fontWeight: '700', color: '#183a36', fontSize: 16 },
+  card: { backgroundColor: '#fffefa', paddingHorizontal: 16, paddingVertical: 18, borderLeftWidth: 3, borderLeftColor: '#75958a', gap: 12 },
+  input: { borderWidth: 1, borderColor: '#718b82', paddingHorizontal: 10, paddingVertical: 9, color: '#173832', backgroundColor: '#fff', minHeight: 44 },
+  button: { backgroundColor: '#fffefa', borderWidth: 1, borderColor: '#65877b', paddingHorizontal: 14, paddingVertical: 10, minHeight: 44, maxWidth: '100%', justifyContent: 'center' },
+  buttonText: { color: '#244c40', fontWeight: '600', textAlign: 'center' },
+  primaryButton: { backgroundColor: '#245e51', borderColor: '#245e51' },
+  primaryButtonText: { color: '#fff' },
+  dangerButton: { borderColor: '#9b5147' },
+  dangerButtonText: { color: '#862e27' },
+  selectedButton: { backgroundColor: '#d6e5d8', borderColor: '#245e51', borderBottomWidth: 3 },
+  selectedButtonText: { color: '#183a36' },
+  pressed: { opacity: 0.75 },
+  disabled: { opacity: 0.5 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   note: { color: '#465c56', lineHeight: 21 },
   error: { color: '#a22525', fontWeight: '600' },
 });

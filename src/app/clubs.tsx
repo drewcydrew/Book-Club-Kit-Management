@@ -221,6 +221,7 @@ export default function Clubs() {
           </Note>
           <Actions>
             <Action
+              tone="danger"
               title="Confirm deletion"
               onPress={() => {
                 void shared
@@ -249,6 +250,7 @@ export default function Clubs() {
           <Label>Remove this shared kit link?</Label>
           <Actions>
             <Action
+              tone="danger"
               title="Confirm unlink"
               onPress={() => {
                 void shared
@@ -322,6 +324,7 @@ export default function Clubs() {
                     </Text>
                     {staff && (
                       <Action
+                        tone="danger"
                         title={`Unlink ${kit?.barcode ?? link.kitId}`}
                         onPress={() => setUnlinking(link)}
                       />
@@ -363,6 +366,7 @@ export default function Clubs() {
                 <Actions>
                   <Action title="Edit club" onPress={() => edit(value)} />
                   <Action
+                    tone="danger"
                     title="Delete club"
                     onPress={() => {
                       const record = shared.data.clubs.find(
@@ -418,7 +422,7 @@ export default function Clubs() {
             />
           )}
           <Actions>
-            <Action title="Save club" onPress={save} />
+            <Action tone="primary" title="Save club" onPress={save} />
             <Action
               title="Clear club form"
               onPress={() => edit(blankClub(data.library.branches[0] ?? ""))}
@@ -442,6 +446,7 @@ export default function Clubs() {
                 return (
                   <Actions key={member.id}>
                     <Action
+                      selected={!!current}
                       title={`${current ? "✓ " : ""}${member.name} (${member.role})`}
                       onPress={() =>
                         setMembershipDraft(
@@ -460,6 +465,7 @@ export default function Clubs() {
                     />
                     {current && (
                       <Action
+                        selected={current.leader}
                         title={
                           current.leader ? "Club leader ✓" : "Make club leader"
                         }
@@ -477,6 +483,7 @@ export default function Clubs() {
                 );
               })}
               <Action
+                tone="primary"
                 title="Save shared memberships and leader"
                 onPress={saveMembers}
               />
@@ -485,6 +492,7 @@ export default function Clubs() {
                 {data.titles.map((title) => (
                   <Action
                     key={title.id}
+                    selected={historyDraft.includes(title.id)}
                     title={`${title.name}${historyDraft.includes(title.id) ? " ✓" : ""}`}
                     onPress={() =>
                       setHistoryDraft(
@@ -497,6 +505,7 @@ export default function Clubs() {
                 ))}
               </Actions>
               <Action
+                tone="primary"
                 title="Save shared reading history"
                 onPress={saveClubHistory}
               />
