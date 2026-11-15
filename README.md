@@ -21,3 +21,29 @@ The normal Settings reset requires confirmation. If saved data cannot be loaded,
 The scheduler is a deterministic greedy baseline, not an optimal solver. It uses ranked preferences, prior published-cycle satisfaction and branch as heuristics. Loan windows include the configured turnaround days: a kit due on the first of a month with a three-day buffer cannot be ready again until the fifth. Unfilled or conflicting assignments require staff review. Manual swaps and replacements must pass the same checks, and locks are preserved.
 
 Web and native storage are independent; there is no synchronization, background processing, real barcode scanning, outbound messaging, authentication, or access control. Use manual barcodes and fictional names and addresses only.
+
+## Backend scaffold
+
+The separate `server` directory contains a Node 22 Express service. It currently provides only a health check; it has no PostgreSQL connection or data routes. The Expo app does not call it and continues to use local storage.
+
+From the repository root, run:
+
+```sh
+cd server
+npm ci
+npm start
+```
+
+Visit `http://localhost:3000/health` for `{ "status": "ok" }`. This confirms only that the HTTP service is running, not that any database is connected. `PORT` overrides the local default of 3000. Run `npm test` from `server` for the backend tests.
+
+### Deploy to Render
+
+Create a **Node web service** in Render connected to this repository, with these settings:
+
+- Root directory: `server`
+- Build command: `npm ci`
+- Start command: `npm start`
+- Health check path: `/health`
+- Environment variable: `NODE_VERSION=22.22.0`
+
+Render runs the build and start commands relative to the service root and supplies `PORT`. The service will be publicly reachable when deployed. Future data endpoints need input validation and an appropriate access-control strategy before real data is exposed. Store future credentials in Render environment variables, never in source control.
