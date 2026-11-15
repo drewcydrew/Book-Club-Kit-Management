@@ -1,49 +1,61 @@
 # Book club kit prototype
 
-This is a fictional, single-device Expo prototype. It runs on the web and uses the same local data model on iOS and Android. It does not connect to a server, authenticate people, send notifications, or integrate with a library catalog.
+This Expo prototype uses a separate Express API and PostgreSQL for shared clubs, book titles, kits and club–kit links. A link is an undated association, **not** a checkout; one kit can be linked to multiple clubs. Refresh the catalog or clubs screen to see changes made elsewhere.
 
-## Run
+**Public demo only:** there is no login or authorization. Anyone who can reach the API can read, change or delete shared data. Demo roles and CORS are not security controls. Use fictional data only; do not enter real names, addresses or other sensitive information.
 
-Install dependencies with `npm install`, then run `npm run web` for the web app, or `npm start` for Expo. Run `npm test`, `npx tsc --noEmit`, and `npm run lint` to check the project.
+Members, leaders, reading history, ballots, cycles, schedules, library settings, kit status and circulation events remain local and unencrypted on each device. They are not synchronized. Previous locally created shared records are not imported. Existing local references to shared records that have been deleted may be unavailable; deleting shared records cannot check local data on other devices.
 
-## Try the demo
+## Set up the backend
 
-1. In **Settings**, switch to Robin, a member, and select and rank titles in **Preferences**.
-2. Switch to Casey, the leader, review and finalize the club ranking.
-3. Switch to Morgan, staff, and open **Schedule**. Generate a draft, lock an assignment, re-run the draft, and publish it. Generating closes voting even if the deadline has not passed.
-4. In **Circulation**, find a kit by barcode, record pickup or delivery and return, then inspect the copies. An incomplete or damaged kit becomes unavailable; review affected assignments and suggested replacements in **Schedule**.
-5. Reload the page to see saved changes. Use the confirmed reset in Settings to restore the fictional sample data.
+Use Node 22 and a PostgreSQL database intended for this prototype. Set `DATABASE_URL` in the server process environment; keep it private and follow your database provider's TLS and certificate requirements. Do not put credentials in the Expo app, source control or chat. Node does not automatically load a `server/.env` file.
 
-Staff can add and edit titles, kits, clubs and meetings, create cycles and set deadlines. The role switcher only changes the demonstration view and is not a security or authorization mechanism. Data is stored locally, unencrypted, separately for each browser or device. Do not enter real personal or sensitive information. Clearing browser or app storage removes the data.
+In PowerShell, from the repository root:
 
-The normal Settings reset requires confirmation. If saved data cannot be loaded, the recovery screen's reset button immediately replaces it; saved data validation is limited. Keep any data you want to retain outside this prototype.
-
-The scheduler is a deterministic greedy baseline, not an optimal solver. It uses ranked preferences, prior published-cycle satisfaction and branch as heuristics. Loan windows include the configured turnaround days: a kit due on the first of a month with a three-day buffer cannot be ready again until the fifth. Unfilled or conflicting assignments require staff review. Manual swaps and replacements must pass the same checks, and locks are preserved.
-
-Web and native storage are independent; there is no synchronization, background processing, real barcode scanning, outbound messaging, authentication, or access control. Use manual barcodes and fictional names and addresses only.
-
-## Backend scaffold
-
-The separate `server` directory contains a Node 22 Express service. It currently provides only a health check; it has no PostgreSQL connection or data routes. The Expo app does not call it and continues to use local storage.
-
-From the repository root, run:
-
-```sh
+```powershell
 cd server
 npm ci
+$env:DATABASE_URL = '<your-postgresql-connection-url>'
+$env:ALLOWED_ORIGINS = 'http://localhost:8081'
+npm run migrate
+npm run seed
 npm start
 ```
 
-Visit `http://localhost:3000/health` for `{ "status": "ok" }`. This confirms only that the HTTP service is running, not that any database is connected. `PORT` overrides the local default of 3000. Run `npm test` from `server` for the backend tests.
+Migrations and the fictional demo seed are explicit commands; neither runs at startup. The seed is transactional and will not overwrite edits when run again. A conflicting existing ID or barcode causes it to fail without partially seeding. Use an appropriately scoped database account and review which database `DATABASE_URL` points to before running setup.
 
-### Deploy to Render
+`ALLOWED_ORIGINS` is a comma-separated list of exact browser origins, including scheme and port. Add the actual web deployment origin when needed. Requests without an Origin, such as native app requests, are supported. The API listens on `PORT` or 3000 locally; `GET /health` checks the HTTP process only, not database readiness.
 
-Create a **Node web service** in Render connected to this repository, with these settings:
+## Run the Expo app
+
+From the repository root, configure the **public, non-secret** API base URL and start Expo:
+
+```powershell
+npm install
+$env:EXPO_PUBLIC_API_URL = 'http://localhost:3000'
+npm run web
+```
+
+For a physical device, use a server address reachable from the device, not `localhost`. Deployed HTTPS web apps need an HTTPS API URL. Expo embeds `EXPO_PUBLIC_API_URL` in the client bundle, so never place secrets there. Restart or reload Expo after changing configuration.
+
+Choose a demo person in Settings, then use Catalog & kits to create records and Clubs to link or unlink kits. Open or refresh those screens on a second device to see changes. Conflicting edits require a refresh before retrying; referenced shared records must be unlinked before deletion. The local demo reset does not delete shared database records.
+
+## Deploy the backend to Render
+
+Connect the repository to a Node web service with:
 
 - Root directory: `server`
 - Build command: `npm ci`
 - Start command: `npm start`
 - Health check path: `/health`
-- Environment variable: `NODE_VERSION=22.22.0`
+- `NODE_VERSION=22.22.0`
+- `DATABASE_URL` set privately in Render's environment settings
+- `ALLOWED_ORIGINS` set to the exact deployed web origin and any other permitted browser origins
 
-Render runs the build and start commands relative to the service root and supplies `PORT`. The service will be publicly reachable when deployed. Future data endpoints need input validation and an appropriate access-control strategy before real data is exposed. Store future credentials in Render environment variables, never in source control.
+Render supplies `PORT`. Run migrations deliberately against the intended database before using the data routes; run the seed only when fictional demo data is wanted. Render's root directory contains only `server`, so it does not depend on root Expo files.
+
+## Checks
+
+Run `npm test` in `server` for backend tests. PostgreSQL integration tests run only when both `TEST_DATABASE_URL` and `TEST_DATABASE_CONFIRM=isolated` are set for a dedicated test database; they create and remove their own uniquely named schema. Never point them at a database containing data you care about.
+
+From the repository root, run `npm test`, `npx tsc --noEmit` and `npx expo lint` for the Expo app.
