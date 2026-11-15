@@ -103,6 +103,32 @@ router.delete('/clubs/:clubId/memberships/:personId', async (req,res) => {
   });
   res.json({revision:next});
 });
+async function memberRole(c, personId) {
+  const row = await one(c, 'SELECT role FROM people WHERE id=$1', [personId], 'User');
+  if (row.role !== 'member') throw new HttpError(409, 'Only standard members can enrol in clubs.');
+}
+router.put('/users/:id/clubs/:clubId', async (req, res) => {
+  const b = object(req.body); const rev = expected(b.revision, true); const personId = id(req.params.id); const clubId = id(req.params.clubId);
+  const next = await transaction(async (c) => {
+    await memberRole(c, personId); await clubVersion(c, clubId, rev);
+    await c.query('INSERT INTO memberships(club_id,person_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [clubId, personId]);
+    return incrementClubVersion(c, clubId);
+  });
+  res.json({ revision: next });
+});
+router.delete('/users/:id/clubs/:clubId', async (req, res) => {
+  const rev = expected(Number(req.get('If-Match')), true); const personId = id(req.params.id); const clubId = id(req.params.clubId);
+  const next = await transaction(async (c) => {
+    await memberRole(c, personId); await clubVersion(c, clubId, rev);
+    await one(c, 'SELECT person_id FROM memberships WHERE club_id=$1 AND person_id=$2', [clubId, personId], 'Membership');
+    if ((await c.query('SELECT 1 FROM ballots WHERE club_id=$1 AND person_id=$2 LIMIT 1', [clubId, personId])).rowCount) {
+      throw new HttpError(409, 'Cannot leave club: saved preferences (ballots) exist for this club.');
+    }
+    await c.query('DELETE FROM memberships WHERE club_id=$1 AND person_id=$2', [clubId, personId]);
+    return incrementClubVersion(c, clubId);
+  });
+  res.json({ revision: next });
+});
 router.put('/clubs/:clubId/leader', async (req,res) => {
   const b = object(req.body); const rev = expected(b.revision,true); const clubId = id(req.params.clubId);
   const personId = b.personId === null ? null : id(b.personId,'personId');

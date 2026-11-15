@@ -24,21 +24,20 @@ function sharedData(): SharedData {
   };
 }
 
-test('device-local persistence contains only explicit user and club selections', () => {
+test('device-local persistence contains only the explicit user selection', () => {
   const local = initialLocalData();
-  assert.deepEqual(local, { version: 1, selectedPersonId: '', selectedClubId: '' });
-  assert.deepEqual(Object.keys(local).sort(), ['selectedClubId', 'selectedPersonId', 'version']);
+  assert.deepEqual(local, { version: 1, selectedPersonId: '' });
+  assert.deepEqual(Object.keys(local).sort(), ['selectedPersonId', 'version']);
 });
 
 test('multiple club memberships and per-club leaders derive independently from shared data', () => {
   const shared = sharedData();
   shared.memberships.push({ personId: 'p3', clubId: 'c2', leader: false });
-  const local = { ...initialLocalData(), selectedPersonId: 'p3', selectedClubId: 'c2' };
+  const local = { ...initialLocalData(), selectedPersonId: 'p3' };
   const data = combineData(local, shared);
   assert.deepEqual(data.memberships.filter((membership) => membership.personId === 'p3').map((membership) => membership.clubId), ['c1', 'c2']);
   assert.equal(data.clubs.find((club) => club.id === 'c1')?.leaderId, 'p3');
   assert.equal(data.clubs.find((club) => club.id === 'c2')?.leaderId, 'p5');
-  assert.equal(data.selectedClubId, 'c2');
 });
 
 test('shared records never fall back to local fixtures when the server is empty', () => {
@@ -57,9 +56,8 @@ test('shared records never fall back to local fixtures when the server is empty'
 test('missing history rows are treated as empty and selected missing references are not substituted', () => {
   const shared = sharedData();
   shared.history = [];
-  const local = { ...initialLocalData(), selectedPersonId: 'removed-user', selectedClubId: 'removed-club' };
+  const local = { ...initialLocalData(), selectedPersonId: 'removed-user' };
   const data = combineData(local, shared);
   assert.deepEqual(data.clubs.map((club) => club.history), [[], []]);
   assert.equal(data.selectedPersonId, 'removed-user');
-  assert.equal(data.selectedClubId, 'removed-club');
 });

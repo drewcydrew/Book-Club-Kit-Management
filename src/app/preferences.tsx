@@ -17,10 +17,11 @@ function moved(list: string[], index: number, direction: -1 | 1): string[] {
 }
 
 export default function Preferences() {
-  const { data, update } = useStore();
+  const { data } = useStore();
   const shared = useShared();
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const [selectedId, setSelectedId] = useState(data.cycles[0]?.id ?? '');
+  const [clubId, setClubId] = useState('');
   const [review, setReview] = useState<{ key: string; ranking: string[] } | null>(null);
   const cycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
   const membershipClubs = person
@@ -29,7 +30,7 @@ export default function Preferences() {
   const availableClubs = person?.role === 'member'
     ? data.clubs.filter((club) => membershipClubs.includes(club.id))
     : person ? data.clubs : [];
-  const club = availableClubs.find((value) => value.id === data.selectedClubId);
+  const club = availableClubs.find((value) => value.id === clubId);
   const staff = person?.role === 'staff' || person?.role === 'admin';
   const isMember = !!person && !!club && membershipClubs.includes(club.id);
   const isLeader = !!person && data.memberships.some((membership) =>
@@ -41,9 +42,9 @@ export default function Preferences() {
   const reviewKey = `${cycle?.id ?? ''}:${club?.id ?? ''}:${person?.id ?? ''}`;
   const reviewRanking = review?.key === reviewKey ? review.ranking : null;
 
-  function chooseClub(clubId: string) {
+  function chooseClub(value: string) {
     setReview(null);
-    void update((d) => ({ ...d, selectedClubId: clubId })).catch(() => undefined);
+    setClubId(value);
   }
 
   function changeBallot(fn: (current: Ballot) => Ballot) {
@@ -74,7 +75,7 @@ export default function Preferences() {
       {cycle.status !== 'collecting' && <Note>Voting is not open for this cycle.</Note>}
       {cycle.status === 'collecting' && today() > cycle.deadline && <Note>The preference deadline has passed.</Note>}
     </Card>
-    {availableClubs.length > 0 && <Card><Label>Choose a club</Label><Actions>{availableClubs.map((value) => <Action key={value.id} selected={value.id === data.selectedClubId} title={`${value.name}${value.id === data.selectedClubId ? ' ✓' : ''}`} onPress={() => chooseClub(value.id)} />)}</Actions></Card>}
+    {availableClubs.length > 0 && <Card><Label>Choose a club</Label><Actions>{availableClubs.map((value) => <Action key={value.id} selected={value.id === clubId} title={`${value.name}${value.id === clubId ? ' ✓' : ''}`} onPress={() => chooseClub(value.id)} />)}</Actions></Card>}
     {person.role === 'member' && availableClubs.length === 0 && <Note>This user has no club memberships. Staff can add memberships on the Clubs page.</Note>}
     {person.role === 'member' && availableClubs.length > 0 && !club && <Note>Choose a club to view this user’s independent preferences. Memberships and preferences are shared across devices.</Note>}
     {club && <><Card><Label>1. Choose titles for {club.name}</Label>

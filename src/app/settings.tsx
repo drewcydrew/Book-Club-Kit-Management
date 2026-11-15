@@ -4,8 +4,8 @@ import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, Vi
 import { useNavigationGuard } from '../components/navigation-guard';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import { id } from '../domain/logic';
-import type { Library, Person, Role } from '../domain/model';
-import { deleteUser, saveSettings, saveUser } from '../state/api';
+import type { Club, Library, Person, Role } from '../domain/model';
+import { deleteUser, enrolInClub, leaveClub, saveSettings, saveUser } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
 
@@ -62,6 +62,14 @@ export default function Settings() {
       setMessage(error instanceof Error ? error.message : 'Unable to save selected user.'));
   }
 
+  function toggleClub(club: Club, enrolled: boolean) {
+    if (!person) return;
+    setMessage('');
+    void shared.mutate(() => enrolled ? leaveClub(person.id, club.id, club.membershipRevision) : enrolInClub(person.id, club.id, club.membershipRevision))
+      .then(() => setMessage(enrolled ? `Left ${club.name}.` : `Enrolled in ${club.name}.`))
+      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to update club enrolment.'));
+  }
+
   function openUserForm(value?: Person) {
     const name = value?.name ?? '';
     const role = value?.role ?? 'member';
@@ -115,24 +123,25 @@ export default function Settings() {
       .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to delete user.'));
   }
 
-  const visibleClubs = person && person.role === 'member'
-    ? data.clubs.filter((club) => data.memberships.some((membership) => membership.personId === person.id && membership.clubId === club.id))
-    : data.clubs;
-
   return <Page title="Settings">
     <Card><Label>Demo user</Label>
       <Note>Roles only change the interface. There is no authentication or authorization; anyone with API access can change shared demo data. Use fictional information only.</Note>
       {data.people.length === 0 && <Note>No shared users are available. Run the server demo seed, or create an admin through the API if the seed was already run.</Note>}
       {data.people.length > 0 && !data.people.some((value) => value.role === 'admin') && <Note>No administrator exists. The demo seed creates one only on its first run; if already seeded, restore an admin through the API.</Note>}
       <Actions>{data.people.map((value) => <Action key={value.id} selected={value.id === person?.id} title={`${value.name} · ${value.role}${value.id === person?.id ? ' ✓' : ''}`} onPress={() => choosePerson(value.id)} />)}</Actions>
-      <Label>Selected club (this device)</Label>
-      {visibleClubs.length === 0 ? <Note>{person?.role === 'member' ? 'This user has no club memberships.' : 'No clubs are available.'}</Note> : <Actions>
-        {visibleClubs.map((club) => <Action key={club.id} selected={data.selectedClubId === club.id} title={`${club.name}${data.selectedClubId === club.id ? ' ✓' : ''}`} onPress={() => {
-          void update((d) => ({ ...d, selectedClubId: club.id })).then(() => setMessage('Selected club saved on this device.')).catch((error: unknown) =>
-            setMessage(error instanceof Error ? error.message : 'Unable to save selected club.'));
-        }} />)}
-      </Actions>}
     </Card>
+
+    {person?.role === 'member' && <Card><Label>My clubs</Label>
+      <Note>Enrol in clubs to see them in Preferences and your published schedules. Enrolment is shared.</Note>
+      {data.clubs.length === 0 && <Note>No clubs are defined yet.</Note>}
+      {data.clubs.map((club) => {
+        const enrolled = data.memberships.some((membership) => membership.personId === person.id && membership.clubId === club.id);
+        return <Actions key={club.id}>
+          <Text>{club.name}{enrolled ? ' · enrolled' : ''}</Text>
+          <Action tone={enrolled ? 'danger' : 'primary'} title={enrolled ? 'Leave' : 'Enrol'} disabled={busy} onPress={() => toggleClub(club, enrolled)} />
+        </Actions>;
+      })}
+    </Card>}
 
     {canManageUsers && <Card><Label>Shared demo users</Label>
       <Note>Creating the first admin is an explicit server seed operation; users are not seeded by the app.</Note>
@@ -170,7 +179,7 @@ export default function Settings() {
     {canManageSettings && <SharedLibrarySettings key={data.library.revision} library={data.library} />}
 
     <Card><Label>Device-local selection</Label>
-      <Note>Only your selected demo user and club are stored on this device. Previous local users, ballots, cycles, schedules and circulation are not imported. Reset does not delete shared data.</Note>
+      <Note>Only your selected demo user is stored on this device. Club enrolment, ballots, cycles, schedules and circulation are shared. Reset does not delete shared data.</Note>
       {confirmReset ? <Actions><Action tone="danger" title="Confirm reset selections" onPress={() => { void reset(); setConfirmReset(false); }} /><Action title="Cancel" onPress={() => setConfirmReset(false)} /></Actions>
         : <Action title="Reset local selections" onPress={() => setConfirmReset(true)} />}
     </Card>
