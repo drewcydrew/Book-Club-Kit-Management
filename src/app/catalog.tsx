@@ -5,7 +5,7 @@ import { useNavigationGuard } from '../components/navigation-guard';
 import { TitleCover } from '../components/title-cover';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import type { Kit, Title } from '../domain/model';
-import { ApiError, deleteRecord, fetchIsbnCover, saveRecord } from '../state/api';
+import { ApiError, deleteRecord, lookupIsbn, saveRecord, type IsbnLookup } from '../state/api';
 import { saveCatalogChange } from '../state/catalog-save';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
@@ -24,16 +24,32 @@ function kitDraft(value: Kit, revision: number | null): KitDraft {
   return { kind: 'kit', value, copies: String(value.copies), components: value.components.join(', '), revision };
 }
 
-type CoverPreviewStatus = 'loading' | 'found' | 'none' | 'invalid' | 'error';
+type LookupStatus = 'loading' | 'found' | 'none' | 'invalid' | 'error';
 
-function coverPreviewMessage(status: CoverPreviewStatus): string {
+function lookupMessage(status: LookupStatus): string {
   switch (status) {
-    case 'loading': return 'Looking up cover…';
-    case 'found': return 'Cover found. It will be saved with this title.';
-    case 'none': return 'No cover found for this ISBN.';
-    case 'invalid': return 'Enter a valid ISBN-10 or ISBN-13 to preview a cover.';
-    case 'error': return 'Cover lookup is unavailable right now.';
+    case 'loading': return 'Looking up book details…';
+    case 'found': return 'Filled in from ISBNdb. Check the details before saving.';
+    case 'none': return 'No book found for this ISBN. Enter the details manually.';
+    case 'invalid': return 'Enter a valid ISBN-10 or ISBN-13 to look up the book.';
+    case 'error': return 'Book lookup is unavailable right now. Enter the details manually.';
   }
+}
+
+// Fills only empty fields so that text the user has already typed is never replaced.
+function applyLookup(draft: TitleDraft, found: IsbnLookup): TitleDraft {
+  const { value } = draft;
+  return {
+    ...draft,
+    pages: (draft.pages.trim() || found.pages === null) ? draft.pages : String(found.pages),
+    value: {
+      ...value,
+      name: value.name.trim() ? value.name : found.title ?? '',
+      author: value.author.trim() ? value.author : found.author ?? '',
+      genres: value.genres.trim() ? value.genres : found.genres ?? '',
+      coverUrl: value.coverUrl ?? found.coverUrl,
+    },
+  };
 }
 
 type PendingAction = 'Saving' | 'Deleting';
@@ -53,7 +69,7 @@ export default function Catalog() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [initial, setInitial] = useState('');
   const [pendingIsbn, setPendingIsbn] = useState('');
-  const [preview, setPreview] = useState<{ isbn: string; status: CoverPreviewStatus } | null>(null);
+  const [preview, setPreview] = useState<{ isbn: string; status: LookupStatus } | null>(null);
   const [message, setMessage] = useState('');
   const [formError, setFormError] = useState('');
   const [recovery, setRecovery] = useState<'conflict' | 'uncertain' | null>(null);
@@ -98,15 +114,17 @@ export default function Catalog() {
     let cancelled = false;
     const timer = setTimeout(() => {
       setPreview({ isbn: pendingIsbn, status: 'loading' });
-      fetchIsbnCover(pendingIsbn).then((imageUrl) => {
+      lookupIsbn(pendingIsbn).then((found) => {
         if (cancelled) return;
-        setPreview({ isbn: pendingIsbn, status: imageUrl ? 'found' : 'none' });
-        // Only apply the cover while the form still holds this ISBN.
+        setPreview({ isbn: pendingIsbn, status: 'found' });
+        // Only fill the form while it still holds this ISBN.
         setDraft((current) => current?.kind === 'title' && current.value.isbn.trim() === pendingIsbn
-          ? { ...current, value: { ...current.value, coverUrl: imageUrl } } : current);
+          ? applyLookup(current, found) : current);
       }).catch((error: unknown) => {
         if (cancelled) return;
-        setPreview({ isbn: pendingIsbn, status: error instanceof ApiError && error.status === 400 ? 'invalid' : 'error' });
+        const status: LookupStatus = error instanceof ApiError && error.status === 404 ? 'none'
+          : error instanceof ApiError && error.status === 400 ? 'invalid' : 'error';
+        setPreview({ isbn: pendingIsbn, status });
       });
     }, 600);
     return () => { cancelled = true; clearTimeout(timer); };
@@ -275,11 +293,11 @@ export default function Catalog() {
             </> : <>
               <Label>{draft.value.id ? `Edit ${draft.kind}` : `Add ${draft.kind}`}</Label>
               {draft.kind === 'title' ? <>
+                <Field editable={!shared.saving} label="ISBN" value={draft.value.isbn} onChangeText={changeIsbn} />
+                {preview && preview.isbn === draft.value.isbn.trim() ? <Note>{lookupMessage(preview.status)}</Note> : null}
+                {draft.value.coverUrl ? <Image source={{ uri: draft.value.coverUrl }} style={modalStyles.preview} accessibilityLabel="Cover preview" resizeMode="contain" /> : null}
                 <Field editable={!shared.saving} label="Title" value={draft.value.name} onChangeText={(name) => setDraft({ ...draft, value: { ...draft.value, name } })} />
                 <Field editable={!shared.saving} label="Author" value={draft.value.author} onChangeText={(author) => setDraft({ ...draft, value: { ...draft.value, author } })} />
-                <Field editable={!shared.saving} label="ISBN" value={draft.value.isbn} onChangeText={changeIsbn} />
-                {draft.value.coverUrl ? <Image source={{ uri: draft.value.coverUrl }} style={modalStyles.preview} accessibilityLabel="Cover preview" resizeMode="contain" /> : null}
-                {preview && preview.isbn === draft.value.isbn.trim() ? <Note>{coverPreviewMessage(preview.status)}</Note> : null}
                 <Field editable={!shared.saving} label="Pages" value={draft.pages} onChangeText={(pages) => setDraft({ ...draft, pages })} />
                 <Field editable={!shared.saving} label="Genres" value={draft.value.genres} onChangeText={(genres) => setDraft({ ...draft, value: { ...draft.value, genres } })} />
                 <Field editable={!shared.saving} label="Content notes" value={draft.value.notes} onChangeText={(notes) => setDraft({ ...draft, value: { ...draft.value, notes } })} />
