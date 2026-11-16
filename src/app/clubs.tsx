@@ -164,7 +164,8 @@ function serverState(fresh: SharedData, clubId: string, leaderId: string) {
   const membership = fresh.membershipRevisions.find(
     (item) => item.clubId === clubId,
   );
-  const titles = fresh.history.find((item) => item.clubId === clubId)?.titles ?? [];
+  const titles =
+    fresh.history.find((item) => item.clubId === clubId)?.titles ?? [];
   const revisions: Revisions = {
     club: record.revision,
     membership: membership?.revision ?? 0,
@@ -301,7 +302,11 @@ export default function Clubs() {
     (() => void) | null
   >(null);
   const draftRef = useRef<Draft | null>(null);
-  const confirmedRef = useRef<Confirmed>({ details: "", members: "", history: "" });
+  const confirmedRef = useRef<Confirmed>({
+    details: "",
+    members: "",
+    history: "",
+  });
   const revisionRef = useRef<Revisions>({ club: 0, membership: 0 });
   const queueRef = useRef<Section[]>([]);
   const drainingRef = useRef(false);
@@ -315,10 +320,13 @@ export default function Clubs() {
       draft.club.address.trim() !== "" ||
       draft.sizeText !== "1");
 
-  const disablePrevention = usePreventRemove(newDirty && formOpen, ({ repeat }) => {
-    setPendingNavigation(() => repeat);
-    setDiscardPrompt(true);
-  });
+  const disablePrevention = usePreventRemove(
+    newDirty && formOpen,
+    ({ repeat }) => {
+      setPendingNavigation(() => repeat);
+      setDiscardPrompt(true);
+    },
+  );
 
   useEffect(() => {
     if (!formOpen || !newDirty) return;
@@ -333,7 +341,12 @@ export default function Clubs() {
 
   function unlinkedKitOptions(clubId: string): PickerOption[] {
     return data.kits
-      .filter((kit) => !shared.data.links.some((link) => link.clubId === clubId && link.kitId === kit.id))
+      .filter(
+        (kit) =>
+          !shared.data.links.some(
+            (link) => link.clubId === clubId && link.kitId === kit.id,
+          ),
+      )
       .map((kit) => ({
         id: kit.id,
         label: `${kit.barcode} · ${data.titles.find((title) => title.id === kit.titleId)?.name ?? "Title unavailable"}`,
@@ -418,11 +431,19 @@ export default function Clubs() {
         revisionRef.current.club = saved.revision;
       } else if (section === "members") {
         revisionRef.current.membership = await shared.mutate(() =>
-          saveMemberships(current.club.id, current.members, revisionRef.current.membership),
+          saveMemberships(
+            current.club.id,
+            current.members,
+            revisionRef.current.membership,
+          ),
         );
       } else {
         revisionRef.current.club = await shared.mutate(() =>
-          saveHistory(current.club.id, current.history, revisionRef.current.club),
+          saveHistory(
+            current.club.id,
+            current.history,
+            revisionRef.current.club,
+          ),
         );
       }
     } catch (error: unknown) {
@@ -446,7 +467,11 @@ export default function Clubs() {
     if (!current) return;
     try {
       await shared.refresh();
-      const state = serverState(await loadShared(), current.club.id, current.club.leaderId);
+      const state = serverState(
+        await loadShared(),
+        current.club.id,
+        current.club.leaderId,
+      );
       if (state) revisionRef.current = state.revisions;
     } catch (error: unknown) {
       setSection(section, {
@@ -462,7 +487,11 @@ export default function Clubs() {
     const current = draftRef.current;
     if (!current) return;
     try {
-      const state = serverState(await loadShared(), current.club.id, current.club.leaderId);
+      const state = serverState(
+        await loadShared(),
+        current.club.id,
+        current.club.leaderId,
+      );
       if (!state) throw new Error("Club is no longer available.");
       const next: Draft =
         section === "details"
@@ -512,18 +541,25 @@ export default function Clubs() {
       return;
     }
     if (current?.club.id && hasUnsettledWork()) {
-      setMessage("Finish saving or revert the open club before opening another.");
+      setMessage(
+        "Finish saving or revert the open club before opening another.",
+      );
       return;
     }
     const next: Draft = {
       club: value,
       sizeText: String(value.size),
-      members: data.memberships.filter((membership) => membership.clubId === value.id),
+      members: data.memberships.filter(
+        (membership) => membership.clubId === value.id,
+      ),
       history: [...value.history],
     };
     draftRef.current = next;
     setDraft(next);
-    revisionRef.current = { club: value.revision, membership: value.membershipRevision };
+    revisionRef.current = {
+      club: value.revision,
+      membership: value.membershipRevision,
+    };
     confirmedRef.current = keysFor(next);
     setStatus(idleStatus);
     setOpen(defaultOpen);
@@ -549,12 +585,17 @@ export default function Clubs() {
 
   function toggleMember(personId: string) {
     updateDraft((current) => {
-      const selected = current.members.some((member) => member.personId === personId);
+      const selected = current.members.some(
+        (member) => member.personId === personId,
+      );
       return {
         ...current,
         members: selected
           ? current.members.filter((member) => member.personId !== personId)
-          : [...current.members, { personId, clubId: current.club.id, leader: false }],
+          : [
+              ...current.members,
+              { personId, clubId: current.club.id, leader: false },
+            ],
       };
     });
     queueSync("members");
@@ -562,7 +603,9 @@ export default function Clubs() {
 
   function toggleLeader(personId: string) {
     updateDraft((current) => {
-      const member = current.members.find((entry) => entry.personId === personId);
+      const member = current.members.find(
+        (entry) => entry.personId === personId,
+      );
       if (!member) return current;
       const leader = !member.leader;
       return {
@@ -614,7 +657,9 @@ export default function Clubs() {
         draftRef.current = next;
         setDraft(next);
         setStatus(idleStatus);
-        setMessage("Club created. Members and reading history can now be added.");
+        setMessage(
+          "Club created. Members and reading history can now be added.",
+        );
       })
       .catch((error: unknown) =>
         setMessage(errorText(error, "Unable to create club.")),
@@ -672,7 +717,9 @@ export default function Clubs() {
   const query = memberQuery.trim().toLowerCase();
   const memberRows = draft
     ? data.people.filter((candidate) => {
-        const selected = draft.members.some((member) => member.personId === candidate.id);
+        const selected = draft.members.some(
+          (member) => member.personId === candidate.id,
+        );
         return (
           (!memberSelectedOnly || selected) &&
           candidate.name.toLowerCase().includes(query)
@@ -774,7 +821,9 @@ export default function Clubs() {
         const members = data.memberships.filter(
           (membership) => membership.clubId === value.id,
         );
-        const links = shared.data.links.filter((link) => link.clubId === value.id);
+        const links = shared.data.links.filter(
+          (link) => link.clubId === value.id,
+        );
         return (
           <Card key={value.id}>
             <Pressable
@@ -798,7 +847,9 @@ export default function Clubs() {
                   {value.branch} · {value.size} members · {value.cadence} ·{" "}
                   {value.pickup}
                 </Note>
-                {value.pickup === "delivery" ? <Text>{value.address}</Text> : null}
+                {value.pickup === "delivery" ? (
+                  <Text>{value.address}</Text>
+                ) : null}
                 <Text>
                   Leader:{" "}
                   {data.people.find((p) => p.id === value.leaderId)?.name ??
@@ -861,7 +912,10 @@ export default function Clubs() {
                       selectedId=""
                       groups={[
                         { value: "all", label: "All branches" },
-                        ...data.library.branches.map((branch) => ({ value: branch, label: branch })),
+                        ...data.library.branches.map((branch) => ({
+                          value: branch,
+                          label: branch,
+                        })),
                       ]}
                       summary="Search kits to link"
                       disabled={busy}
@@ -925,7 +979,9 @@ export default function Clubs() {
                 >
                   <View style={modalStyles.header}>
                     <Label>
-                      {isNew ? "Add shared club" : draft.club.name || "Edit shared club"}
+                      {isNew
+                        ? "Add shared club"
+                        : draft.club.name || "Edit shared club"}
                     </Label>
                     <Pressable
                       accessibilityRole="button"
@@ -942,7 +998,11 @@ export default function Clubs() {
                       <Label>Discard unsaved club?</Label>
                       <Note>This new club has not been created yet.</Note>
                       <Actions>
-                        <Action tone="danger" title="Discard" onPress={discardNewClub} />
+                        <Action
+                          tone="danger"
+                          title="Discard"
+                          onPress={discardNewClub}
+                        />
                         <Action
                           title="Keep editing"
                           onPress={() => {
@@ -983,7 +1043,10 @@ export default function Clubs() {
                       title={`Method: ${draft.club.pickup}`}
                       onPress={() =>
                         changeDetails({
-                          pickup: draft.club.pickup === "pickup" ? "delivery" : "pickup",
+                          pickup:
+                            draft.club.pickup === "pickup"
+                              ? "delivery"
+                              : "pickup",
                         })
                       }
                     />
@@ -996,7 +1059,11 @@ export default function Clubs() {
                     )}
                     {isNew ? (
                       <Actions>
-                        <Action tone="primary" title="Create club" onPress={createClub} />
+                        <Action
+                          tone="primary"
+                          title="Create club"
+                          onPress={createClub}
+                        />
                       </Actions>
                     ) : (
                       <SyncLine
@@ -1007,7 +1074,9 @@ export default function Clubs() {
                     )}
                   </Fold>
                   {isNew ? (
-                    <Note>Create the club to manage members and reading history.</Note>
+                    <Note>
+                      Create the club to manage members and reading history.
+                    </Note>
                   ) : (
                     <>
                       <Fold
@@ -1017,10 +1086,11 @@ export default function Clubs() {
                         onToggle={() => toggleSection("members")}
                       >
                         <Note>
-                          One leader per club. Memberships with saved ballots cannot be removed.
+                          One leader per club. Memberships with saved ballots
+                          cannot be removed.
                         </Note>
                         {data.people.length === 0 && (
-                          <Note>Create demo users in Settings first.</Note>
+                          <Note>Create demo users on the Admin tab first.</Note>
                         )}
                         <TextInput
                           value={memberQuery}
@@ -1032,7 +1102,9 @@ export default function Clubs() {
                           <Action
                             selected={memberSelectedOnly}
                             title="Selected only"
-                            onPress={() => setMemberSelectedOnly(!memberSelectedOnly)}
+                            onPress={() =>
+                              setMemberSelectedOnly(!memberSelectedOnly)
+                            }
                           />
                         </Actions>
                         <Actions>
@@ -1053,7 +1125,11 @@ export default function Clubs() {
                                   <View style={modalStyles.grow}>
                                     <Action
                                       selected={membership.leader}
-                                      title={membership.leader ? "Leader ✓" : "Make leader"}
+                                      title={
+                                        membership.leader
+                                          ? "Leader ✓"
+                                          : "Make leader"
+                                      }
                                       onPress={() => toggleLeader(candidate.id)}
                                     />
                                   </View>
@@ -1062,7 +1138,9 @@ export default function Clubs() {
                             );
                           })}
                         </Actions>
-                        {memberRows.length === 0 && <Note>No matching people.</Note>}
+                        {memberRows.length === 0 && (
+                          <Note>No matching people.</Note>
+                        )}
                         <SyncLine
                           state={status.members}
                           onRetry={() => void retry("members")}
@@ -1085,7 +1163,9 @@ export default function Clubs() {
                           <Action
                             selected={titleSelectedOnly}
                             title="Selected only"
-                            onPress={() => setTitleSelectedOnly(!titleSelectedOnly)}
+                            onPress={() =>
+                              setTitleSelectedOnly(!titleSelectedOnly)
+                            }
                           />
                         </Actions>
                         <Actions>
@@ -1109,7 +1189,9 @@ export default function Clubs() {
                             );
                           })}
                         </Actions>
-                        {titleRows.length === 0 && <Note>No matching titles.</Note>}
+                        {titleRows.length === 0 && (
+                          <Note>No matching titles.</Note>
+                        )}
                         <SyncLine
                           state={status.history}
                           onRetry={() => void retry("history")}

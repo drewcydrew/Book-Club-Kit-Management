@@ -142,8 +142,8 @@ export default function Preferences() {
     return (
       <Page title="Preferences">
         <Note>
-          No demo user is selected on this device. Choose a shared user in
-          Settings; no user is selected automatically.
+          No demo user is selected on this device. Choose a shared user on the
+          User tab; no user is selected automatically.
         </Note>
       </Page>
     );

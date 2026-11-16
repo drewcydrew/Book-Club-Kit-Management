@@ -41,7 +41,7 @@ export default function Schedule() {
   const kitById = useMemo(() => new Map(data.kits.map((kit) => [kit.id, kit] as const)), [data.kits]);
   const titleById = useMemo(() => new Map(data.titles.map((title) => [title.id, title] as const)), [data.titles]);
   const clubById = useMemo(() => new Map(data.clubs.map((club) => [club.id, club] as const)), [data.clubs]);
-  if (!person) return <Page title="Schedule"><Note>No demo user is selected on this device. Choose a user in Settings.</Note></Page>;
+  if (!person) return <Page title="Schedule"><Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
   if (!cycle) return <Page title="Schedule"><Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = data.assignments.filter((assignment) => assignment.cycleId === cycle.id);
 
@@ -138,7 +138,7 @@ export default function Schedule() {
     }} />)}</Actions></Card>}
     <Card><Label>Choose a club</Label>
       {clubChoices.length === 0
-        ? <Note>{staff ? 'No clubs exist yet.' : 'You are not enrolled in any clubs. Enrol in a club in Settings.'}</Note>
+        ? <Note>{staff ? 'No clubs exist yet.' : 'You are not enrolled in any clubs. Enrol in a club on the My clubs tab.'}</Note>
         : <Actions>{clubChoices.map((value) => <Action key={value.id} selected={value.id === clubId} title={value.name} onPress={() => {
           setSelectedClubId(value.id); setExpandedId(null);
         }} />)}</Actions>}

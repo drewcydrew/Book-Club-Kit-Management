@@ -42,7 +42,7 @@ export default function Circulation() {
     }
   }
 
-  if (!staff) return <Page title="Circulation"><Note>Switch to a staff or library-admin demo user in Settings to manage shared kit status.</Note></Page>;
+  if (!staff) return <Page title="Circulation"><Note>Switch to a staff or library-admin demo user on the User tab to manage shared kit status.</Note></Page>;
   const search = query.trim().toLowerCase();
   const visibleKits = data.kits.filter((kit) =>
     `${kit.barcode} ${data.titles.find((title) => title.id === kit.titleId)?.name ?? ''}`.toLowerCase().includes(search));
