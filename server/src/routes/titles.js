@@ -10,6 +10,12 @@ function coverUrl(value) {
   return url;
 }
 
+// ISBNdb-derived details are optional; empty or missing values are stored as NULL.
+function optionalText(value, field, max) {
+  if (value === null || value === undefined || value === '') return null;
+  return text(value, field, false, max);
+}
+
 // Temporary development rule: deleting a title also removes its kits, their club links,
 // circulation history, schedule assignments, ballot marks, finalized rankings and club history.
 async function removeTitle(req, res) {
@@ -43,12 +49,14 @@ async function removeTitle(req, res) {
 
 module.exports = records({
   table: 'titles',
-  columns: ['name', 'author', 'isbn', 'pages', 'genres', 'notes', 'large_print', 'audio', 'cover_url'],
+  columns: ['name', 'author', 'isbn', 'pages', 'genres', 'notes', 'large_print', 'audio', 'cover_url', 'publisher', 'synopsis', 'date_published', 'binding', 'language'],
   select: titleColumns,
   remove: removeTitle,
   validate(value) {
     const b = object(value);
     return [text(b.name, 'name', true, 200), text(b.author, 'author', true, 200), text(b.isbn, 'isbn', false, 40),
-      integer(b.pages, 'pages', 0), text(b.genres, 'genres'), text(b.notes, 'notes'), boolean(b.largePrint, 'largePrint'), boolean(b.audio, 'audio'), coverUrl(b.coverUrl)];
+      integer(b.pages, 'pages', 0), text(b.genres, 'genres'), text(b.notes, 'notes'), boolean(b.largePrint, 'largePrint'), boolean(b.audio, 'audio'), coverUrl(b.coverUrl),
+      optionalText(b.publisher, 'publisher', 200), optionalText(b.synopsis, 'synopsis', 4000), optionalText(b.datePublished, 'datePublished', 40),
+      optionalText(b.binding, 'binding', 100), optionalText(b.language, 'language', 40)];
   },
 });

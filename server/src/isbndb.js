@@ -58,6 +58,11 @@ async function lookupBook(isbn) {
       pages: cleanPages(data.pages),
       genres: cleanList(data.subjects, 2000),
       coverUrl: cleanCover(data.image),
+      publisher: cleanText(data.publisher, 200),
+      synopsis: cleanText(data.synopsis, 4000),
+      datePublished: cleanText(data.date_published, 40),
+      binding: cleanText(data.binding, 100),
+      language: cleanText(data.language, 40),
     },
   };
 }

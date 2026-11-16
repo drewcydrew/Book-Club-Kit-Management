@@ -53,7 +53,7 @@ test('ISBN lookup maps ISBNdb fields to title details and caches the answer', as
   process.env.ISBNDB_API_KEY = 'test-key';
   const stub = async (url) => {
     calls.push(url);
-    return Response.json({ book: { title: ' The Lantern Garden ', authors: ['Mara Fields', 'Co Author'], pages: 312, subjects: ['Fiction', 'Mystery'], image: 'https://covers.example/a.jpg' } });
+    return Response.json({ book: { title: ' The Lantern Garden ', authors: ['Mara Fields', 'Co Author'], pages: 312, subjects: ['Fiction', 'Mystery'], image: 'https://covers.example/a.jpg', publisher: 'Penguin Books', synopsis: 'A quiet garden.', date_published: '2015-09-08', binding: 'Paperback', language: 'eng' } });
   };
   await withCoverServer(stub, async (base) => {
     assert.equal((await fetch(`${base}?isbn=abc`)).status, 400);
@@ -64,6 +64,11 @@ test('ISBN lookup maps ISBNdb fields to title details and caches the answer', as
       pages: 312,
       genres: 'Fiction, Mystery',
       coverUrl: 'https://covers.example/a.jpg',
+      publisher: 'Penguin Books',
+      synopsis: 'A quiet garden.',
+      datePublished: '2015-09-08',
+      binding: 'Paperback',
+      language: 'eng',
     });
     await fetch(`${base}?isbn=9780306406157`);
   }, '/api/isbn-lookup');

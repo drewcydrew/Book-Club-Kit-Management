@@ -27,6 +27,11 @@ export interface Title {
   largePrint: boolean;
   audio: boolean;
   coverUrl?: string | null;
+  publisher?: string | null;
+  synopsis?: string | null;
+  datePublished?: string | null;
+  binding?: string | null;
+  language?: string | null;
 }
 
 export interface Kit {
