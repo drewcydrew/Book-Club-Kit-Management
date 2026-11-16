@@ -201,6 +201,20 @@ export async function fetchIsbnCover(isbn: string): Promise<string | null> {
   return typeof body?.imageUrl === 'string' ? body.imageUrl : null;
 }
 
+export type IsbnLookup = { title: string | null; author: string | null; pages: number | null; genres: string | null; coverUrl: string | null };
+
+function isIsbnLookup(value: unknown): value is IsbnLookup {
+  const nullable = (check: (item: unknown) => boolean) => (item: unknown) => item === null || check(item);
+  return isObject(value) && nullable(isString)(value.title) && nullable(isString)(value.author) &&
+    nullable(isNumber)(value.pages) && nullable(isString)(value.genres) && nullable(isString)(value.coverUrl);
+}
+
+export async function lookupIsbn(isbn: string): Promise<IsbnLookup> {
+  const value = await request(`/api/isbn-lookup?isbn=${encodeURIComponent(isbn)}`, 'GET');
+  if (!isIsbnLookup(value)) throw new Error('Server returned an invalid ISBN lookup.');
+  return value;
+}
+
 export async function saveCycle(cycle: Omit<Cycle, 'revision'> & Partial<Pick<Cycle, 'revision'>>): Promise<Cycle> {
   const exists = cycle.revision !== undefined;
   const value = await request(`/api/cycles${exists ? `/${encodeURIComponent(cycle.id)}` : ''}`, exists ? 'PUT' : 'POST',
