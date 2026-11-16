@@ -1,4 +1,4 @@
-import type { Ballot, Membership, Mark, Slot } from './model';
+import type { Ballot, Cycle, Data, Membership, Mark, Slot } from './model';
 
 export interface MonthGroup {
   month: string;
@@ -9,7 +9,15 @@ export interface MemberVote {
   personId: string;
   voted: boolean;
   ranking: string[];
+  selected: string[];
   marks: Record<Mark, number>;
+}
+
+export interface TitlePriority {
+  titleId: string;
+  score: number;
+  supporters: number;
+  history: boolean;
 }
 
 export function groupSlotsByMonth(slots: Slot[], clubId = ''): MonthGroup[] {
@@ -32,6 +40,25 @@ export function memberVotes(memberships: Membership[], ballots: Ballot[], cycleI
       const marks: Record<Mark, number> = { selected: 0, read: 0, wont: 0 };
       for (const mark of Object.values(ballot?.marks ?? {})) marks[mark] += 1;
       const ranking = ballot?.ranking ?? [];
-      return { personId: membership.personId, voted: ranking.length > 0 || Object.keys(ballot?.marks ?? {}).length > 0, ranking, marks };
+      const selected = ranking.filter((titleId) => ballot?.marks[titleId] === 'selected');
+      return { personId: membership.personId, voted: ranking.length > 0 || Object.keys(ballot?.marks ?? {}).length > 0, ranking, selected, marks };
     });
+}
+
+export function clubPriorities(data: Data, cycle: Cycle, clubId: string): TitlePriority[] {
+  const history = data.clubs.find((club) => club.id === clubId)?.history ?? [];
+  const scores = new Map<string, { score: number; supporters: number }>();
+  data.ballots.filter((ballot) => ballot.cycleId === cycle.id && ballot.clubId === clubId).forEach((ballot) => {
+    ballot.ranking
+      .filter((titleId) => ballot.marks[titleId] === 'selected' && data.titles.some((title) => title.id === titleId))
+      .forEach((titleId, index, list) => {
+        const entry = scores.get(titleId) ?? { score: 0, supporters: 0 };
+        entry.score += list.length - index;
+        entry.supporters += 1;
+        scores.set(titleId, entry);
+      });
+  });
+  return [...scores]
+    .map(([titleId, entry]) => ({ titleId, ...entry, history: history.includes(titleId) }))
+    .sort((a, b) => b.score - a.score || a.titleId.localeCompare(b.titleId));
 }

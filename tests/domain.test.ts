@@ -7,8 +7,8 @@ import { filterOptions, type PickerOption } from '../src/domain/search';
 import { seed } from '../src/domain/seed';
 import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
-import type { Ballot } from '../src/domain/model';
-import { groupSlotsByMonth, memberVotes } from '../src/domain/cycle-overview';
+import type { Ballot, Cycle, Data } from '../src/domain/model';
+import { clubPriorities, groupSlotsByMonth, memberVotes } from '../src/domain/cycle-overview';
 
 test('meetings group by month in date order and filter by club', () => {
   const slots = [
@@ -33,8 +33,25 @@ test('member votes count only members of the club and report current preferences
     { cycleId: 'cy', clubId: 'c', personId: 'p1', marks: { t1: 'selected', t2: 'wont' }, ranking: ['t1'], revision: 1 },
   ];
   assert.deepEqual(memberVotes(memberships, ballots, 'cy', 'c'), [
-    { personId: 'p1', voted: true, ranking: ['t1'], marks: { selected: 1, read: 0, wont: 1 } },
-    { personId: 'p2', voted: false, ranking: [], marks: { selected: 0, read: 0, wont: 0 } },
+    { personId: 'p1', voted: true, ranking: ['t1'], selected: ['t1'], marks: { selected: 1, read: 0, wont: 1 } },
+    { personId: 'p2', voted: false, ranking: [], selected: [], marks: { selected: 0, read: 0, wont: 0 } },
+  ]);
+});
+
+test('club priorities score selected titles by ranking position and flag previously read titles', () => {
+  const data = {
+    clubs: [{ id: 'c', history: ['old'] }],
+    titles: [{ id: 't1' }, { id: 't2' }, { id: 'old' }],
+    ballots: [
+      { cycleId: 'cy', clubId: 'c', personId: 'p1', marks: { t1: 'selected', t2: 'selected', old: 'selected' }, ranking: ['t1', 't2', 'old'], revision: 1 },
+      { cycleId: 'cy', clubId: 'c', personId: 'p2', marks: { t2: 'selected', t1: 'read' }, ranking: ['t2', 't1'], revision: 1 },
+    ],
+  } as unknown as Data;
+  const cycle = { id: 'cy', name: '', deadline: '', status: 'collecting', slots: [], finalized: {}, revision: 1 } as Cycle;
+  assert.deepEqual(clubPriorities(data, cycle, 'c'), [
+    { titleId: 't1', score: 3, supporters: 1, history: false },
+    { titleId: 't2', score: 3, supporters: 2, history: false },
+    { titleId: 'old', score: 1, supporters: 1, history: true },
   ]);
 });
 
