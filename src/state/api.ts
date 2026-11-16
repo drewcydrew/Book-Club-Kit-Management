@@ -233,6 +233,27 @@ export async function lookupIsbn(isbn: string): Promise<IsbnLookup> {
   return value;
 }
 
+export type TitleSearchResult = {
+  isbn: string;
+  title: string | null;
+  author: string | null;
+  datePublished: string | null;
+};
+
+function isTitleSearchResult(value: unknown): value is TitleSearchResult {
+  const nullable = (check: (item: unknown) => boolean) => (item: unknown) => item === null || check(item);
+  return isObject(value) && isString(value.isbn) && nullable(isString)(value.title) &&
+    nullable(isString)(value.author) && nullable(isString)(value.datePublished);
+}
+
+export async function searchIsbns(title: string): Promise<TitleSearchResult[]> {
+  const value = await request(`/api/isbn-search?title=${encodeURIComponent(title)}`, 'GET');
+  if (!isObject(value) || !Array.isArray(value.results) || !value.results.every(isTitleSearchResult)) {
+    throw new Error('Server returned an invalid ISBN search.');
+  }
+  return value.results;
+}
+
 export async function saveCycle(cycle: Omit<Cycle, 'revision'> & Partial<Pick<Cycle, 'revision'>>): Promise<Cycle> {
   const exists = cycle.revision !== undefined;
   const value = await request(`/api/cycles${exists ? `/${encodeURIComponent(cycle.id)}` : ''}`, exists ? 'PUT' : 'POST',

@@ -75,6 +75,40 @@ test('ISBN lookup maps ISBNdb fields to title details and caches the answer', as
   assert.equal(calls.length, 1);
 });
 
+test('title search lists unique 13-digit ISBNs and maps empty and missing results', async () => {
+  process.env.ISBNDB_API_KEY = 'test-key';
+  const calls = [];
+  const stub = async (url) => {
+    calls.push(url);
+    if (String(url).includes('Missing')) return new Response('', { status: 404 });
+    return Response.json({ books: [
+      { isbn13: '9780143127741', title: 'Dune', authors: ['Frank Herbert'], date_published: '1965' },
+      { isbn13: '9780143127741', title: 'Dune duplicate' },
+      { isbn: '0441013597', title: 'No isbn13' },
+      { isbn13: 'not-an-isbn', title: 'Bad' },
+    ] });
+  };
+  await withCoverServer(stub, async (base) => {
+    assert.equal((await fetch(`${base}?title=%20%20`)).status, 400);
+    const found = await fetch(`${base}?title=Dune%20Search`);
+    assert.deepEqual(await found.json(), { results: [
+      { isbn: '9780143127741', title: 'Dune', author: 'Frank Herbert', datePublished: '1965' },
+    ] });
+    assert.equal((await fetch(`${base}?title=Missing%20Title`)).status, 404);
+  }, '/api/isbn-search');
+  assert.equal(calls.length, 2);
+  assert.match(calls[0], /^https:\/\/api2\.isbndb\.com\/books\/Dune%20Search\?pageSize=10&column=title$/);
+});
+
+test('title search returns 503 without calling ISBNdb when no API key is set', async () => {
+  let called = false;
+  delete process.env.ISBNDB_API_KEY;
+  await withCoverServer(async () => { called = true; return Response.json({}); }, async (base) => {
+    assert.equal((await fetch(`${base}?title=Unkeyed%20Title`)).status, 503);
+  }, '/api/isbn-search');
+  assert.equal(called, false);
+});
+
 test('cover preview returns no image without calling ISBNdb when no API key is set', async () => {
   let called = false;
   delete process.env.ISBNDB_API_KEY;

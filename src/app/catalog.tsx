@@ -26,7 +26,9 @@ import {
   deleteRecord,
   lookupIsbn,
   saveRecord,
+  searchIsbns,
   type IsbnLookup,
+  type TitleSearchResult,
 } from "../state/api";
 import { saveCatalogChange } from "../state/catalog-save";
 import { useShared } from "../state/shared";
@@ -110,6 +112,23 @@ function lookupMessage(status: LookupStatus): string {
   }
 }
 
+type TitleSearchStatus = "loading" | "done" | "none" | "invalid" | "error";
+
+function titleSearchMessage(status: TitleSearchStatus, count: number): string {
+  switch (status) {
+    case "loading":
+      return "Searching ISBNdb…";
+    case "done":
+      return `${count} match${count === 1 ? "" : "es"}. The first is used for details; tap another to switch.`;
+    case "none":
+      return "No ISBNs found for that title.";
+    case "invalid":
+      return "Enter a title to search.";
+    case "error":
+      return "Title search is unavailable right now.";
+  }
+}
+
 // Fills only empty fields so that text the user has already typed is never replaced.
 function applyLookup(draft: TitleDraft, found: IsbnLookup): TitleDraft {
   const { value } = draft;
@@ -153,6 +172,11 @@ export default function Catalog() {
     status: LookupStatus;
   } | null>(null);
   const [message, setMessage] = useState("");
+  const [isbnTitleQuery, setIsbnTitleQuery] = useState("");
+  const [titleSearch, setTitleSearch] = useState<{
+    status: TitleSearchStatus;
+    results: TitleSearchResult[];
+  } | null>(null);
   const [formError, setFormError] = useState("");
   const [recovery, setRecovery] = useState<"conflict" | "uncertain" | null>(
     null,
@@ -252,6 +276,8 @@ export default function Catalog() {
     setInitial(JSON.stringify(next));
     setPendingIsbn("");
     setPreview(null);
+    setIsbnTitleQuery("");
+    setTitleSearch(null);
     setFormError("");
     setRecovery(null);
     setConfirmDiscard(false);
@@ -274,6 +300,41 @@ export default function Catalog() {
     if (!changed) return;
     setPendingIsbn(trimmed);
     setPreview(trimmed ? { isbn: trimmed, status: "loading" } : null);
+  }
+
+  // Uses a functional update because a title search resolves after the user may have edited other fields.
+  function selectTitleIsbn(isbn: string) {
+    const trimmed = isbn.trim();
+    if (!trimmed || (draft?.kind === "title" && draft.value.isbn.trim() === trimmed)) return;
+    setDraft((current) =>
+      current?.kind === "title"
+        ? { ...current, value: { ...current.value, isbn: trimmed, coverUrl: null } }
+        : current,
+    );
+    setPendingIsbn(trimmed);
+    setPreview({ isbn: trimmed, status: "loading" });
+  }
+
+  async function searchTitle() {
+    const query = isbnTitleQuery.trim();
+    if (!query) {
+      setTitleSearch({ status: "invalid", results: [] });
+      return;
+    }
+    setTitleSearch({ status: "loading", results: [] });
+    try {
+      const results = await searchIsbns(query);
+      setTitleSearch({ status: "done", results });
+      selectTitleIsbn(results[0].isbn);
+    } catch (error: unknown) {
+      const status: TitleSearchStatus =
+        error instanceof ApiError && error.status === 404
+          ? "none"
+          : error instanceof ApiError && error.status === 400
+            ? "invalid"
+            : "error";
+      setTitleSearch({ status, results: [] });
+    }
   }
 
   function close() {
@@ -605,6 +666,45 @@ export default function Catalog() {
                         />
                         {preview && preview.isbn === draft.value.isbn.trim() ? (
                           <Note>{lookupMessage(preview.status)}</Note>
+                        ) : null}
+                        <Field
+                          editable={!shared.saving}
+                          label="Search by title"
+                          value={isbnTitleQuery}
+                          onChangeText={setIsbnTitleQuery}
+                        />
+                        <Actions>
+                          <Action
+                            title="Search ISBNdb"
+                            disabled={
+                              shared.saving || titleSearch?.status === "loading"
+                            }
+                            onPress={searchTitle}
+                          />
+                        </Actions>
+                        {titleSearch ? (
+                          <>
+                            <Note>
+                              {titleSearchMessage(
+                                titleSearch.status,
+                                titleSearch.results.length,
+                              )}
+                            </Note>
+                            {titleSearch.results.map((result) => {
+                              const year = result.datePublished?.match(/^\d{4}/)?.[0];
+                              const label = [result.title, result.author, year, result.isbn]
+                                .filter(Boolean)
+                                .join(" · ");
+                              return (
+                                <Action
+                                  key={result.isbn}
+                                  title={label}
+                                  selected={draft.value.isbn.trim() === result.isbn}
+                                  onPress={() => selectTitleIsbn(result.isbn)}
+                                />
+                              );
+                            })}
+                          </>
                         ) : null}
                         {draft.value.coverUrl ? (
                           <Image

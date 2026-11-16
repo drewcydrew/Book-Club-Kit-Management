@@ -67,4 +67,42 @@ async function lookupBook(isbn) {
   };
 }
 
-module.exports = { lookupBook };
+// Returns { results } of candidate ISBNs for a title, or null when ISBNdb is unavailable.
+async function searchBooks(title) {
+  const apiKey = process.env.ISBNDB_API_KEY;
+  if (!apiKey) return null;
+  let response;
+  try {
+    response = await fetch(`https://api2.isbndb.com/books/${encodeURIComponent(title)}?pageSize=10&column=title`, {
+      headers: { Authorization: apiKey },
+      signal: AbortSignal.timeout(lookupTimeoutMs),
+    });
+  } catch {
+    console.error('ISBNdb search failed: network error.');
+    return null;
+  }
+  if (response.status === 404) return { results: [] };
+  if (!response.ok) {
+    console.error(`ISBNdb search failed: HTTP ${response.status}.`);
+    return null;
+  }
+  let body;
+  try { body = await response.json(); } catch { return null; }
+  const books = Array.isArray(body?.books) ? body.books : [];
+  const results = [];
+  const seen = new Set();
+  for (const item of books) {
+    const isbn = cleanText(item?.isbn13, 13);
+    if (!isbn || !/^\d{13}$/.test(isbn) || seen.has(isbn)) continue;
+    seen.add(isbn);
+    results.push({
+      isbn,
+      title: cleanText(item.title, 200),
+      author: cleanList(item.authors, 200),
+      datePublished: cleanText(item.date_published, 40),
+    });
+  }
+  return { results };
+}
+
+module.exports = { lookupBook, searchBooks };
