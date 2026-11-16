@@ -51,9 +51,9 @@ async function seed(pool) {
         await client.query('INSERT INTO memberships(club_id,person_id,leader) VALUES($1,$2,$3)', [clubId,personId,leader]);
       }
       await client.query("INSERT INTO membership_versions(club_id) VALUES('c1'),('c2')");
-      await client.query("INSERT INTO cycles(id,name,deadline,status) VALUES('cycle1','Upcoming reading cycle',CURRENT_DATE+14,'collecting')");
+      await client.query("INSERT INTO cycles(id,name,deadline,starts_on,ends_on,status) VALUES('cycle1','Upcoming reading cycle',CURRENT_DATE+14,CURRENT_DATE+14,CURRENT_DATE+70,'collecting')");
       for (const [slot,club,days] of [['s1','c1',35],['s2','c2',35],['s3','c1',70],['s4','c2',70]]) {
-        await client.query("INSERT INTO meeting_slots(id,cycle_id,club_id,meeting) VALUES($1,'cycle1',$2,CURRENT_DATE+$3::int)", [slot,club,days]);
+        await client.query("INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES($1,'cycle1',$2,to_char(CURRENT_DATE+$3::int,'YYYY-MM'),CURRENT_DATE+$3::int)", [slot,club,days]);
       }
       for (const [club,person,titles] of [['c1','p3',['t1','t2']],['c1','p4',['t1','t3']],['c2','p5',['t1','t2']],['c2','p6',['t2','t1','t3']]]) {
         await client.query("INSERT INTO ballots(cycle_id,club_id,person_id) VALUES('cycle1',$1,$2)", [club,person]);

@@ -71,13 +71,16 @@ export interface Ballot {
 export interface Slot {
   id: string;
   clubId: string;
-  meeting: string;
+  month: string;
+  meeting: string | null;
 }
 
 export interface Cycle {
   id: string;
   name: string;
   deadline: string;
+  startsOn: string;
+  endsOn: string;
   status: CycleStatus;
   slots: Slot[];
   finalized: Record<string, string[]>;

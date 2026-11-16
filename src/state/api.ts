@@ -70,13 +70,15 @@ function isMarks(value: unknown): value is Record<string, Mark> {
   return isObject(value) && Object.values(value).every(isMark);
 }
 function isSlot(value: unknown): boolean {
-  return isObject(value) && isString(value.id) && isString(value.clubId) && isString(value.meeting);
+  return isObject(value) && isString(value.id) && isString(value.clubId) && isString(value.month) &&
+    (value.meeting === null || isString(value.meeting));
 }
 function isStringMap(value: unknown): value is Record<string, string[]> {
   return isObject(value) && Object.values(value).every(isStringArray);
 }
 function isCycle(value: unknown): value is Cycle {
   return isObject(value) && isString(value.id) && isString(value.name) && isString(value.deadline) &&
+    isString(value.startsOn) && isString(value.endsOn) &&
     ['open', 'collecting', 'drafted', 'published'].includes(String(value.status)) && isNumber(value.revision) &&
     Array.isArray(value.slots) && value.slots.every(isSlot) && isStringMap(value.finalized);
 }
@@ -257,8 +259,8 @@ export async function searchIsbns(title: string): Promise<TitleSearchResult[]> {
 export async function saveCycle(cycle: Omit<Cycle, 'revision'> & Partial<Pick<Cycle, 'revision'>>): Promise<Cycle> {
   const exists = cycle.revision !== undefined;
   const value = await request(`/api/cycles${exists ? `/${encodeURIComponent(cycle.id)}` : ''}`, exists ? 'PUT' : 'POST',
-    exists ? { name: cycle.name, deadline: cycle.deadline, status: cycle.status, slots: cycle.slots, revision: cycle.revision }
-      : { id: cycle.id, name: cycle.name, deadline: cycle.deadline, status: cycle.status, slots: cycle.slots });
+    exists ? { name: cycle.name, deadline: cycle.deadline, startsOn: cycle.startsOn, endsOn: cycle.endsOn, status: cycle.status, slots: cycle.slots, revision: cycle.revision }
+      : { id: cycle.id, name: cycle.name, deadline: cycle.deadline, startsOn: cycle.startsOn, endsOn: cycle.endsOn, status: cycle.status, slots: cycle.slots });
   if (!isCycle(value)) throw new Error('Server returned an invalid cycle; refresh before retrying.');
   return value;
 }

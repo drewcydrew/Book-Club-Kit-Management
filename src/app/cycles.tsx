@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Text } from 'react-native';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import { today, validDate } from '../domain/dates';
-import { clubPriorities, groupSlotsByMonth, memberVotes } from '../domain/cycle-overview';
+import { clubPriorities, groupSlotsByMonth, lastDayOfMonth, memberVotes, monthsInRange, shiftMonth } from '../domain/cycle-overview';
 import { id } from '../domain/logic';
 import type { Club, Cycle, Data } from '../domain/model';
 import { deleteCycle, saveCycle } from '../state/api';
@@ -17,7 +17,10 @@ export default function Cycles() {
   const [selectedId, setSelectedId] = useState(data.cycles[0]?.id ?? '');
   const [name, setName] = useState('');
   const [deadline, setDeadline] = useState(today());
+  const [startMonth, setStartMonth] = useState(today().slice(0, 7));
+  const [endMonth, setEndMonth] = useState(shiftMonth(today().slice(0, 7), 11));
   const [meeting, setMeeting] = useState('');
+  const [slotMonth, setSlotMonth] = useState(today().slice(0, 7));
   const [clubId, setClubId] = useState(data.clubs[0]?.id ?? '');
   const [message, setMessage] = useState('');
   const [deleteId, setDeleteId] = useState('');
@@ -36,8 +39,14 @@ export default function Cycles() {
   }
 
   function create() {
-    if (!name.trim() || !validDate(deadline)) { setMessage('Enter a cycle name and a valid deadline (YYYY-MM-DD).'); return; }
-    const newCycle = { id: id(), name: name.trim(), deadline, status: 'open' as const, slots: [], finalized: {} };
+    if (!name.trim() || !validDate(deadline) || !validMonth(startMonth) || !validMonth(endMonth) || endMonth < startMonth) {
+      setMessage('Enter a cycle name, a valid deadline (YYYY-MM-DD) and a start and end month (YYYY-MM).');
+      return;
+    }
+    const newCycle = {
+      id: id(), name: name.trim(), deadline, startsOn: `${startMonth}-01`, endsOn: lastDayOfMonth(endMonth),
+      status: 'open' as const, slots: [], finalized: {},
+    };
     void shared.mutate(() => saveCycle(newCycle)).then((created) => {
       setSelectedId(created.id); setName(''); setMessage('Shared cycle created.');
     }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to create cycle.'));
@@ -45,16 +54,32 @@ export default function Cycles() {
 
   function addSlot() {
     if (!cycle || (cycle.status !== 'open' && cycle.status !== 'collecting')) return;
-    if (!validDate(meeting) || !data.clubs.some((c) => c.id === clubId)) { setMessage('Select a club and enter a valid meeting date (YYYY-MM-DD).'); return; }
-    if (meeting <= cycle.deadline) { setMessage('Meeting must be after the preference deadline.'); return; }
-    if (cycle.slots.some((slot) => slot.clubId === clubId && slot.meeting === meeting)) { setMessage('This club already has a meeting on that date.'); return; }
-    void persist({ ...cycle, slots: [...cycle.slots, { id: id(), clubId, meeting }] }, 'Shared meeting added.')
+    if (!validMonth(slotMonth) || !data.clubs.some((c) => c.id === clubId)) { setMessage('Select a club and a month (YYYY-MM).'); return; }
+    if (!monthsInRange(cycle.startsOn, cycle.endsOn).includes(slotMonth)) { setMessage('That month is outside the cycle range.'); return; }
+    if (cycle.slots.some((slot) => slot.clubId === clubId && slot.month === slotMonth)) { setMessage('This club already has a kit slot for that month.'); return; }
+    if (meeting && (!validDate(meeting) || !meeting.startsWith(`${slotMonth}-`) || meeting <= cycle.deadline)) {
+      setMessage('Meeting date must be a valid date in the selected month and after the preference deadline.');
+      return;
+    }
+    void persist({ ...cycle, slots: [...cycle.slots, { id: id(), clubId, month: slotMonth, meeting: meeting || null }] }, 'Kit slot added.')
       .then((saved) => { if (saved) setMeeting(''); });
+  }
+
+  function fillMonths() {
+    if (!cycle || (cycle.status !== 'open' && cycle.status !== 'collecting')) return;
+    const months = monthsInRange(cycle.startsOn, cycle.endsOn);
+    const added = data.clubs.flatMap((club) => months
+      .filter((month) => !cycle.slots.some((slot) => slot.clubId === club.id && slot.month === month))
+      .map((month) => ({ id: id(), clubId: club.id, month, meeting: null })));
+    if (added.length === 0) { setMessage('Every club already has a slot for each month.'); return; }
+    void persist({ ...cycle, slots: [...cycle.slots, ...added] }, `Added ${added.length} kit slots.`);
   }
 
   if (!staff) return <Page title="Cycles"><Note>Staff manage shared planning cycles. Members can vote on Preferences. Switch to a demo staff/admin role on the User tab.</Note></Page>;
   return <Page title="Cycles">
     <Card><Label>Create a cycle</Label><Field label="Cycle name" value={name} onChangeText={setName} />
+      <Field label="First month (YYYY-MM)" value={startMonth} onChangeText={setStartMonth} />
+      <Field label="Last month (YYYY-MM)" value={endMonth} onChangeText={setEndMonth} />
       <Field label="Preference deadline (YYYY-MM-DD)" value={deadline} onChangeText={setDeadline} /><Action tone="primary" title="Create shared cycle" onPress={create} />
     </Card>
     <Card><Label>Select a cycle</Label>
@@ -69,15 +94,22 @@ export default function Cycles() {
     <Card><Label>Manage cycle</Label>
       {(cycle.status === 'open' || cycle.status === 'collecting') && <EditCycle key={cycle.id} cycle={cycle} onSave={(value) => persist(value, 'Shared cycle saved.')} />}
       {cycle.status === 'open' && <Action title="Open member voting" onPress={() => persist({ ...cycle, status: 'collecting' }, 'Voting opened.')} />}
-      {editable && <Label>Meetings</Label>}
-      {editable && cycle.slots.length === 0 && <Note>No meetings added.</Note>}
-      {editable && cycle.slots.map((slot) => <Actions key={slot.id}><Text>{data.clubs.find((c) => c.id === slot.clubId)?.name ?? 'Unavailable club'} · {slot.meeting}</Text>
-        {(cycle.status === 'open' || cycle.status === 'collecting') && <Action tone="danger" title="Remove" onPress={() => {
-          persist({ ...cycle, slots: cycle.slots.filter((item) => item.id !== slot.id) }, 'Meeting removed.');
-        }} />}
-      </Actions>)}
-      {(cycle.status === 'open' || cycle.status === 'collecting') && <><Note>Select club:</Note><Actions>{data.clubs.map((club) => <Action key={club.id} selected={club.id === clubId} title={`${club.name}${club.id === clubId ? ' ✓' : ''}`} onPress={() => setClubId(club.id)} />)}</Actions>
-        <Field label="Meeting date (YYYY-MM-DD)" value={meeting} onChangeText={setMeeting} /><Action title="Add meeting" onPress={addSlot} /></>}
+      {editable && <Label>Kit slots by month</Label>}
+      {editable && cycle.slots.length === 0 && <Note>No kit slots yet. Add slots below, or fill every club and month in the range.</Note>}
+      {editable && monthsInRange(cycle.startsOn, cycle.endsOn).map((month) => {
+        const slots = cycle.slots.filter((slot) => slot.month === month);
+        return <Actions key={month}><Text>{monthLabel(month)}: {slots.length === 0 ? 'none' : ''}</Text>
+          {slots.map((slot) => <Action key={slot.id} title={`${clubName(data, slot.clubId)} · ${slot.meeting ?? 'no date'} ✕`} onPress={() => {
+            persist({ ...cycle, slots: cycle.slots.filter((item) => item.id !== slot.id) }, 'Kit slot removed.');
+          }} />)}
+        </Actions>;
+      })}
+      {(cycle.status === 'open' || cycle.status === 'collecting') && <>
+        <Note>Select club:</Note><Actions>{data.clubs.map((club) => <Action key={club.id} selected={club.id === clubId} title={`${club.name}${club.id === clubId ? ' ✓' : ''}`} onPress={() => setClubId(club.id)} />)}</Actions>
+        <Field label="Month (YYYY-MM)" value={slotMonth} onChangeText={setSlotMonth} />
+        <Field label="Meeting date, optional (YYYY-MM-DD)" value={meeting} onChangeText={setMeeting} />
+        <Actions><Action title="Add kit slot" onPress={addSlot} /><Action title="Fill every club and month" onPress={fillMonths} /></Actions>
+      </>}
       {deleteId === cycle.id ? <Actions><Note>Delete this cycle? This removes its meetings, member preferences, finalized rankings and schedule. In-use cycles can be deleted; this cannot be undone.</Note>
         <Action tone="danger" title="Confirm delete cycle" onPress={() => {
           void shared.mutate(() => deleteCycle(cycle.id, cycle.revision)).then(() => {
@@ -107,7 +139,7 @@ function ScheduleOverview({ data, cycle, clubFilter, onFilter }: OverviewProps) 
         const assignment = data.assignments.find((item) => item.cycleId === cycle.id && item.slotId === slot.id);
         const kit = data.kits.find((item) => item.id === assignment?.kitId);
         const title = data.titles.find((item) => item.id === kit?.titleId);
-        return <Text key={slot.id}>{clubName(data, slot.clubId)} · {slot.meeting} · {title && kit ? `${title.name} (${kit.barcode})` : 'No kit assigned'}</Text>;
+        return <Text key={slot.id}>{clubName(data, slot.clubId)} · {slot.meeting ?? `${monthLabel(slot.month)}, no date`} · {title && kit ? `${title.name} (${kit.barcode})` : 'No kit assigned'}</Text>;
       })}
     </Card>)}
   </>;
@@ -163,6 +195,10 @@ function titleName(data: Data, titleId: string): string {
   return data.titles.find((title) => title.id === titleId)?.name ?? 'Unknown title';
 }
 
+function validMonth(month: string): boolean {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(month);
+}
+
 function monthLabel(month: string): string {
   const [year, monthNumber] = month.split('-').map(Number);
   return new Date(Date.UTC(year, monthNumber - 1, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
@@ -171,19 +207,29 @@ function monthLabel(month: string): string {
 function EditCycle({ cycle, onSave }: { cycle: Cycle; onSave: (value: Cycle) => Promise<Cycle | undefined> }) {
   const [name, setName] = useState(cycle.name);
   const [deadline, setDeadline] = useState(cycle.deadline);
+  const [startMonth, setStartMonth] = useState(cycle.startsOn.slice(0, 7));
+  const [endMonth, setEndMonth] = useState(cycle.endsOn.slice(0, 7));
   const [revision, setRevision] = useState(cycle.revision);
   const [message, setMessage] = useState('');
   function save() {
-    if (!name.trim() || !validDate(deadline)) { setMessage('Enter a cycle name and a valid deadline (YYYY-MM-DD).'); return; }
-    if (cycle.slots.some((slot) => slot.meeting <= deadline)) { setMessage('The deadline must be before every meeting.'); return; }
-    void onSave({ ...cycle, name: name.trim(), deadline, revision }).then((saved) => {
+    if (!name.trim() || !validDate(deadline) || !validMonth(startMonth) || !validMonth(endMonth) || endMonth < startMonth) {
+      setMessage('Enter a cycle name, a valid deadline (YYYY-MM-DD) and a start and end month (YYYY-MM).');
+      return;
+    }
+    const inRange = new Set(monthsInRange(`${startMonth}-01`, lastDayOfMonth(endMonth)));
+    if (cycle.slots.some((slot) => !inRange.has(slot.month))) { setMessage('Every kit slot must fall within the new month range. Remove the slots outside it first.'); return; }
+    if (cycle.slots.some((slot) => slot.meeting !== null && slot.meeting <= deadline)) { setMessage('The deadline must be before every meeting date.'); return; }
+    void onSave({ ...cycle, name: name.trim(), deadline, startsOn: `${startMonth}-01`, endsOn: lastDayOfMonth(endMonth), revision }).then((saved) => {
       if (saved) setRevision(saved.revision);
     });
     setMessage('');
   }
   return <><Field label="Edit cycle name" value={name} onChangeText={setName} />
+    <Field label="First month (YYYY-MM)" value={startMonth} onChangeText={setStartMonth} />
+    <Field label="Last month (YYYY-MM)" value={endMonth} onChangeText={setEndMonth} />
     <Field label="Edit deadline (YYYY-MM-DD)" value={deadline} onChangeText={setDeadline} />
     <Actions><Action tone="primary" title="Save cycle" onPress={save} /><Action title="Reload cycle fields" onPress={() => {
-      setName(cycle.name); setDeadline(cycle.deadline); setRevision(cycle.revision); setMessage('');
+      setName(cycle.name); setDeadline(cycle.deadline); setStartMonth(cycle.startsOn.slice(0, 7)); setEndMonth(cycle.endsOn.slice(0, 7));
+      setRevision(cycle.revision); setMessage('');
     }} /></Actions>{message ? <Text>{message}</Text> : null}</>;
 }

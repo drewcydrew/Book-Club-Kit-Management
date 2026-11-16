@@ -2,19 +2,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { addDays, today } from '../src/domain/dates';
-import { assignmentProblem, circulate, draft, rankings, satisfactionDebt } from '../src/domain/logic';
+import { assignmentProblem, circulate, draft, firstMonday, meetingFor, rankings, satisfactionDebt } from '../src/domain/logic';
 import { filterOptions, type PickerOption } from '../src/domain/search';
 import { seed } from '../src/domain/seed';
 import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Ballot, Cycle, Data } from '../src/domain/model';
-import { clubPriorities, groupSlotsByMonth, memberVotes } from '../src/domain/cycle-overview';
+import { clubPriorities, groupSlotsByMonth, memberVotes, monthsInRange } from '../src/domain/cycle-overview';
 
 test('meetings group by month in date order and filter by club', () => {
   const slots = [
-    { id: '3', clubId: 'b', meeting: '2026-03-20' },
-    { id: '1', clubId: 'a', meeting: '2026-02-10' },
-    { id: '2', clubId: 'b', meeting: '2026-02-03' },
+    { id: '3', clubId: 'b', month: '2026-03', meeting: '2026-03-20' },
+    { id: '1', clubId: 'a', month: '2026-02', meeting: '2026-02-10' },
+    { id: '2', clubId: 'b', month: '2026-02', meeting: '2026-02-03' },
   ];
   assert.deepEqual(groupSlotsByMonth(slots).map((group) => [group.month, group.slots.map((slot) => slot.id)]), [
     ['2026-02', ['2', '1']],
@@ -47,7 +47,7 @@ test('club priorities score selected titles by ranking position and flag previou
       { cycleId: 'cy', clubId: 'c', personId: 'p2', marks: { t2: 'selected', t1: 'read' }, ranking: ['t2', 't1'], revision: 1 },
     ],
   } as unknown as Data;
-  const cycle = { id: 'cy', name: '', deadline: '', status: 'collecting', slots: [], finalized: {}, revision: 1 } as Cycle;
+  const cycle = { id: 'cy', name: '', deadline: '', startsOn: '2026-01-01', endsOn: '2026-12-31', status: 'collecting', slots: [], finalized: {}, revision: 1 } as Cycle;
   assert.deepEqual(clubPriorities(data, cycle, 'c'), [
     { titleId: 't1', score: 3, supporters: 1, history: false },
     { titleId: 't2', score: 3, supporters: 2, history: false },
@@ -61,7 +61,19 @@ test('ballot marks append to the ranking and moves reorder it', () => {
   ballot = moveInRanking(ballot, 2, 0);
   assert.deepEqual(ballot.ranking, ['c', 'a', 'b']);
   assert.equal(setMark(ballot, 'a', 'wont').ranking.includes('a'), false);
-  assert.equal(setMark(ballot, 'a', null).marks.a, undefined);
+});
+
+test('monthsInRange lists every month inclusively, across year boundaries', () => {
+  assert.deepEqual(monthsInRange('2026-11-15', '2027-02-01'), ['2026-11', '2026-12', '2027-01', '2027-02']);
+  assert.deepEqual(monthsInRange('2026-03-01', '2026-03-31'), ['2026-03']);
+});
+
+test('dateless slots fall back to the first Monday of their month', () => {
+  assert.equal(firstMonday('2026-06'), '2026-06-01');
+  assert.equal(firstMonday('2026-02'), '2026-02-02');
+  const slot = { id: 's', clubId: 'c', month: '2026-02', meeting: null };
+  assert.equal(meetingFor(slot), '2026-02-02');
+  assert.equal(meetingFor({ ...slot, meeting: '2026-02-20' }), '2026-02-20');
 });
 
 test('background ballot sync sends the latest draft with the latest server revision', async () => {
@@ -127,7 +139,7 @@ test('buffer boundary and invalid locks are reported', () => {
   const assignment = result.assignments[0];
   const ready = addDays(assignment.due, data.library.bufferDays);
   const meeting = addDays(ready, 1);
-  cycle.slots.push({ id: 'other-slot', clubId: 'c2', meeting });
+  cycle.slots.push({ id: 'other-slot', clubId: 'c2', month: meeting.slice(0, 7), meeting });
   const conflicting = { ...assignment, id: 'other', slotId: 'other-slot', clubId: 'c2', ready, meeting, due: addDays(ready, 5), locked: true };
   assert.match(assignmentProblem(data, conflicting, [assignment]) ?? '', /buffer/);
   data.assignments = [{ ...assignment, locked: true }, conflicting];

@@ -21,9 +21,19 @@ export function preferences(data: Data, cycle: Cycle, clubId: string): string[] 
     .filter((titleId) => !history.includes(titleId) && data.titles.some((title) => title.id === titleId));
 }
 
-export function windowFor(data: Data, slot: Slot): Pick<Assignment, 'ready' | 'meeting' | 'due'> {
-  const ready = addDays(slot.meeting, -Math.max(1, data.library.loanDays - 7));
-  return { ready, meeting: slot.meeting, due: addDays(ready, data.library.loanDays) };
+export function firstMonday(month: string): string {
+  const first = `${month}-01`;
+  const weekday = new Date(`${first}T00:00:00Z`).getUTCDay();
+  return addDays(first, (8 - weekday) % 7);
+}
+
+export function meetingFor(slot: Slot): string {
+  return slot.meeting ?? firstMonday(slot.month);
+}
+
+export function windowFor(data: Data, meeting: string): Pick<Assignment, 'ready' | 'meeting' | 'due'> {
+  const ready = addDays(meeting, -Math.max(1, data.library.loanDays - 7));
+  return { ready, meeting, due: addDays(ready, data.library.loanDays) };
 }
 
 export function assignmentProblem(data: Data, assignment: Assignment, others: Assignment[]): string | null {
@@ -31,7 +41,8 @@ export function assignmentProblem(data: Data, assignment: Assignment, others: As
   const club = data.clubs.find((item) => item.id === assignment.clubId);
   const cycle = data.cycles.find((item) => item.id === assignment.cycleId);
   const slot = cycle?.slots.find((item) => item.id === assignment.slotId);
-  if (!kit || !club || !cycle || !slot || slot.clubId !== club.id || slot.meeting !== assignment.meeting) return 'Assignment no longer matches an existing meeting, kit and club.';
+  const slotMatches = slot?.meeting ? slot.meeting === assignment.meeting : assignment.meeting.startsWith(`${slot?.month}-`);
+  if (!kit || !club || !cycle || !slot || slot.clubId !== club.id || !slotMatches) return 'Assignment no longer matches an existing meeting, kit and club.';
   if (!validDate(assignment.ready) || !validDate(assignment.meeting) || !validDate(assignment.due) ||
       assignment.ready > assignment.meeting || assignment.meeting > assignment.due) return 'The loan dates are invalid.';
   if (kit.status === 'inspection' || kit.status === 'unavailable') return 'Kit is currently unavailable.';
@@ -80,7 +91,7 @@ export function draft(data: Data, cycle: Cycle): { assignments: Assignment[]; pr
     if (problem) problems.push(`Locked assignment ${locked.slotId}: ${problem}`);
   }
   if (problems.length) return { assignments: data.assignments, problems };
-  const slots = [...cycle.slots].sort((a, b) => a.meeting.localeCompare(b.meeting) ||
+  const slots = [...cycle.slots].sort((a, b) => a.month.localeCompare(b.month) ||
     satisfactionDebt(data, b.clubId) - satisfactionDebt(data, a.clubId) || a.clubId.localeCompare(b.clubId) || a.id.localeCompare(b.id));
   for (const slot of slots) {
     if (retained.some((a) => a.cycleId === cycle.id && a.slotId === slot.id)) continue;
@@ -89,8 +100,9 @@ export function draft(data: Data, cycle: Cycle): { assignments: Assignment[]; pr
       problems.push(`Slot ${slot.id}: club not found.`);
       continue;
     }
-    if (!validDate(slot.meeting)) {
-      problems.push(`${club.name}: meeting date is invalid.`);
+    const meeting = meetingFor(slot);
+    if (!validDate(meeting)) {
+      problems.push(`${club.name}: meeting month ${slot.month} is invalid.`);
       continue;
     }
     const choices = preferences(data, cycle, club.id);
@@ -99,7 +111,7 @@ export function draft(data: Data, cycle: Cycle): { assignments: Assignment[]; pr
       const kits = data.kits.filter((kit) => kit.titleId === titleId)
         .sort((a, b) => Number(b.branch === club.branch) - Number(a.branch === club.branch) || a.id.localeCompare(b.id));
       for (const kit of kits) {
-        const candidate: Assignment = { id: id(), cycleId: cycle.id, slotId: slot.id, clubId: club.id, kitId: kit.id, ...windowFor(data, slot), locked: false };
+        const candidate: Assignment = { id: id(), cycleId: cycle.id, slotId: slot.id, clubId: club.id, kitId: kit.id, ...windowFor(data, meeting), locked: false };
         if (!assignmentProblem(data, candidate, retained)) {
           retained.push(candidate);
           found = true;
@@ -108,7 +120,7 @@ export function draft(data: Data, cycle: Cycle): { assignments: Assignment[]; pr
       }
       if (found) break;
     }
-    if (!found) problems.push(`${club.name} on ${slot.meeting}: no feasible preferred kit.`);
+    if (!found) problems.push(`${club.name} in ${slot.month}: no feasible preferred kit.`);
   }
   return { assignments: retained, problems };
 }

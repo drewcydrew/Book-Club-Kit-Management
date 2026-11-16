@@ -128,8 +128,8 @@ test('shared workflows enforce membership, voting, schedules, circulation and re
   const races = await Promise.all(['race1','race2'].map((n) => req(`/api/cycles/${n}/schedule`,'PUT',{revision:1,publish:false,assignments:[{id:`${n}-a`,cycleId:n,slotId:`${n}-slot`,clubId:'c1',kitId:'k2',ready:farReady,meeting:farMeeting,due:plus(farReady,28),locked:false}]})));
   assert.deepEqual(races.map((r) => r.status).sort(),[200,409]);
   const pastMeeting = plus(new Date().toISOString().slice(0,10),-60); const pastReady = plus(pastMeeting,-21);
-  await pool.query("INSERT INTO cycles(id,name,deadline,status) VALUES('past','Past',$1,'published')",[plus(pastMeeting,-14)]);
-  await pool.query("INSERT INTO meeting_slots(id,cycle_id,club_id,meeting) VALUES('past-slot','past','c2',$1)",[pastMeeting]);
+  await pool.query("INSERT INTO cycles(id,name,deadline,starts_on,ends_on,status) VALUES('past','Past',$1,$2,$2,'published')",[plus(pastMeeting,-14),pastMeeting]);
+  await pool.query("INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES('past-slot','past','c2',to_char($1::date,'YYYY-MM'),$1)",[pastMeeting]);
   await pool.query("INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked) VALUES('past-a','past','past-slot','c2','k2',$1,$2,$3,false)",[pastReady,pastMeeting,plus(pastReady,28)]);
   assert.equal((await req('/api/clubs/c2/history','PUT',{revision:1,titles:['t1']})).status,200);
   assert.equal((await req('/api/cycles/past/schedule','PUT',{revision:1,publish:true,assignments:[{id:'past-a',cycleId:'past',slotId:'past-slot',clubId:'c2',kitId:'k2',ready:pastReady,meeting:pastMeeting,due:plus(pastReady,28),locked:false}]})).status,200);
@@ -161,8 +161,8 @@ test('shared workflows enforce membership, voting, schedules, circulation and re
   const bigBase = plus(new Date().toISOString().slice(0,10),400);
   await pool.query("INSERT INTO titles(id,name,author,isbn,pages) SELECT 'big-t-'||n,'Big '||n,'Writer','9790000'||lpad(n::text,6,'0'),0 FROM generate_series(1,400) n");
   await pool.query("INSERT INTO kits(id,title_id,branch,copies,extras) SELECT 'big-k-'||n,'big-t-'||n,'Central',10,'' FROM generate_series(1,400) n");
-  await pool.query("INSERT INTO cycles(id,name,deadline,status) VALUES('big','Big cycle',$1,'collecting')",[plus(bigBase,-14)]);
-  await pool.query("INSERT INTO meeting_slots(id,cycle_id,club_id,meeting) SELECT 'big-s-'||n,'big',CASE WHEN n%2=0 THEN 'c1' ELSE 'c2' END,$1::date+n*7 FROM generate_series(1,400) n",[bigBase]);
+  await pool.query("INSERT INTO cycles(id,name,deadline,starts_on,ends_on,status) VALUES('big','Big cycle',$1,$1,($1::date+interval '400 months')::date,'collecting')",[plus(bigBase,-14)]);
+  await pool.query("INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) SELECT 'big-s-'||n,'big',CASE WHEN n%2=0 THEN 'c1' ELSE 'c2' END,to_char($1::date+(n||' months')::interval,'YYYY-MM'),($1::date+(n||' months')::interval)::date FROM generate_series(1,400) n",[bigBase]);
   const bigAssignments = Array.from({length:400},(_,k) => {
     const n = k + 1; const meeting = plus(bigBase,n*7); const ready = plus(meeting,-21);
     return {id:`big-a-${n}`,cycleId:'big',slotId:`big-s-${n}`,clubId:n%2===0?'c1':'c2',kitId:`big-k-${n}`,ready,meeting,due:plus(ready,28),locked:false};

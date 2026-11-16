@@ -10,6 +10,15 @@ import { useStore } from '../state/store';
 
 const TILE_WIDTH = 110;
 
+function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const group = key(item);
+    groups.set(group, [...(groups.get(group) ?? []), item]);
+  }
+  return groups;
+}
+
 export default function Schedule() {
   const { data } = useStore();
   const shared = useShared();
@@ -44,6 +53,11 @@ export default function Schedule() {
   if (!person) return <Page title="Schedule"><Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
   if (!cycle) return <Page title="Schedule"><Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = data.assignments.filter((assignment) => assignment.cycleId === cycle.id);
+  const assignedSlotIds = new Set(assignments.map((assignment) => assignment.slotId));
+  const unassignedSlots = staff && clubId ? cycle.slots.filter((slot) => slot.clubId === clubId && !assignedSlotIds.has(slot.id)) : [];
+  const assignmentsByMonth = groupBy(assignments, (assignment) => assignment.meeting.slice(0, 7));
+  const unassignedByMonth = groupBy(unassignedSlots, (slot) => slot.month);
+  const monthKeys = [...new Set([...assignmentsByMonth.keys(), ...unassignedByMonth.keys()])].sort();
 
   function renderTile(assignment: Assignment) {
     const kit = kitById.get(assignment.kitId);
@@ -145,6 +159,7 @@ export default function Schedule() {
     </Card>
     {staff && <Card><Label>{cycle.name} · {cycle.status}</Label>
       <Note>Schedule proposals use shared preferences, reading history, kit availability and lending settings. Drafts and publication are checked again by the server; revisions reject stale writes. Loans include a {data.library.bufferDays}-day turnaround buffer.</Note>
+      <Note>Assignments are grouped by month. Months with no kit yet show a placeholder, and slots without a meeting date use the first Monday of the month for loan timing.</Note>
       {staff && <Actions>
         <Action title="Generate / re-run shared draft" disabled={shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={generate} />
         <Action tone="primary" title="Publish schedule" disabled={shared.saving || cycle.status !== 'drafted'} onPress={publish} />
@@ -154,12 +169,22 @@ export default function Schedule() {
       {messages.length > 5 && <Actions><Action title={showAllMessages ? 'Show fewer messages' : `Show all messages (${messages.length})`} onPress={() => setShowAllMessages(!showAllMessages)} /></Actions>}
       {message ? <Text>{message}</Text> : null}
     </Card>}
-    {clubId && assignments.length === 0 && <Note>{staff ? 'No assignments for this club in this cycle yet.' : 'No published assignments for this club yet.'}</Note>}
-    {assignments.length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 }}>
-      {assignments.map((assignment) => <React.Fragment key={assignment.id}>
-        {renderTile(assignment)}
-        {expandedId === assignment.id && renderDetail(assignment)}
-      </React.Fragment>)}
-    </View>}
+    {clubId && assignments.length === 0 && unassignedSlots.length === 0 && <Note>{staff ? 'No assignments for this club in this cycle yet.' : 'No published assignments for this club yet.'}</Note>}
+    {monthKeys.map((month) => <View key={month} style={{ marginTop: 8 }}>
+      <Label>{month}</Label>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+        {(assignmentsByMonth.get(month) ?? []).map((assignment) => <React.Fragment key={assignment.id}>
+          {renderTile(assignment)}
+          {expandedId === assignment.id && renderDetail(assignment)}
+        </React.Fragment>)}
+        {(unassignedByMonth.get(month) ?? []).map((slot) => <View key={slot.id} accessibilityLabel={`${month}, not yet assigned`}
+          style={{ width: TILE_WIDTH, marginRight: 12, marginBottom: 12 }}>
+          <View style={{ width: TILE_WIDTH, height: TILE_WIDTH * 1.5, marginBottom: 6, borderRadius: 6, borderWidth: 1, borderStyle: 'dashed', borderColor: '#9ca3af', alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 12 }}>Not assigned</Text>
+          </View>
+          <Text style={{ fontSize: 12, color: '#374151' }}>{slot.meeting ?? 'No meeting date set'}</Text>
+        </View>)}
+      </View>
+    </View>)}
   </Page>;
 }
