@@ -8,6 +8,35 @@ import { seed } from '../src/domain/seed';
 import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Ballot } from '../src/domain/model';
+import { groupSlotsByMonth, memberVotes } from '../src/domain/cycle-overview';
+
+test('meetings group by month in date order and filter by club', () => {
+  const slots = [
+    { id: '3', clubId: 'b', meeting: '2026-03-20' },
+    { id: '1', clubId: 'a', meeting: '2026-02-10' },
+    { id: '2', clubId: 'b', meeting: '2026-02-03' },
+  ];
+  assert.deepEqual(groupSlotsByMonth(slots).map((group) => [group.month, group.slots.map((slot) => slot.id)]), [
+    ['2026-02', ['2', '1']],
+    ['2026-03', ['3']],
+  ]);
+  assert.deepEqual(groupSlotsByMonth(slots, 'a').map((group) => group.slots.map((slot) => slot.id)), [['1']]);
+});
+
+test('member votes count only members of the club and report current preferences', () => {
+  const memberships = [
+    { personId: 'p1', clubId: 'c', leader: true },
+    { personId: 'p2', clubId: 'c', leader: false },
+    { personId: 'p3', clubId: 'other', leader: false },
+  ];
+  const ballots: Ballot[] = [
+    { cycleId: 'cy', clubId: 'c', personId: 'p1', marks: { t1: 'selected', t2: 'wont' }, ranking: ['t1'], revision: 1 },
+  ];
+  assert.deepEqual(memberVotes(memberships, ballots, 'cy', 'c'), [
+    { personId: 'p1', voted: true, ranking: ['t1'], marks: { selected: 1, read: 0, wont: 1 } },
+    { personId: 'p2', voted: false, ranking: [], marks: { selected: 0, read: 0, wont: 0 } },
+  ]);
+});
 
 test('ballot marks append to the ranking and moves reorder it', () => {
   let ballot = emptyBallot('cycle', 'club', 'person');
