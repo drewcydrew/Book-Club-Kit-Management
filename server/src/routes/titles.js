@@ -11,7 +11,7 @@ function coverUrl(value) {
 }
 
 // Temporary development rule: deleting a title also removes its kits, their club links,
-// circulation history and schedule assignments. Ballots, rankings and club history still block deletion.
+// circulation history, schedule assignments, ballot marks, finalized rankings and club history.
 async function removeTitle(req, res) {
   const expected = revision(req.header('If-Match'));
   const client = await getPool().connect();
@@ -21,10 +21,9 @@ async function removeTitle(req, res) {
     const existing = await client.query('SELECT revision FROM titles WHERE id=$1 FOR UPDATE', [req.params.id]);
     if (!existing.rowCount) throw new HttpError(404, 'Record not found.');
     if (existing.rows[0].revision !== expected) await checkUpdated(client, 'titles', req.params.id);
-    const blocked = await client.query(`SELECT 1 FROM ballot_marks WHERE title_id=$1
-      UNION ALL SELECT 1 FROM finalized_rankings WHERE title_id=$1
-      UNION ALL SELECT 1 FROM club_history WHERE title_id=$1 LIMIT 1`, [req.params.id]);
-    if (blocked.rowCount) throw new HttpError(409, 'This title is used in ballots, finalized rankings or club history and cannot be deleted.');
+    await client.query('DELETE FROM ballot_marks WHERE title_id=$1', [req.params.id]);
+    await client.query('DELETE FROM finalized_rankings WHERE title_id=$1', [req.params.id]);
+    await client.query('DELETE FROM club_history WHERE title_id=$1', [req.params.id]);
     const kitIds = 'SELECT id FROM kits WHERE title_id=$1';
     await client.query(`DELETE FROM schedule_assignments WHERE kit_id IN (${kitIds})`, [req.params.id]);
     await client.query(`DELETE FROM club_kits WHERE kit_id IN (${kitIds})`, [req.params.id]);

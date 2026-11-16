@@ -310,7 +310,7 @@ export default function Catalog() {
           <ScrollView contentContainerStyle={modalStyles.content}>
             <Label>Delete {deleting.name}?</Label>
             <Note>{deleting.kind === 'titles'
-              ? 'This removes the title for every user, along with its kits, their club links, circulation history and schedule assignments. A title still used in ballots, rankings or club history cannot be deleted.'
+              ? 'This removes the title for every user, along with its kits, their club links, circulation history, schedule assignments, ballot marks, finalized rankings and club history.'
               : 'This removes the kit for every user. A kit that a shared schedule still uses cannot be deleted until it is removed from that schedule.'}</Note>
             {deleteError ? <Text accessibilityRole="alert" style={modalStyles.error}>{deleteError}</Text> : null}
             <PendingStatus action={pending?.action ?? null} />
