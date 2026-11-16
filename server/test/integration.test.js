@@ -84,6 +84,18 @@ test('shared records persist, enforce constraints and reject stale edits', { ski
   assert.equal((await pool.query("SELECT 1 FROM ballot_marks WHERE title_id=$1", [cascadeTitle.json.id])).rowCount, 0);
   assert.equal((await pool.query("SELECT 1 FROM finalized_rankings WHERE title_id=$1", [cascadeTitle.json.id])).rowCount, 0);
   assert.equal((await pool.query("SELECT 1 FROM club_history WHERE title_id=$1", [cascadeTitle.json.id])).rowCount, 0);
+  const inUseCycleId = `in-use-${suffix}`;
+  await pool.query("INSERT INTO cycles(id,name,deadline,status) VALUES($1,'In-use cycle',now()::date,'published')", [inUseCycleId]);
+  await pool.query("INSERT INTO meeting_slots(id,cycle_id,club_id,meeting) VALUES($1,$2,$3,now()::date)", [`slot-${suffix}`, inUseCycleId, club.json.id]);
+  await pool.query("INSERT INTO ballots(cycle_id,club_id,person_id) VALUES($1,$2,$3)", [inUseCycleId, club.json.id, personId]);
+  await pool.query("INSERT INTO finalized_groups(cycle_id,club_id) VALUES($1,$2)", [inUseCycleId, club.json.id]);
+  await pool.query("INSERT INTO finalized_rankings(cycle_id,club_id,title_id,rank) VALUES($1,$2,$3,1)", [inUseCycleId, club.json.id, titleId]);
+  const inUseRevision = (await pool.query("SELECT revision FROM cycles WHERE id=$1", [inUseCycleId])).rows[0].revision;
+  assert.equal((await request(`/api/cycles/${inUseCycleId}`, 'DELETE', undefined, inUseRevision)).status, 204);
+  for (const table of ['meeting_slots', 'ballots', 'finalized_groups', 'finalized_rankings']) {
+    assert.equal((await pool.query(`SELECT 1 FROM ${table} WHERE cycle_id=$1`, [inUseCycleId])).rowCount, 0);
+  }
+  assert.equal((await pool.query("SELECT 1 FROM cycles WHERE id=$1", [inUseCycleId])).rowCount, 0);
   await pool.query("DELETE FROM finalized_groups WHERE cycle_id=$1", [cycleId]);
   await pool.query("DELETE FROM ballots WHERE cycle_id=$1", [cycleId]);
   await pool.query("DELETE FROM cycles WHERE id=$1", [cycleId]);
