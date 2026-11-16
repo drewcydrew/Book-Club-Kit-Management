@@ -415,7 +415,7 @@ export default function Clubs() {
                 const linkedTitle = kit ? data.titles.find((title) => title.id === kit.titleId) : undefined;
                 return (
                   <Actions key={link.kitId}>
-                    {linkedTitle && <TitleCover titleId={linkedTitle.id} isbn={linkedTitle.isbn} />}
+                    {linkedTitle && <TitleCover coverUrl={linkedTitle.coverUrl} isbn={linkedTitle.isbn} />}
                     <Text>
                       {kit
                         ? `${kit.barcode} · ${data.titles.find((title) => title.id === kit.titleId)?.name ?? "Title unavailable"}`
@@ -636,7 +636,7 @@ export default function Clubs() {
               <Actions>
                 {data.titles.map((title) => (
                   <View key={title.id} style={{ flexDirection: "row", alignItems: "center" }}>
-                    <TitleCover titleId={title.id} isbn={title.isbn} />
+                    <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} />
                     <Action
                       selected={historyDraft.includes(title.id)}
                       title={`${title.name}${historyDraft.includes(title.id) ? " ✓" : ""}`}

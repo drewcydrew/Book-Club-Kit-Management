@@ -196,8 +196,8 @@ export async function leaveClub(personId: string, clubId: string, revision: numb
   return requireRevision(await request(`/api/users/${encodeURIComponent(personId)}/clubs/${encodeURIComponent(clubId)}`, 'DELETE', undefined, revision));
 }
 
-export async function fetchTitleCover(titleId: string): Promise<string | null> {
-  const body = (await request(`/api/titles/${encodeURIComponent(titleId)}/cover`, 'GET')) as { imageUrl?: unknown } | null;
+export async function fetchIsbnCover(isbn: string): Promise<string | null> {
+  const body = (await request(`/api/covers?isbn=${encodeURIComponent(isbn)}`, 'GET')) as { imageUrl?: unknown } | null;
   return typeof body?.imageUrl === 'string' ? body.imageUrl : null;
 }
 

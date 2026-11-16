@@ -1,16 +1,16 @@
 import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigationGuard } from '../components/navigation-guard';
 import { TitleCover } from '../components/title-cover';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import type { Kit, Title } from '../domain/model';
-import { deleteRecord, saveRecord } from '../state/api';
+import { ApiError, deleteRecord, fetchIsbnCover, saveRecord } from '../state/api';
 import { saveCatalogChange } from '../state/catalog-save';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
 
-const blankTitle = (): Title => ({ id: '', name: '', author: '', isbn: '', pages: 0, genres: '', notes: '', largePrint: false, audio: false });
+const blankTitle = (): Title => ({ id: '', name: '', author: '', isbn: '', pages: 0, genres: '', notes: '', largePrint: false, audio: false, coverUrl: null });
 const blankKit = (branch: string): Kit => ({ id: '', titleId: '', barcode: '', branch, copies: 1, extras: '', components: [], status: 'available' });
 
 type TitleDraft = { kind: 'title'; value: Title; pages: string; revision: number | null };
@@ -24,6 +24,18 @@ function kitDraft(value: Kit, revision: number | null): KitDraft {
   return { kind: 'kit', value, copies: String(value.copies), components: value.components.join(', '), revision };
 }
 
+type CoverPreviewStatus = 'loading' | 'found' | 'none' | 'invalid' | 'error';
+
+function coverPreviewMessage(status: CoverPreviewStatus): string {
+  switch (status) {
+    case 'loading': return 'Looking up cover…';
+    case 'found': return 'Cover found. It will be saved with this title.';
+    case 'none': return 'No cover found for this ISBN.';
+    case 'invalid': return 'Enter a valid ISBN-10 or ISBN-13 to preview a cover.';
+    case 'error': return 'Cover lookup is unavailable right now.';
+  }
+}
+
 export default function Catalog() {
   const { data } = useStore();
   const shared = useShared();
@@ -31,6 +43,8 @@ export default function Catalog() {
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [initial, setInitial] = useState('');
+  const [pendingIsbn, setPendingIsbn] = useState('');
+  const [preview, setPreview] = useState<{ isbn: string; status: CoverPreviewStatus } | null>(null);
   const [message, setMessage] = useState('');
   const [formError, setFormError] = useState('');
   const [recovery, setRecovery] = useState<'conflict' | 'uncertain' | null>(null);
@@ -66,15 +80,47 @@ export default function Catalog() {
     });
   }, [busy, dirty, disablePrevention, draft, navigationGuard]);
 
+  useEffect(() => {
+    if (!pendingIsbn) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setPreview({ isbn: pendingIsbn, status: 'loading' });
+      fetchIsbnCover(pendingIsbn).then((imageUrl) => {
+        if (cancelled) return;
+        setPreview({ isbn: pendingIsbn, status: imageUrl ? 'found' : 'none' });
+        // Only apply the cover while the form still holds this ISBN.
+        setDraft((current) => current?.kind === 'title' && current.value.isbn.trim() === pendingIsbn
+          ? { ...current, value: { ...current.value, coverUrl: imageUrl } } : current);
+      }).catch((error: unknown) => {
+        if (cancelled) return;
+        setPreview({ isbn: pendingIsbn, status: error instanceof ApiError && error.status === 400 ? 'invalid' : 'error' });
+      });
+    }, 600);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [pendingIsbn]);
+
   function open(next: Draft) {
     setDraft(next);
     setInitial(JSON.stringify(next));
+    setPendingIsbn('');
+    setPreview(null);
     setFormError('');
     setRecovery(null);
     setConfirmDiscard(false);
     setPendingNavigation(null);
     setMessage('');
   }
+  function changeIsbn(isbn: string) {
+    if (!draft || draft.kind !== 'title') return;
+    const trimmed = isbn.trim();
+    const changed = trimmed !== draft.value.isbn.trim();
+    // A cover belongs to one ISBN, so editing the ISBN drops the previous cover until a new preview arrives.
+    setDraft({ ...draft, value: { ...draft.value, isbn, coverUrl: changed ? null : draft.value.coverUrl } });
+    if (!changed) return;
+    setPendingIsbn(trimmed);
+    setPreview(trimmed ? { isbn: trimmed, status: 'loading' } : null);
+  }
+
   function close() {
     if (busy || saving.current) return;
     if (dirty) { setConfirmDiscard(true); return; }
@@ -158,7 +204,7 @@ export default function Catalog() {
       <Action title="Cancel deletion" onPress={() => setDeleting(null)} /></Actions></Card>}
     <Field label="Search titles, authors or kit barcode" value={query} onChangeText={setQuery} />
     {data.titles.filter((t) => !search || `${t.name} ${t.author} ${t.isbn}`.toLowerCase().includes(search) || data.kits.some((k) => k.titleId === t.id && [k.barcode, ...k.components].some((b) => b.toLowerCase().includes(search)))).map((item) =>
-      <Card key={item.id}><View style={{ flexDirection: 'row' }}><TitleCover titleId={item.id} isbn={item.isbn} /><View style={{ flex: 1 }}><Label>{item.name}</Label><Note>{item.author} {item.isbn ? `· ISBN ${item.isbn}` : ''}</Note>
+      <Card key={item.id}><View style={{ flexDirection: 'row' }}><TitleCover coverUrl={item.coverUrl} isbn={item.isbn} /><View style={{ flex: 1 }}><Label>{item.name}</Label><Note>{item.author} {item.isbn ? `· ISBN ${item.isbn}` : ''}</Note>
         <Note>{item.genres || 'No genres'} · {item.pages || 'Unknown'} pages · {item.largePrint ? 'Large print' : 'No large print'} · {item.audio ? 'Audio available' : 'No audio'}</Note>
         {item.notes ? <Text>Content notes: {item.notes}</Text> : null}</View></View>
         {staff && <Actions><Action title="Edit title" onPress={() => {
@@ -194,7 +240,9 @@ export default function Catalog() {
               {draft.kind === 'title' ? <>
                 <Field editable={!shared.saving} label="Title" value={draft.value.name} onChangeText={(name) => setDraft({ ...draft, value: { ...draft.value, name } })} />
                 <Field editable={!shared.saving} label="Author" value={draft.value.author} onChangeText={(author) => setDraft({ ...draft, value: { ...draft.value, author } })} />
-                <Field editable={!shared.saving} label="ISBN" value={draft.value.isbn} onChangeText={(isbn) => setDraft({ ...draft, value: { ...draft.value, isbn } })} />
+                <Field editable={!shared.saving} label="ISBN" value={draft.value.isbn} onChangeText={changeIsbn} />
+                {draft.value.coverUrl ? <Image source={{ uri: draft.value.coverUrl }} style={modalStyles.preview} accessibilityLabel="Cover preview" resizeMode="contain" /> : null}
+                {preview && preview.isbn === draft.value.isbn.trim() ? <Note>{coverPreviewMessage(preview.status)}</Note> : null}
                 <Field editable={!shared.saving} label="Pages" value={draft.pages} onChangeText={(pages) => setDraft({ ...draft, pages })} />
                 <Field editable={!shared.saving} label="Genres" value={draft.value.genres} onChangeText={(genres) => setDraft({ ...draft, value: { ...draft.value, genres } })} />
                 <Field editable={!shared.saving} label="Content notes" value={draft.value.notes} onChangeText={(notes) => setDraft({ ...draft, value: { ...draft.value, notes } })} />
@@ -226,5 +274,6 @@ const modalStyles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 16 },
   dialog: { width: '100%', maxWidth: 650, maxHeight: '90%', backgroundColor: '#fffefa' },
   content: { padding: 20, gap: 12 },
+  preview: { width: 96, height: 144, borderRadius: 4, alignSelf: 'flex-start' },
   error: { color: '#a22525', fontWeight: '600' },
 });

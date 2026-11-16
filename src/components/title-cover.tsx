@@ -1,39 +1,40 @@
 import { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
-import { fetchTitleCover } from '../state/api';
+import { fetchIsbnCover } from '../state/api';
 
 const coverRequests = new Map<string, Promise<string | null>>();
 
-function loadCover(titleId: string, isbn: string): Promise<string | null> {
-  const key = `${titleId}|${isbn}`;
-  let request = coverRequests.get(key);
+function loadCover(isbn: string): Promise<string | null> {
+  let request = coverRequests.get(isbn);
   if (!request) {
-    request = fetchTitleCover(titleId).catch(() => null).then((imageUrl) => {
+    request = fetchIsbnCover(isbn).catch(() => null).then((imageUrl) => {
       // Failed lookups are dropped from the cache so a later render can retry them.
-      if (!imageUrl) coverRequests.delete(key);
+      if (!imageUrl) coverRequests.delete(isbn);
       return imageUrl;
     });
-    coverRequests.set(key, request);
+    coverRequests.set(isbn, request);
   }
   return request;
 }
 
-export function TitleCover({ titleId, isbn }: { titleId: string; isbn: string }) {
+// A saved cover URL is shown directly; otherwise the ISBN is looked up for a fallback image.
+export function TitleCover({ coverUrl, isbn }: { coverUrl?: string | null; isbn: string }) {
   const hasIsbn = isbn.trim() !== '';
-  const key = `${titleId}|${isbn}`;
-  const [result, setResult] = useState<{ key: string; imageUrl: string | null } | null>(null);
+  const needsLookup = !coverUrl && hasIsbn;
+  const [result, setResult] = useState<{ isbn: string; imageUrl: string | null } | null>(null);
 
   useEffect(() => {
-    if (!hasIsbn) return;
+    if (!needsLookup) return;
     let active = true;
-    void loadCover(titleId, isbn).then((imageUrl) => {
-      if (active) setResult({ key, imageUrl });
+    void loadCover(isbn.trim()).then((imageUrl) => {
+      if (active) setResult({ isbn, imageUrl });
     });
     return () => { active = false; };
-  }, [titleId, isbn, key, hasIsbn]);
+  }, [isbn, needsLookup]);
 
+  if (coverUrl) return <Image source={{ uri: coverUrl }} style={styles.cover} accessibilityLabel="Book cover" resizeMode="cover" />;
   if (!hasIsbn) return null;
-  const current = result?.key === key ? result : null;
+  const current = result?.isbn === isbn ? result : null;
   if (current?.imageUrl) return <Image source={{ uri: current.imageUrl }} style={styles.cover} accessibilityLabel="Book cover" resizeMode="cover" />;
   return <View style={[styles.cover, styles.placeholder]}>
     <Text style={styles.placeholderText}>{current ? 'No cover' : '…'}</Text>

@@ -26,6 +26,7 @@ export interface Title {
   notes: string;
   largePrint: boolean;
   audio: boolean;
+  coverUrl?: string | null;
 }
 
 export interface Kit {
