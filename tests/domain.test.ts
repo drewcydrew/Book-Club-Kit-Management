@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { addDays, today } from '../src/domain/dates';
 import { assignmentProblem, circulate, draft, rankings, satisfactionDebt } from '../src/domain/logic';
+import { filterOptions, type PickerOption } from '../src/domain/search';
 import { seed } from '../src/domain/seed';
 
 test('aggregates ballots and excludes club history', () => {
@@ -47,6 +48,18 @@ test('circulation enforces transitions and inspection makes damaged kit unavaila
   data = circulate(data, 'k1', 'inspected', 'One copy missing', false);
   assert.equal(data.kits.find((k) => k.id === 'k1')?.status, 'unavailable');
   assert.deepEqual(data.events.slice(-3).map((e) => e.action), ['picked up', 'returned', 'inspected']);
+});
+
+test('picker search matches every term and respects the group filter', () => {
+  const options: PickerOption[] = [
+    { id: 'a', label: 'Patrick (library admin)', detail: 'admin', group: 'admin' },
+    { id: 'b', label: 'Casey (leader)', detail: 'member', group: 'member' },
+    { id: 'c', label: 'Andrew (staff)', detail: 'staff', group: 'staff' },
+  ];
+  assert.deepEqual(filterOptions(options, 'CASEY  member', 'all').map((o) => o.id), ['b']);
+  assert.deepEqual(filterOptions(options, 'casey', 'admin').map((o) => o.id), []);
+  assert.deepEqual(filterOptions(options, '', 'staff').map((o) => o.id), ['c']);
+  assert.deepEqual(filterOptions(options, 'zzz', 'all'), []);
 });
 
 test('date calculation crosses month boundaries', () => {

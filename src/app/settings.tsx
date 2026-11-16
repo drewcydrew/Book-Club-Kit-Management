@@ -1,15 +1,19 @@
 import { usePreventRemove } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigationGuard } from '../components/navigation-guard';
+import { SearchPicker } from '../components/search-picker';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import { id } from '../domain/logic';
 import type { Club, Library, Person, Role } from '../domain/model';
+import type { PickerOption } from '../domain/search';
 import { deleteUser, enrolInClub, leaveClub, saveSettings, saveUser } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
 
 const roles: Role[] = ['member', 'staff', 'admin'];
+const roleGroups = [{ value: 'all', label: 'All roles' }, ...roles.map((role) => ({ value: role, label: role }))];
+const clubGroups = [{ value: 'all', label: 'All clubs' }, { value: 'enrolled', label: 'Enrolled' }, { value: 'not-enrolled', label: 'Not enrolled' }];
 
 function userSnapshot(name: string, role: Role) {
   return JSON.stringify({ name, role });
@@ -24,9 +28,18 @@ export default function Settings() {
   const [deleting, setDeleting] = useState<Person | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [message, setMessage] = useState('');
+  const [managedId, setManagedId] = useState('');
+  const [openSections, setOpenSections] = useState({ demo: false, clubs: false, users: false });
   const person = data.people.find((p) => p.id === data.selectedPersonId);
+  const managed = data.people.find((p) => p.id === managedId);
   const canManageUsers = person?.role === 'admin';
+  const personOptions = useMemo<PickerOption[]>(() => data.people.map((value) => ({ id: value.id, label: `${value.name} · ${value.role}`, detail: value.role, group: value.role })), [data.people]);
+  const clubOptions = useMemo<PickerOption[]>(() => data.clubs.map((club) => {
+    const enrolled = data.memberships.some((membership) => membership.personId === person?.id && membership.clubId === club.id);
+    return { id: club.id, label: club.name, detail: enrolled ? 'Enrolled' : 'Not enrolled', group: enrolled ? 'enrolled' : 'not-enrolled' };
+  }), [data.clubs, data.memberships, person?.id]);
   const canManageSettings = person?.role === 'admin';
+  const enrolledCount = clubOptions.filter((option) => option.group === 'enrolled').length;
   const navigationGuard = useNavigationGuard();
   const [formOpen, setFormOpen] = useState(false);
   const [formError, setFormError] = useState('');
@@ -118,41 +131,52 @@ export default function Settings() {
       .then(async () => {
         if (data.selectedPersonId === value.id) await update((d) => ({ ...d, selectedPersonId: '' }));
         setDeleting(null);
+        setManagedId('');
         setMessage('User deleted.');
       })
       .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to delete user.'));
   }
 
+  const header = (key: keyof typeof openSections, title: string, summary: string) => <Pressable accessibilityRole="button" accessibilityState={{ expanded: openSections[key] }}
+    onPress={() => setOpenSections((current) => ({ ...current, [key]: !current[key] }))}>
+    <Label>{openSections[key] ? '▾' : '▸'} {title} · {summary}</Label>
+  </Pressable>;
+
   return <Page title="Settings">
-    <Card><Label>Demo user</Label>
-      <Note>Roles only change the interface. There is no authentication or authorization; anyone with API access can change shared demo data. Use fictional information only.</Note>
-      {data.people.length === 0 && <Note>No shared users are available. Run the server demo seed, or create an admin through the API if the seed was already run.</Note>}
-      {data.people.length > 0 && !data.people.some((value) => value.role === 'admin') && <Note>No administrator exists. The demo seed creates one only on its first run; if already seeded, restore an admin through the API.</Note>}
-      <Actions>{data.people.map((value) => <Action key={value.id} selected={value.id === person?.id} title={`${value.name} · ${value.role}${value.id === person?.id ? ' ✓' : ''}`} onPress={() => choosePerson(value.id)} />)}</Actions>
+    <Card>{header('demo', 'Demo user', person ? `${person.name} · ${person.role}` : 'none selected')}
+      {openSections.demo && <>
+        <Note>Roles only change the interface. There is no authentication or authorization; anyone with API access can change shared demo data. Use fictional information only.</Note>
+        {data.people.length === 0 && <Note>No shared users are available. Run the server demo seed, or create an admin through the API if the seed was already run.</Note>}
+        {data.people.length > 0 && !data.people.some((value) => value.role === 'admin') && <Note>No administrator exists. The demo seed creates one only on its first run; if already seeded, restore an admin through the API.</Note>}
+        <SearchPicker label="Demo user" options={personOptions} selectedId={person?.id ?? ''} groups={roleGroups} summary="Select a demo user" onSelect={choosePerson} />
+      </>}
     </Card>
 
-    {person?.role === 'member' && <Card><Label>My clubs</Label>
-      <Note>Enrol in clubs to see them in Preferences and your published schedules. Enrolment is shared.</Note>
-      {data.clubs.length === 0 && <Note>No clubs are defined yet.</Note>}
-      {data.clubs.map((club) => {
-        const enrolled = data.memberships.some((membership) => membership.personId === person.id && membership.clubId === club.id);
-        return <Actions key={club.id}>
-          <Text>{club.name}{enrolled ? ' · enrolled' : ''}</Text>
-          <Action tone={enrolled ? 'danger' : 'primary'} title={enrolled ? 'Leave' : 'Enrol'} disabled={busy} onPress={() => toggleClub(club, enrolled)} />
-        </Actions>;
-      })}
+    {person?.role === 'member' && <Card>{header('clubs', 'My clubs', `${enrolledCount} of ${data.clubs.length} enrolled`)}
+      {openSections.clubs && <>
+        <Note>Enrol in clubs to see them in Preferences and your published schedules. Enrolment is shared.</Note>
+        {data.clubs.length === 0 && <Note>No clubs are defined yet.</Note>}
+        {data.clubs.length > 0 && <SearchPicker label="My clubs" options={clubOptions} selectedId="" groups={clubGroups} summary="Browse clubs to enrol or leave" disabled={busy} closeOnSelect={false}
+          onSelect={(clubId) => {
+            const club = data.clubs.find((item) => item.id === clubId);
+            if (club) toggleClub(club, clubOptions.find((option) => option.id === clubId)?.group === 'enrolled');
+          }} />}
+      </>}
     </Card>}
 
-    {canManageUsers && <Card><Label>Shared demo users</Label>
-      <Note>Creating the first admin is an explicit server seed operation; users are not seeded by the app.</Note>
-      <Actions><Action tone="primary" title="Add user" disabled={busy} onPress={() => openUserForm()} /></Actions>
-      {data.people.map((value) => <Actions key={value.id}>
-        <Text>{value.name} · {value.role}</Text>
-        <Action title="Edit" onPress={() => openUserForm(value)} />
-        <Action tone="danger" title="Delete" onPress={() => setDeleting(value)} />
-      </Actions>)}
-      {deleting && <><Note>Delete {deleting.name}? Existing preferences, memberships and history may restrict deletion.</Note>
-        <Actions><Action tone="danger" title="Confirm delete" onPress={() => removePerson(deleting)} /><Action title="Cancel" onPress={() => setDeleting(null)} /></Actions></>}
+    {canManageUsers && <Card>{header('users', 'Shared demo users', `${data.people.length} users`)}
+      {openSections.users && <>
+        <Note>Creating the first admin is an explicit server seed operation; users are not seeded by the app.</Note>
+        <Actions><Action tone="primary" title="Add user" disabled={busy} onPress={() => openUserForm()} /></Actions>
+        <SearchPicker label="Shared user" options={personOptions} selectedId={managedId} groups={roleGroups} summary="Select a user to edit or delete" disabled={busy}
+          onSelect={(value) => { setManagedId(value); setDeleting(null); }} />
+        {managed && <Actions>
+          <Action title="Edit" disabled={busy} onPress={() => openUserForm(managed)} />
+          <Action tone="danger" title="Delete" disabled={busy} onPress={() => setDeleting(managed)} />
+        </Actions>}
+        {deleting && <><Note>Delete {deleting.name}? Existing preferences, memberships and history may restrict deletion.</Note>
+          <Actions><Action tone="danger" title="Confirm delete" onPress={() => removePerson(deleting)} /><Action title="Cancel" onPress={() => setDeleting(null)} /></Actions></>}
+      </>}
     </Card>}
     {canManageUsers && formOpen && <Modal transparent visible onRequestClose={confirmDiscard ? () => { setConfirmDiscard(false); setPendingNavigation(null); } : closeUserForm}
       accessibilityLabel={editing ? 'Edit user' : 'Add user'}>
