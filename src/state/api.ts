@@ -196,6 +196,11 @@ export async function leaveClub(personId: string, clubId: string, revision: numb
   return requireRevision(await request(`/api/users/${encodeURIComponent(personId)}/clubs/${encodeURIComponent(clubId)}`, 'DELETE', undefined, revision));
 }
 
+export async function fetchTitleCover(titleId: string): Promise<string | null> {
+  const body = (await request(`/api/titles/${encodeURIComponent(titleId)}/cover`, 'GET')) as { imageUrl?: unknown } | null;
+  return typeof body?.imageUrl === 'string' ? body.imageUrl : null;
+}
+
 export async function saveCycle(cycle: Omit<Cycle, 'revision'> & Partial<Pick<Cycle, 'revision'>>): Promise<Cycle> {
   const exists = cycle.revision !== undefined;
   const value = await request(`/api/cycles${exists ? `/${encodeURIComponent(cycle.id)}` : ''}`, exists ? 'PUT' : 'POST',

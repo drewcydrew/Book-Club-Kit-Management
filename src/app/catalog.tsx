@@ -2,6 +2,7 @@ import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigationGuard } from '../components/navigation-guard';
+import { TitleCover } from '../components/title-cover';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import type { Kit, Title } from '../domain/model';
 import { deleteRecord, saveRecord } from '../state/api';
@@ -157,9 +158,9 @@ export default function Catalog() {
       <Action title="Cancel deletion" onPress={() => setDeleting(null)} /></Actions></Card>}
     <Field label="Search titles, authors or kit barcode" value={query} onChangeText={setQuery} />
     {data.titles.filter((t) => !search || `${t.name} ${t.author} ${t.isbn}`.toLowerCase().includes(search) || data.kits.some((k) => k.titleId === t.id && [k.barcode, ...k.components].some((b) => b.toLowerCase().includes(search)))).map((item) =>
-      <Card key={item.id}><Label>{item.name}</Label><Note>{item.author} {item.isbn ? `· ISBN ${item.isbn}` : ''}</Note>
+      <Card key={item.id}><View style={{ flexDirection: 'row' }}><TitleCover titleId={item.id} isbn={item.isbn} /><View style={{ flex: 1 }}><Label>{item.name}</Label><Note>{item.author} {item.isbn ? `· ISBN ${item.isbn}` : ''}</Note>
         <Note>{item.genres || 'No genres'} · {item.pages || 'Unknown'} pages · {item.largePrint ? 'Large print' : 'No large print'} · {item.audio ? 'Audio available' : 'No audio'}</Note>
-        {item.notes ? <Text>Content notes: {item.notes}</Text> : null}
+        {item.notes ? <Text>Content notes: {item.notes}</Text> : null}</View></View>
         {staff && <Actions><Action title="Edit title" onPress={() => {
           const record = shared.data.titles.find((title) => title.id === item.id);
           if (record) open(titleDraft(item, record.revision));

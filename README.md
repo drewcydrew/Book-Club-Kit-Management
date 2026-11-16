@@ -10,6 +10,8 @@ Users can belong to multiple clubs and have separate preferences for each club a
 
 Use Node 22 and a PostgreSQL database intended for this prototype. Set `DATABASE_URL` in the server process environment; keep it private and follow your database provider's TLS and certificate requirements. Do not put credentials in the Expo app, source control or chat. Node does not automatically load a `server/.env` file.
 
+Cover thumbnails are optional. Set `ISBNDB_API_KEY` in the server process environment to let the server look up covers from ISBNdb for titles with a valid ISBN. Without it, titles show a grey placeholder and no lookup is attempted. The key is never sent to the Expo app or returned in responses.
+
 In PowerShell, from the repository root:
 
 ```powershell
@@ -88,6 +90,7 @@ Connect the repository to a Node web service with:
 - Health check path: `/health`
 - `NODE_VERSION=22.22.0`
 - `DATABASE_URL` set privately in Render's environment settings
+- `ISBNDB_API_KEY` set privately in Render's environment settings (optional, enables cover thumbnails)
 - `ALLOWED_ORIGINS` set to the exact deployed web origin and any other permitted browser origins
 
 Render supplies `PORT`. Run migrations deliberately against the intended database, then deploy the updated API and app together; the new app requires the updated `/api/shared` response. Run the seed only when fictional demo data is wanted. Render's root directory contains only `server`, so it does not depend on root Expo files.

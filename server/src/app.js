@@ -25,6 +25,7 @@ app.use('/api/titles', require('./routes/titles'));
 app.use('/api/kits', require('./routes/kits'));
 app.use('/api/clubs', require('./routes/clubs'));
 app.use('/api', require('./routes/club-kits'));
+app.use('/api', require('./routes/covers'));
 app.use('/api', require('./routes/users'));
 app.use('/api', require('./routes/cycles').router);
 app.use('/api', require('./routes/ballots').router);
