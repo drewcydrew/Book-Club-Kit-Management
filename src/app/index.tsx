@@ -6,6 +6,7 @@ import { useStore } from '../state/store';
 
 export default function Home() {
   const { data } = useStore();
+  const person = data.people.find((p) => p.id === data.selectedPersonId);
   return <Page title="Welcome">
     <Card><Label>Explore a fictional library</Label>
       <Note>Users, memberships, clubs, titles, kits, preferences, cycles, schedules, lending settings, reading history and circulation are shared and publicly writable. Use fictional data only. Your selected user remains on this device; club enrolment is shared. Previous local shared records are not imported.</Note>
@@ -16,7 +17,7 @@ export default function Home() {
     <Card><Label>Start here</Label>
       <Link href="/preferences" style={{ color: '#245e51', textDecorationLine: 'underline', paddingVertical: 8 }}>Vote and review preferences →</Link>
       <Link href="/schedule" style={{ color: '#245e51', textDecorationLine: 'underline', paddingVertical: 8 }}>Create and review a schedule →</Link>
-      <Link href="/circulation" style={{ color: '#245e51', textDecorationLine: 'underline', paddingVertical: 8 }}>Record kit circulation →</Link>
+      {person?.role !== 'member' && <Link href="/circulation" style={{ color: '#245e51', textDecorationLine: 'underline', paddingVertical: 8 }}>Record kit circulation →</Link>}
     </Card>
   </Page>;
 }

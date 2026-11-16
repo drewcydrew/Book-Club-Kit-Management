@@ -4,12 +4,14 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useNavigationGuard } from "../components/navigation-guard";
+import { SearchPicker } from "../components/search-picker";
 import { TitleCover } from "../components/title-cover";
 import {
   Action,
@@ -21,6 +23,7 @@ import {
   Page,
 } from "../components/ui";
 import type { Club, Membership } from "../domain/model";
+import type { PickerOption } from "../domain/search";
 import {
   deleteRecord,
   saveHistory,
@@ -77,6 +80,18 @@ export default function Clubs() {
     clubId: string;
     kitId: string;
   } | null>(null);
+  const [openClubs, setOpenClubs] = useState<Record<string, boolean>>({});
+
+  function unlinkedKitOptions(clubId: string): PickerOption[] {
+    return data.kits
+      .filter((kit) => !shared.data.links.some((link) => link.clubId === clubId && link.kitId === kit.id))
+      .map((kit) => ({
+        id: kit.id,
+        label: `${kit.barcode} · ${data.titles.find((title) => title.id === kit.titleId)?.name ?? "Title unavailable"}`,
+        detail: `${kit.status} · ${kit.branch}`,
+        group: kit.branch,
+      }));
+  }
 
   const [formOpen, setFormOpen] = useState(false);
   const [initial, setInitial] = useState("");
@@ -377,7 +392,25 @@ export default function Clubs() {
         );
         return (
           <Card key={value.id}>
-            <Label>{value.name}</Label>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: !!openClubs[value.id] }}
+              onPress={() =>
+                setOpenClubs((current) => ({
+                  ...current,
+                  [value.id]: !current[value.id],
+                }))
+              }
+            >
+              <Label>
+                {openClubs[value.id] ? "▾" : "▸"} {value.name} ·{" "}
+                {members.length} members ·{" "}
+                {shared.data.links.filter((link) => link.clubId === value.id).length}{" "}
+                kits
+              </Label>
+            </Pressable>
+            {openClubs[value.id] && (
+              <>
             <Note>
               {value.branch} · {value.size} members · {value.cadence} ·{" "}
               {value.pickup}
@@ -407,7 +440,9 @@ export default function Clubs() {
                 )
                 .join(", ") || "None"}
             </Text>
-            <Label>Linked kits</Label>
+            <Label>
+              Linked kits · {shared.data.links.filter((link) => link.clubId === value.id).length}
+            </Label>
             {shared.data.links
               .filter((link) => link.clubId === value.id)
               .map((link) => {
@@ -415,7 +450,7 @@ export default function Clubs() {
                 const linkedTitle = kit ? data.titles.find((title) => title.id === kit.titleId) : undefined;
                 return (
                   <Actions key={link.kitId}>
-                    {linkedTitle && <TitleCover coverUrl={linkedTitle.coverUrl} isbn={linkedTitle.isbn} />}
+                    {linkedTitle && <TitleCover coverUrl={linkedTitle.coverUrl} isbn={linkedTitle.isbn} style={{ width: 32, height: 48, marginRight: 0 }} />}
                     <Text>
                       {kit
                         ? `${kit.barcode} · ${data.titles.find((title) => title.id === kit.titleId)?.name ?? "Title unavailable"}`
@@ -433,35 +468,30 @@ export default function Clubs() {
               })}
             {staff && (
               <>
-                <Note>Link a kit:</Note>
-                <Actions>
-                  {data.kits
-                    .filter(
-                      (kit) =>
-                        !shared.data.links.some(
-                          (link) =>
-                            link.clubId === value.id && link.kitId === kit.id,
+                <SearchPicker
+                  label="Link a kit"
+                  options={unlinkedKitOptions(value.id)}
+                  selectedId=""
+                  groups={[
+                    { value: "all", label: "All branches" },
+                    ...data.library.branches.map((branch) => ({ value: branch, label: branch })),
+                  ]}
+                  summary="Search kits to link"
+                  disabled={busy}
+                  closeOnSelect={false}
+                  onSelect={(kitId) => {
+                    void shared
+                      .mutate(() => setClubKit(value.id, kitId, true))
+                      .then(() => setMessage("Shared kit link saved."))
+                      .catch((error: unknown) =>
+                        setMessage(
+                          error instanceof Error
+                            ? error.message
+                            : "Unable to link kit.",
                         ),
-                    )
-                    .map((kit) => (
-                      <Action
-                        key={kit.id}
-                        title={`Link ${kit.barcode}`}
-                        onPress={() => {
-                          void shared
-                            .mutate(() => setClubKit(value.id, kit.id, true))
-                            .then(() => setMessage("Shared kit link saved."))
-                            .catch((error: unknown) =>
-                              setMessage(
-                                error instanceof Error
-                                  ? error.message
-                                  : "Unable to link kit.",
-                              ),
-                            );
-                        }}
-                      />
-                    ))}
-                </Actions>
+                      );
+                  }}
+                />
                 <Actions>
                   <Action title="Edit club" onPress={() => edit(value)} />
                   <Action
@@ -480,6 +510,8 @@ export default function Clubs() {
                     }}
                   />
                 </Actions>
+              </>
+            )}
               </>
             )}
           </Card>

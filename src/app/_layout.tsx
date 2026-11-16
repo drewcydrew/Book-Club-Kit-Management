@@ -6,7 +6,7 @@ import { NavigationGuardProvider, useNavigationGuard } from '../components/navig
 import { StoreProvider, useStore } from '../state/store';
 import { SharedProvider } from '../state/shared';
 
-const staffOnlyRoutes = ['/catalog', '/clubs', '/cycles'];
+const staffOnlyRoutes = ['/catalog', '/clubs', '/cycles', '/circulation'];
 
 function Shell() {
   const { data } = useStore();
@@ -28,7 +28,7 @@ function Shell() {
         {!member && <NavigationLink href="/cycles">Cycles</NavigationLink>}
         <NavigationLink href="/preferences">Preferences</NavigationLink>
         <NavigationLink href="/schedule">Schedule</NavigationLink>
-        <NavigationLink href="/circulation">Circulation</NavigationLink>
+        {!member && <NavigationLink href="/circulation">Circulation</NavigationLink>}
         <NavigationLink href="/settings">Settings</NavigationLink>
       </ScrollView>
     </View>
