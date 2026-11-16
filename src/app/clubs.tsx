@@ -1,5 +1,5 @@
 import { usePreventRemove } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useNavigationGuard } from "../components/navigation-guard";
@@ -21,18 +22,51 @@ import {
   Label,
   Note,
   Page,
+  styles as uiStyles,
 } from "../components/ui";
 import type { Club, Membership } from "../domain/model";
 import type { PickerOption } from "../domain/search";
 import {
   deleteRecord,
+  loadShared,
   saveHistory,
   saveMemberships,
   saveRecord,
   setClubKit,
 } from "../state/api";
+import type { SharedData } from "../state/api";
 import { useShared } from "../state/shared";
 import { useStore } from "../state/store";
+
+type Section = "details" | "members" | "history";
+type SyncState = {
+  kind: "idle" | "pending" | "saving" | "saved" | "failed" | "invalid";
+  message?: string;
+};
+type Draft = {
+  club: Club;
+  sizeText: string;
+  members: Membership[];
+  history: string[];
+};
+type Revisions = { club: number; membership: number };
+type Confirmed = Record<Section, string>;
+type KeyTarget = {
+  addEventListener: (
+    type: "keydown",
+    listener: (event: { key: string }) => void,
+  ) => void;
+  removeEventListener: (
+    type: "keydown",
+    listener: (event: { key: string }) => void,
+  ) => void;
+};
+
+const sectionLabels: Record<Section, string> = {
+  details: "Details",
+  members: "Members",
+  history: "Reading history",
+};
 
 const blankClub = (branch: string): Club => ({
   id: "",
@@ -48,14 +82,193 @@ const blankClub = (branch: string): Club => ({
   membershipRevision: 0,
 });
 
-function snapshot(
-  value: Club,
-  sizeText: string,
-  members: Membership[],
-  history: string[],
-) {
-  return JSON.stringify({ value, sizeText, members, history });
+function errorText(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
 }
+
+function detailsKey(value: Draft) {
+  const { club, sizeText } = value;
+  return JSON.stringify([
+    club.name,
+    club.branch,
+    sizeText,
+    club.cadence,
+    club.pickup,
+    club.address,
+  ]);
+}
+
+function membersKey(value: Draft) {
+  return JSON.stringify(
+    value.members
+      .map((member) => [member.personId, member.leader])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  );
+}
+
+function historyKey(value: Draft) {
+  return JSON.stringify(value.history);
+}
+
+function keyFor(section: Section, value: Draft) {
+  if (section === "details") return detailsKey(value);
+  if (section === "members") return membersKey(value);
+  return historyKey(value);
+}
+
+function keysFor(value: Draft): Confirmed {
+  return {
+    details: detailsKey(value),
+    members: membersKey(value),
+    history: historyKey(value),
+  };
+}
+
+function detailsError(value: Draft): string | null {
+  const count = Number(value.sizeText);
+  if (!value.club.name.trim() || !value.club.branch.trim())
+    return "Enter a club name and branch.";
+  if (!Number.isInteger(count) || count < 1)
+    return "Club size must be a positive whole number.";
+  if (value.club.pickup === "delivery" && !value.club.address.trim())
+    return "Enter a delivery address for delivery clubs.";
+  return null;
+}
+
+function membersError(value: Draft): string | null {
+  return value.members.filter((member) => member.leader).length > 1
+    ? "A club can have only one leader."
+    : null;
+}
+
+function clubPayload(value: Draft, revision: number | null) {
+  const {
+    leaderId: _leaderId,
+    history: _history,
+    membershipRevision: _membershipRevision,
+    revision: _revision,
+    ...fields
+  } = value.club;
+  return {
+    ...fields,
+    name: value.club.name.trim(),
+    branch: value.club.branch.trim(),
+    size: Number(value.sizeText),
+    ...(revision === null ? {} : { revision }),
+  };
+}
+
+function serverState(fresh: SharedData, clubId: string, leaderId: string) {
+  const record = fresh.clubs.find((item) => item.id === clubId);
+  if (!record) return null;
+  const membership = fresh.membershipRevisions.find(
+    (item) => item.clubId === clubId,
+  );
+  const titles = fresh.history.find((item) => item.clubId === clubId)?.titles ?? [];
+  const revisions: Revisions = {
+    club: record.revision,
+    membership: membership?.revision ?? 0,
+  };
+  return {
+    club: {
+      ...record,
+      leaderId,
+      history: titles,
+      membershipRevision: revisions.membership,
+    },
+    members: fresh.memberships.filter((item) => item.clubId === clubId),
+    history: titles,
+    revisions,
+  };
+}
+
+function syncText(state: SyncState) {
+  switch (state.kind) {
+    case "pending":
+      return "Waiting to save…";
+    case "saving":
+      return "Saving…";
+    case "saved":
+      return "Saved";
+    case "failed":
+      return `Not saved${state.message ? `: ${state.message}` : ""}`;
+    case "invalid":
+      return state.message ?? "Check the fields";
+    default:
+      return "";
+  }
+}
+
+function SyncLine({
+  state,
+  onRetry,
+  onRevert,
+}: {
+  state: SyncState;
+  onRetry: () => void;
+  onRevert: () => void;
+}) {
+  if (state.kind === "idle") return null;
+  const problem = state.kind === "failed" || state.kind === "invalid";
+  return (
+    <View style={modalStyles.sync}>
+      <Text style={problem ? modalStyles.syncError : modalStyles.syncText}>
+        {syncText(state)}
+      </Text>
+      {problem && (
+        <Actions>
+          {state.kind === "failed" && (
+            <Action title="Retry" onPress={onRetry} />
+          )}
+          <Action title="Revert to shared" onPress={onRevert} />
+        </Actions>
+      )}
+    </View>
+  );
+}
+
+function Fold({
+  title,
+  summary,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={modalStyles.fold}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={onToggle}
+        style={modalStyles.foldHeader}
+      >
+        <Text style={modalStyles.foldTitle}>
+          {open ? "▾" : "▸"} {title}
+        </Text>
+        <Text style={modalStyles.foldSummary}>{summary}</Text>
+      </Pressable>
+      {open ? <View style={modalStyles.foldBody}>{children}</View> : null}
+    </View>
+  );
+}
+
+const defaultOpen: Record<Section, boolean> = {
+  details: true,
+  members: false,
+  history: false,
+};
+
+const idleStatus: Record<Section, SyncState> = {
+  details: { kind: "idle" },
+  members: { kind: "idle" },
+  history: { kind: "idle" },
+};
 
 export default function Clubs() {
   const { data } = useStore();
@@ -63,14 +276,8 @@ export default function Clubs() {
   const navigationGuard = useNavigationGuard();
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const staff = person?.role === "admin" || person?.role === "staff";
-  const [club, setClub] = useState<Club>(() =>
-    blankClub(data.library.branches[0] ?? ""),
-  );
-  const [size, setSize] = useState("1");
+  const busy = shared.saving;
   const [message, setMessage] = useState("");
-  const [clubRevision, setClubRevision] = useState<number | null>(null);
-  const [membershipDraft, setMembershipDraft] = useState<Membership[]>([]);
-  const [historyDraft, setHistoryDraft] = useState<string[]>([]);
   const [deleting, setDeleting] = useState<{
     id: string;
     name: string;
@@ -81,6 +288,48 @@ export default function Clubs() {
     kitId: string;
   } | null>(null);
   const [openClubs, setOpenClubs] = useState<Record<string, boolean>>({});
+  const [formOpen, setFormOpen] = useState(false);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [status, setStatus] = useState<Record<Section, SyncState>>(idleStatus);
+  const [open, setOpen] = useState<Record<Section, boolean>>(defaultOpen);
+  const [memberQuery, setMemberQuery] = useState("");
+  const [memberSelectedOnly, setMemberSelectedOnly] = useState(false);
+  const [titleQuery, setTitleQuery] = useState("");
+  const [titleSelectedOnly, setTitleSelectedOnly] = useState(false);
+  const [discardPrompt, setDiscardPrompt] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<
+    (() => void) | null
+  >(null);
+  const draftRef = useRef<Draft | null>(null);
+  const confirmedRef = useRef<Confirmed>({ details: "", members: "", history: "" });
+  const revisionRef = useRef<Revisions>({ club: 0, membership: 0 });
+  const queueRef = useRef<Section[]>([]);
+  const drainingRef = useRef(false);
+  const detailsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isNew = !!draft && !draft.club.id;
+  const newDirty =
+    !!draft &&
+    !draft.club.id &&
+    (draft.club.name.trim() !== "" ||
+      draft.club.address.trim() !== "" ||
+      draft.sizeText !== "1");
+
+  const disablePrevention = usePreventRemove(newDirty && formOpen, ({ repeat }) => {
+    setPendingNavigation(() => repeat);
+    setDiscardPrompt(true);
+  });
+
+  useEffect(() => {
+    if (!formOpen || !newDirty) return;
+    return navigationGuard.register((continueNavigation) => {
+      setPendingNavigation(() => () => {
+        disablePrevention();
+        continueNavigation();
+      });
+      setDiscardPrompt(true);
+    });
+  }, [disablePrevention, formOpen, navigationGuard, newDirty]);
 
   function unlinkedKitOptions(clubId: string): PickerOption[] {
     return data.kits
@@ -93,198 +342,322 @@ export default function Clubs() {
       }));
   }
 
-  const [formOpen, setFormOpen] = useState(false);
-  const [initial, setInitial] = useState("");
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [pendingNavigation, setPendingNavigation] = useState<
-    (() => void) | null
-  >(null);
-  const dirty =
-    formOpen &&
-    snapshot(club, size, membershipDraft, historyDraft) !== initial;
-  const busy = shared.saving;
+  function setSection(section: Section, state: SyncState) {
+    setStatus((current) => ({ ...current, [section]: state }));
+  }
 
-  const disablePrevention = usePreventRemove(
-    dirty || (formOpen && busy),
-    ({ repeat }) => {
-      if (busy) {
-        setMessage("Wait for the shared change to finish before leaving.");
-        return;
-      }
-      setPendingNavigation(() => repeat);
-      setConfirmDiscard(true);
-    },
-  );
+  function updateDraft(change: (current: Draft) => Draft) {
+    const current = draftRef.current;
+    if (!current) return;
+    const next = change(current);
+    draftRef.current = next;
+    setDraft(next);
+  }
 
-  useEffect(() => {
-    if (!formOpen || (!dirty && !busy)) return;
-    return navigationGuard.register((continueNavigation) => {
-      if (busy) {
-        setMessage("Wait for the shared change to finish before leaving.");
-        return;
+  function hasUnsettledWork() {
+    return (
+      drainingRef.current ||
+      detailsTimer.current !== null ||
+      Object.values(status).some(
+        (state) =>
+          state.kind === "pending" ||
+          state.kind === "saving" ||
+          state.kind === "failed" ||
+          state.kind === "invalid",
+      )
+    );
+  }
+
+  // Background saves run one section at a time so each sends the latest revision.
+  function queueSync(section: Section) {
+    setSection(section, { kind: "pending" });
+    if (!queueRef.current.includes(section)) queueRef.current.push(section);
+    void drain();
+  }
+
+  async function drain() {
+    if (drainingRef.current) return;
+    drainingRef.current = true;
+    try {
+      let next = queueRef.current.shift();
+      while (next) {
+        await runSync(next);
+        next = queueRef.current.shift();
       }
-      setPendingNavigation(() => () => {
-        disablePrevention();
-        continueNavigation();
+    } finally {
+      drainingRef.current = false;
+    }
+  }
+
+  async function runSync(section: Section) {
+    const current = draftRef.current;
+    if (!current || !current.club.id) return;
+    const sentKey = keyFor(section, current);
+    if (sentKey === confirmedRef.current[section]) {
+      setSection(section, { kind: "saved" });
+      return;
+    }
+    const problem =
+      section === "details"
+        ? detailsError(current)
+        : section === "members"
+          ? membersError(current)
+          : null;
+    if (problem) {
+      setSection(section, { kind: "invalid", message: problem });
+      return;
+    }
+    setSection(section, { kind: "saving" });
+    try {
+      if (section === "details") {
+        const saved = await shared.mutate(() =>
+          saveRecord("clubs", clubPayload(current, revisionRef.current.club)),
+        );
+        if (!("pickup" in saved))
+          throw new Error("Server returned an invalid club.");
+        revisionRef.current.club = saved.revision;
+      } else if (section === "members") {
+        revisionRef.current.membership = await shared.mutate(() =>
+          saveMemberships(current.club.id, current.members, revisionRef.current.membership),
+        );
+      } else {
+        revisionRef.current.club = await shared.mutate(() =>
+          saveHistory(current.club.id, current.history, revisionRef.current.club),
+        );
+      }
+    } catch (error: unknown) {
+      const reason = errorText(error, "Unable to save changes.");
+      setSection(section, { kind: "failed", message: reason });
+      setOpen((currentOpen) => ({ ...currentOpen, [section]: true }));
+      setMessage(`${sectionLabels[section]} not saved. ${reason}`);
+      return;
+    }
+    confirmedRef.current[section] = sentKey;
+    const latest = draftRef.current;
+    if (latest?.club.id && keyFor(section, latest) !== sentKey) {
+      queueSync(section);
+      return;
+    }
+    setSection(section, { kind: "saved" });
+  }
+
+  async function retry(section: Section) {
+    const current = draftRef.current;
+    if (!current) return;
+    try {
+      await shared.refresh();
+      const state = serverState(await loadShared(), current.club.id, current.club.leaderId);
+      if (state) revisionRef.current = state.revisions;
+    } catch (error: unknown) {
+      setSection(section, {
+        kind: "failed",
+        message: errorText(error, "Unable to refresh shared data."),
       });
-      setConfirmDiscard(true);
-    });
-  }, [busy, dirty, disablePrevention, formOpen, navigationGuard]);
+      return;
+    }
+    queueSync(section);
+  }
+
+  async function revert(section: Section) {
+    const current = draftRef.current;
+    if (!current) return;
+    try {
+      const state = serverState(await loadShared(), current.club.id, current.club.leaderId);
+      if (!state) throw new Error("Club is no longer available.");
+      const next: Draft =
+        section === "details"
+          ? { ...current, club: state.club, sizeText: String(state.club.size) }
+          : section === "members"
+            ? { ...current, members: state.members }
+            : { ...current, history: state.history };
+      revisionRef.current = state.revisions;
+      confirmedRef.current[section] = keyFor(section, next);
+      updateDraft(() => next);
+      setSection(section, { kind: "idle" });
+      setMessage(`${sectionLabels[section]} reverted to the shared version.`);
+    } catch (error: unknown) {
+      setSection(section, {
+        kind: "failed",
+        message: errorText(error, "Unable to revert."),
+      });
+    }
+  }
+
+  function scheduleDetails() {
+    if (detailsTimer.current) clearTimeout(detailsTimer.current);
+    setSection("details", { kind: "pending" });
+    detailsTimer.current = setTimeout(() => {
+      detailsTimer.current = null;
+      queueSync("details");
+    }, 700);
+  }
+
+  function flushDetails() {
+    if (!detailsTimer.current) return;
+    clearTimeout(detailsTimer.current);
+    detailsTimer.current = null;
+    queueSync("details");
+  }
+
+  const flushRef = useRef(flushDetails);
+  useEffect(() => {
+    flushRef.current = flushDetails;
+  });
+  useEffect(() => () => flushRef.current(), []);
 
   function edit(value: Club) {
-    const sizeText = String(value.size);
-    const members = data.memberships.filter(
-      (membership) => membership.clubId === value.id,
-    );
-    const history = [...value.history];
-    setClub(value);
-    setClubRevision(
-      value.id
-        ? (shared.data.clubs.find((item) => item.id === value.id)?.revision ??
-            null)
-        : null,
-    );
-    setSize(sizeText);
-    setMembershipDraft(members);
-    setHistoryDraft(history);
+    const current = draftRef.current;
+    if (value.id && current?.club.id === value.id) {
+      setFormOpen(true);
+      return;
+    }
+    if (current?.club.id && hasUnsettledWork()) {
+      setMessage("Finish saving or revert the open club before opening another.");
+      return;
+    }
+    const next: Draft = {
+      club: value,
+      sizeText: String(value.size),
+      members: data.memberships.filter((membership) => membership.clubId === value.id),
+      history: [...value.history],
+    };
+    draftRef.current = next;
+    setDraft(next);
+    revisionRef.current = { club: value.revision, membership: value.membershipRevision };
+    confirmedRef.current = keysFor(next);
+    setStatus(idleStatus);
+    setOpen(defaultOpen);
+    setMemberQuery("");
+    setMemberSelectedOnly(false);
+    setTitleQuery("");
+    setTitleSelectedOnly(false);
     setMessage("");
-    setInitial(snapshot(value, sizeText, members, history));
-    setConfirmDiscard(false);
+    setDiscardPrompt(false);
     setPendingNavigation(null);
     setFormOpen(true);
   }
 
-  function closeForm() {
-    if (busy) return;
-    if (dirty) {
-      setConfirmDiscard(true);
-      return;
-    }
-    setFormOpen(false);
+  function changeDetails(patch: Partial<Club>, sizeText?: string) {
+    if (!draftRef.current) return;
+    updateDraft((current) => ({
+      ...current,
+      club: { ...current.club, ...patch },
+      sizeText: sizeText ?? current.sizeText,
+    }));
+    if (draftRef.current?.club.id) scheduleDetails();
   }
 
-  function discardForm() {
-    const navigate = pendingNavigation;
-    setFormOpen(false);
-    setConfirmDiscard(false);
-    setPendingNavigation(null);
-    if (navigate) navigate();
+  function toggleMember(personId: string) {
+    updateDraft((current) => {
+      const selected = current.members.some((member) => member.personId === personId);
+      return {
+        ...current,
+        members: selected
+          ? current.members.filter((member) => member.personId !== personId)
+          : [...current.members, { personId, clubId: current.club.id, leader: false }],
+      };
+    });
+    queueSync("members");
   }
 
-  function save() {
-    const count = Number(size);
-    if (
-      !club.name.trim() ||
-      !club.branch.trim() ||
-      !Number.isInteger(count) ||
-      count < 1 ||
-      (club.pickup === "delivery" && !club.address.trim())
-    ) {
-      setMessage(
-        "Enter a club name, branch, positive size and delivery address if applicable.",
-      );
+  function toggleLeader(personId: string) {
+    updateDraft((current) => {
+      const member = current.members.find((entry) => entry.personId === personId);
+      if (!member) return current;
+      const leader = !member.leader;
+      return {
+        ...current,
+        members: current.members.map((entry) =>
+          entry.personId === personId
+            ? { ...entry, leader }
+            : leader
+              ? { ...entry, leader: false }
+              : entry,
+        ),
+      };
+    });
+    queueSync("members");
+  }
+
+  function toggleTitle(titleId: string) {
+    updateDraft((current) => ({
+      ...current,
+      history: current.history.includes(titleId)
+        ? current.history.filter((id) => id !== titleId)
+        : [...current.history, titleId],
+    }));
+    queueSync("history");
+  }
+
+  function createClub() {
+    const current = draftRef.current;
+    if (!current) return;
+    const problem = detailsError(current);
+    if (problem) {
+      setMessage(problem);
       return;
     }
-    const {
-      leaderId: _leaderId,
-      history: _history,
-      membershipRevision: _membershipRevision,
-      revision,
-      ...fields
-    } = club;
-    const value = {
-      ...fields,
-      name: club.name.trim(),
-      branch: club.branch.trim(),
-      size: count,
-      ...(clubRevision === null ? {} : { revision }),
-    };
+    const payload = clubPayload(current, null);
     void shared
-      .mutate(() => saveRecord("clubs", value))
+      .mutate(() => saveRecord("clubs", payload))
       .then((saved) => {
         if (!("pickup" in saved))
           throw new Error("Server returned an invalid club.");
-        const current: Club = {
-          ...saved,
-          leaderId: club.leaderId,
-          history: club.history,
-          membershipRevision: club.membershipRevision,
+        const next: Draft = {
+          club: { ...saved, leaderId: "", history: [], membershipRevision: 0 },
+          sizeText: String(saved.size),
+          members: [],
+          history: [],
         };
-        setClub(current);
-        setClubRevision(saved.revision);
-        setSize(String(saved.size));
-        setInitial(
-          snapshot(current, String(saved.size), membershipDraft, historyDraft),
-        );
-        setMessage(
-          "Shared club saved. Membership, leadership and reading history are managed separately.",
-        );
+        revisionRef.current = { club: saved.revision, membership: 0 };
+        confirmedRef.current = keysFor(next);
+        draftRef.current = next;
+        setDraft(next);
+        setStatus(idleStatus);
+        setMessage("Club created. Members and reading history can now be added.");
       })
       .catch((error: unknown) =>
-        setMessage(
-          error instanceof Error ? error.message : "Unable to save club.",
-        ),
+        setMessage(errorText(error, "Unable to create club.")),
       );
   }
 
-  function saveMembers() {
-    const current = shared.data.clubs.find((item) => item.id === club.id);
-    if (!current) {
-      setMessage("Save this club before managing its members.");
-      return;
-    }
-    const selected = membershipDraft.filter(
-      (membership) => membership.clubId === club.id,
-    );
-    if (selected.filter((membership) => membership.leader).length > 1) {
-      setMessage("A club can have only one leader.");
-      return;
-    }
-    void shared
-      .mutate(() => saveMemberships(club.id, selected, club.membershipRevision))
-      .then((membershipRevision) => {
-        const nextClub = { ...club, membershipRevision };
-        setClub(nextClub);
-        setInitial(snapshot(nextClub, size, membershipDraft, historyDraft));
-        setMessage("Shared memberships and club leadership saved.");
-      })
-      .catch((error: unknown) =>
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "Unable to save memberships.",
-        ),
-      );
+  function closeModal() {
+    flushDetails();
+    setDiscardPrompt(false);
+    setPendingNavigation(null);
+    setFormOpen(false);
   }
 
-  function saveClubHistory() {
-    const current = shared.data.clubs.find((item) => item.id === club.id);
-    if (!current) {
-      setMessage(
-        "Club is no longer available. Refresh before editing history.",
-      );
+  function requestClose() {
+    if (newDirty) {
+      setDiscardPrompt(true);
       return;
     }
-    void shared
-      .mutate(() => saveHistory(club.id, historyDraft, club.revision))
-      .then((revision) => {
-        setClub((currentClub) => ({
-          ...currentClub,
-          history: historyDraft,
-          revision,
-        }));
-        setClubRevision(revision);
-        const nextClub = { ...club, history: historyDraft, revision };
-        setInitial(snapshot(nextClub, size, membershipDraft, historyDraft));
-        setMessage("Shared club reading history saved.");
-      })
-      .catch((error: unknown) =>
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "Unable to save reading history.",
-        ),
-      );
+    closeModal();
+  }
+
+  function discardNewClub() {
+    const navigate = pendingNavigation;
+    setPendingNavigation(null);
+    setDiscardPrompt(false);
+    draftRef.current = null;
+    setDraft(null);
+    setFormOpen(false);
+    navigate?.();
+  }
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || !formOpen) return;
+    const target = globalThis as unknown as KeyTarget;
+    const onKey = (event: { key: string }) => {
+      if (event.key === "Escape") requestClose();
+    };
+    target.addEventListener("keydown", onKey);
+    return () => target.removeEventListener("keydown", onKey);
+  });
+
+  function toggleSection(section: Section) {
+    setOpen((current) => ({ ...current, [section]: !current[section] }));
   }
 
   const visibleClubs = data.clubs.filter(
@@ -295,6 +668,25 @@ export default function Clubs() {
           membership.personId === person?.id && membership.clubId === value.id,
       ),
   );
+
+  const query = memberQuery.trim().toLowerCase();
+  const memberRows = draft
+    ? data.people.filter((candidate) => {
+        const selected = draft.members.some((member) => member.personId === candidate.id);
+        return (
+          (!memberSelectedOnly || selected) &&
+          candidate.name.toLowerCase().includes(query)
+        );
+      })
+    : [];
+  const titleQueryText = titleQuery.trim().toLowerCase();
+  const titleRows = draft
+    ? data.titles.filter(
+        (title) =>
+          (!titleSelectedOnly || draft.history.includes(title.id)) &&
+          title.name.toLowerCase().includes(titleQueryText),
+      )
+    : [];
 
   return (
     <Page title="Clubs">
@@ -345,11 +737,7 @@ export default function Clubs() {
                     setMessage("Club deleted.");
                   })
                   .catch((error: unknown) =>
-                    setMessage(
-                      error instanceof Error
-                        ? error.message
-                        : "Unable to delete club.",
-                    ),
+                    setMessage(errorText(error, "Unable to delete club.")),
                   );
               }}
             />
@@ -374,11 +762,7 @@ export default function Clubs() {
                     setMessage("Kit unlinked.");
                   })
                   .catch((error: unknown) =>
-                    setMessage(
-                      error instanceof Error
-                        ? error.message
-                        : "Unable to unlink kit.",
-                    ),
+                    setMessage(errorText(error, "Unable to unlink kit.")),
                   );
               }}
             />
@@ -390,6 +774,7 @@ export default function Clubs() {
         const members = data.memberships.filter(
           (membership) => membership.clubId === value.id,
         );
+        const links = shared.data.links.filter((link) => link.clubId === value.id);
         return (
           <Card key={value.id}>
             <Pressable
@@ -404,114 +789,112 @@ export default function Clubs() {
             >
               <Label>
                 {openClubs[value.id] ? "▾" : "▸"} {value.name} ·{" "}
-                {members.length} members ·{" "}
-                {shared.data.links.filter((link) => link.clubId === value.id).length}{" "}
-                kits
+                {members.length} members · {links.length} kits
               </Label>
             </Pressable>
             {openClubs[value.id] && (
               <>
-            <Note>
-              {value.branch} · {value.size} members · {value.cadence} ·{" "}
-              {value.pickup}
-            </Note>
-            {value.pickup === "delivery" ? <Text>{value.address}</Text> : null}
-            <Text>
-              Leader:{" "}
-              {data.people.find((p) => p.id === value.leaderId)?.name ??
-                "Not assigned"}
-            </Text>
-            <Text>
-              Members:{" "}
-              {members
-                .map(
-                  (membership) =>
-                    `${data.people.find((p) => p.id === membership.personId)?.name ?? "Unavailable user"}${membership.leader ? " (leader)" : ""}`,
-                )
-                .join(", ") || "None"}
-            </Text>
-            <Text>
-              Previously read:{" "}
-              {value.history
-                .map(
-                  (titleId) =>
-                    data.titles.find((t) => t.id === titleId)?.name ??
-                    `${titleId} (unavailable)`,
-                )
-                .join(", ") || "None"}
-            </Text>
-            <Label>
-              Linked kits · {shared.data.links.filter((link) => link.clubId === value.id).length}
-            </Label>
-            {shared.data.links
-              .filter((link) => link.clubId === value.id)
-              .map((link) => {
-                const kit = data.kits.find((item) => item.id === link.kitId);
-                const linkedTitle = kit ? data.titles.find((title) => title.id === kit.titleId) : undefined;
-                return (
-                  <Actions key={link.kitId}>
-                    {linkedTitle && <TitleCover coverUrl={linkedTitle.coverUrl} isbn={linkedTitle.isbn} style={{ width: 32, height: 48, marginRight: 0 }} />}
-                    <Text>
-                      {kit
-                        ? `${kit.barcode} · ${data.titles.find((title) => title.id === kit.titleId)?.name ?? "Title unavailable"}`
-                        : "Kit unavailable"}
-                    </Text>
-                    {staff && (
+                <Note>
+                  {value.branch} · {value.size} members · {value.cadence} ·{" "}
+                  {value.pickup}
+                </Note>
+                {value.pickup === "delivery" ? <Text>{value.address}</Text> : null}
+                <Text>
+                  Leader:{" "}
+                  {data.people.find((p) => p.id === value.leaderId)?.name ??
+                    "Not assigned"}
+                </Text>
+                <Text>
+                  Members:{" "}
+                  {members
+                    .map(
+                      (membership) =>
+                        `${data.people.find((p) => p.id === membership.personId)?.name ?? "Unavailable user"}${membership.leader ? " (leader)" : ""}`,
+                    )
+                    .join(", ") || "None"}
+                </Text>
+                <Text>
+                  Previously read:{" "}
+                  {value.history
+                    .map(
+                      (titleId) =>
+                        data.titles.find((t) => t.id === titleId)?.name ??
+                        `${titleId} (unavailable)`,
+                    )
+                    .join(", ") || "None"}
+                </Text>
+                <Label>Linked kits · {links.length}</Label>
+                {links.map((link) => {
+                  const kit = data.kits.find((item) => item.id === link.kitId);
+                  const linkedTitle = kit
+                    ? data.titles.find((title) => title.id === kit.titleId)
+                    : undefined;
+                  return (
+                    <Actions key={link.kitId}>
+                      {linkedTitle && (
+                        <TitleCover
+                          coverUrl={linkedTitle.coverUrl}
+                          isbn={linkedTitle.isbn}
+                          style={{ width: 32, height: 48, marginRight: 0 }}
+                        />
+                      )}
+                      <Text>
+                        {kit
+                          ? `${kit.barcode} · ${data.titles.find((title) => title.id === kit.titleId)?.name ?? "Title unavailable"}`
+                          : "Kit unavailable"}
+                      </Text>
+                      {staff && (
+                        <Action
+                          tone="danger"
+                          title={`Unlink ${kit?.barcode ?? link.kitId}`}
+                          onPress={() => setUnlinking(link)}
+                        />
+                      )}
+                    </Actions>
+                  );
+                })}
+                {staff && (
+                  <>
+                    <SearchPicker
+                      label="Link a kit"
+                      options={unlinkedKitOptions(value.id)}
+                      selectedId=""
+                      groups={[
+                        { value: "all", label: "All branches" },
+                        ...data.library.branches.map((branch) => ({ value: branch, label: branch })),
+                      ]}
+                      summary="Search kits to link"
+                      disabled={busy}
+                      closeOnSelect={false}
+                      onSelect={(kitId) => {
+                        void shared
+                          .mutate(() => setClubKit(value.id, kitId, true))
+                          .then(() => setMessage("Shared kit link saved."))
+                          .catch((error: unknown) =>
+                            setMessage(errorText(error, "Unable to link kit.")),
+                          );
+                      }}
+                    />
+                    <Actions>
+                      <Action title="Edit club" onPress={() => edit(value)} />
                       <Action
                         tone="danger"
-                        title={`Unlink ${kit?.barcode ?? link.kitId}`}
-                        onPress={() => setUnlinking(link)}
+                        title="Delete club"
+                        onPress={() => {
+                          const record = shared.data.clubs.find(
+                            (item) => item.id === value.id,
+                          );
+                          if (record)
+                            setDeleting({
+                              id: record.id,
+                              name: record.name,
+                              revision: record.revision,
+                            });
+                        }}
                       />
-                    )}
-                  </Actions>
-                );
-              })}
-            {staff && (
-              <>
-                <SearchPicker
-                  label="Link a kit"
-                  options={unlinkedKitOptions(value.id)}
-                  selectedId=""
-                  groups={[
-                    { value: "all", label: "All branches" },
-                    ...data.library.branches.map((branch) => ({ value: branch, label: branch })),
-                  ]}
-                  summary="Search kits to link"
-                  disabled={busy}
-                  closeOnSelect={false}
-                  onSelect={(kitId) => {
-                    void shared
-                      .mutate(() => setClubKit(value.id, kitId, true))
-                      .then(() => setMessage("Shared kit link saved."))
-                      .catch((error: unknown) =>
-                        setMessage(
-                          error instanceof Error
-                            ? error.message
-                            : "Unable to link kit.",
-                        ),
-                      );
-                  }}
-                />
-                <Actions>
-                  <Action title="Edit club" onPress={() => edit(value)} />
-                  <Action
-                    tone="danger"
-                    title="Delete club"
-                    onPress={() => {
-                      const record = shared.data.clubs.find(
-                        (item) => item.id === value.id,
-                      );
-                      if (record)
-                        setDeleting({
-                          id: record.id,
-                          name: record.name,
-                          revision: record.revision,
-                        });
-                    }}
-                  />
-                </Actions>
-              </>
-            )}
+                    </Actions>
+                  </>
+                )}
               </>
             )}
           </Card>
@@ -521,181 +904,224 @@ export default function Clubs() {
         <Modal
           transparent
           visible={formOpen}
-          onRequestClose={
-            confirmDiscard
-              ? () => {
-                  setConfirmDiscard(false);
-                  setPendingNavigation(null);
-                }
-              : closeForm
-          }
-          accessibilityLabel={club.id ? "Edit shared club" : "Add shared club"}
+          animationType="fade"
+          onRequestClose={requestClose}
+          accessibilityLabel={isNew ? "Add shared club" : "Edit shared club"}
         >
-          <KeyboardAvoidingView
-            style={modalStyles.backdrop}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-          >
-            <View style={modalStyles.dialog}>
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={modalStyles.content}
-              >
-                {confirmDiscard ? (
-                  <>
-                    <Label>Discard unsaved changes?</Label>
-                    <Note>Your changes have not been saved.</Note>
-                    <Actions>
-                      <Action
-                        tone="danger"
-                        title="Discard changes"
-                        onPress={discardForm}
-                      />
-                      <Action
-                        title="Keep editing"
-                        onPress={() => {
-                          setConfirmDiscard(false);
-                          setPendingNavigation(null);
-                        }}
-                      />
-                    </Actions>
-                  </>
-                ) : (
-                  <>
+          {formOpen && draft ? (
+            <KeyboardAvoidingView
+              style={modalStyles.backdrop}
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+            >
+              <Pressable
+                accessibilityLabel="Close club editor"
+                style={StyleSheet.absoluteFill}
+                onPress={requestClose}
+              />
+              <View style={modalStyles.dialog}>
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={modalStyles.content}
+                >
+                  <View style={modalStyles.header}>
                     <Label>
-                      {club.id ? "Edit shared club" : "Add shared club"}
+                      {isNew ? "Add shared club" : draft.club.name || "Edit shared club"}
                     </Label>
-          <Field
-            label="Club name"
-            value={club.name}
-            onChangeText={(name) => setClub({ ...club, name })}
-          />
-          <Field
-            label="Branch"
-            value={club.branch}
-            onChangeText={(branch) => setClub({ ...club, branch })}
-          />
-          <Field label="Club size" value={size} onChangeText={setSize} />
-          <Field
-            label="Meeting cadence"
-            value={club.cadence}
-            onChangeText={(cadence) => setClub({ ...club, cadence })}
-          />
-          <Action
-            title={`Method: ${club.pickup}`}
-            onPress={() =>
-              setClub({
-                ...club,
-                pickup: club.pickup === "pickup" ? "delivery" : "pickup",
-              })
-            }
-          />
-          {club.pickup === "delivery" && (
-            <Field
-              label="Fictional delivery address"
-              value={club.address}
-              onChangeText={(address) => setClub({ ...club, address })}
-            />
-          )}
-          <Actions>
-            <Action
-              tone="primary"
-              title="Save club"
-              disabled={busy}
-              onPress={save}
-            />
-            <Action title="Cancel" disabled={busy} onPress={closeForm} />
-          </Actions>
-          {!!club.id && (
-            <>
-              <Label>Shared club membership and leader</Label>
-              <Note>Memberships with saved ballots cannot be removed.</Note>
-              {data.people.length === 0 && (
-                <Note>Create demo users in Settings first.</Note>
-              )}
-              {data.people.map((member) => {
-                const current = membershipDraft.find(
-                  (entry) =>
-                    entry.clubId === club.id && entry.personId === member.id,
-                );
-                const others = membershipDraft.filter(
-                  (entry) => entry.personId !== member.id,
-                );
-                return (
-                  <Actions key={member.id}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Close"
+                      onPress={requestClose}
+                      style={modalStyles.close}
+                    >
+                      <Text style={modalStyles.closeText}>✕</Text>
+                    </Pressable>
+                  </View>
+                  {message ? <Note>{message}</Note> : null}
+                  {discardPrompt && (
+                    <Card>
+                      <Label>Discard unsaved club?</Label>
+                      <Note>This new club has not been created yet.</Note>
+                      <Actions>
+                        <Action tone="danger" title="Discard" onPress={discardNewClub} />
+                        <Action
+                          title="Keep editing"
+                          onPress={() => {
+                            setDiscardPrompt(false);
+                            setPendingNavigation(null);
+                          }}
+                        />
+                      </Actions>
+                    </Card>
+                  )}
+                  <Fold
+                    title="Details"
+                    summary={`${draft.club.cadence} · ${draft.club.pickup}`}
+                    open={open.details}
+                    onToggle={() => toggleSection("details")}
+                  >
+                    <Field
+                      label="Club name"
+                      value={draft.club.name}
+                      onChangeText={(name) => changeDetails({ name })}
+                    />
+                    <Field
+                      label="Branch"
+                      value={draft.club.branch}
+                      onChangeText={(branch) => changeDetails({ branch })}
+                    />
+                    <Field
+                      label="Club size"
+                      value={draft.sizeText}
+                      onChangeText={(text) => changeDetails({}, text)}
+                    />
+                    <Field
+                      label="Meeting cadence"
+                      value={draft.club.cadence}
+                      onChangeText={(cadence) => changeDetails({ cadence })}
+                    />
                     <Action
-                      selected={!!current}
-                      title={`${current ? "✓ " : ""}${member.name} (${member.role})`}
+                      title={`Method: ${draft.club.pickup}`}
                       onPress={() =>
-                        setMembershipDraft(
-                          current
-                            ? others
-                            : [
-                                ...others,
-                                {
-                                  personId: member.id,
-                                  clubId: club.id,
-                                  leader: false,
-                                },
-                              ],
-                        )
+                        changeDetails({
+                          pickup: draft.club.pickup === "pickup" ? "delivery" : "pickup",
+                        })
                       }
                     />
-                    {current && (
-                      <Action
-                        selected={current.leader}
-                        title={
-                          current.leader ? "Club leader ✓" : "Make club leader"
-                        }
-                        onPress={() =>
-                          setMembershipDraft([
-                            ...membershipDraft
-                              .filter((entry) => entry.personId !== member.id)
-                              .map((entry) => ({ ...entry, leader: false })),
-                            { ...current, leader: !current.leader },
-                          ])
-                        }
+                    {draft.club.pickup === "delivery" && (
+                      <Field
+                        label="Fictional delivery address"
+                        value={draft.club.address}
+                        onChangeText={(address) => changeDetails({ address })}
                       />
                     )}
-                  </Actions>
-                );
-              })}
-              <Action
-                tone="primary"
-                title="Save shared memberships and leader"
-                onPress={saveMembers}
-              />
-              <Label>Shared reading history</Label>
-              <Actions>
-                {data.titles.map((title) => (
-                  <View key={title.id} style={{ flexDirection: "row", alignItems: "center" }}>
-                    <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} />
-                    <Action
-                      selected={historyDraft.includes(title.id)}
-                      title={`${title.name}${historyDraft.includes(title.id) ? " ✓" : ""}`}
-                      onPress={() =>
-                        setHistoryDraft(
-                          historyDraft.includes(title.id)
-                            ? historyDraft.filter((id) => id !== title.id)
-                            : [...historyDraft, title.id],
-                        )
-                      }
-                    />
-                  </View>
-                ))}
-              </Actions>
-              <Action
-                tone="primary"
-                title="Save shared reading history"
-                onPress={saveClubHistory}
-              />
-            </>
-          )}
-                {message ? <Text>{message}</Text> : null}
-                  </>
-                )}
-              </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
+                    {isNew ? (
+                      <Actions>
+                        <Action tone="primary" title="Create club" onPress={createClub} />
+                      </Actions>
+                    ) : (
+                      <SyncLine
+                        state={status.details}
+                        onRetry={() => void retry("details")}
+                        onRevert={() => void revert("details")}
+                      />
+                    )}
+                  </Fold>
+                  {isNew ? (
+                    <Note>Create the club to manage members and reading history.</Note>
+                  ) : (
+                    <>
+                      <Fold
+                        title="Members"
+                        summary={`${draft.members.length} selected`}
+                        open={open.members}
+                        onToggle={() => toggleSection("members")}
+                      >
+                        <Note>
+                          One leader per club. Memberships with saved ballots cannot be removed.
+                        </Note>
+                        {data.people.length === 0 && (
+                          <Note>Create demo users in Settings first.</Note>
+                        )}
+                        <TextInput
+                          value={memberQuery}
+                          onChangeText={setMemberQuery}
+                          placeholder="Search people"
+                          style={uiStyles.input}
+                        />
+                        <Actions>
+                          <Action
+                            selected={memberSelectedOnly}
+                            title="Selected only"
+                            onPress={() => setMemberSelectedOnly(!memberSelectedOnly)}
+                          />
+                        </Actions>
+                        <Actions>
+                          {memberRows.map((candidate) => {
+                            const membership = draft.members.find(
+                              (member) => member.personId === candidate.id,
+                            );
+                            return (
+                              <View key={candidate.id} style={modalStyles.chip}>
+                                <View style={modalStyles.grow}>
+                                  <Action
+                                    selected={!!membership}
+                                    title={`${membership ? "✓ " : ""}${candidate.name} (${candidate.role})`}
+                                    onPress={() => toggleMember(candidate.id)}
+                                  />
+                                </View>
+                                {membership && (
+                                  <View style={modalStyles.grow}>
+                                    <Action
+                                      selected={membership.leader}
+                                      title={membership.leader ? "Leader ✓" : "Make leader"}
+                                      onPress={() => toggleLeader(candidate.id)}
+                                    />
+                                  </View>
+                                )}
+                              </View>
+                            );
+                          })}
+                        </Actions>
+                        {memberRows.length === 0 && <Note>No matching people.</Note>}
+                        <SyncLine
+                          state={status.members}
+                          onRetry={() => void retry("members")}
+                          onRevert={() => void revert("members")}
+                        />
+                      </Fold>
+                      <Fold
+                        title="Reading history"
+                        summary={`${draft.history.length} read`}
+                        open={open.history}
+                        onToggle={() => toggleSection("history")}
+                      >
+                        <TextInput
+                          value={titleQuery}
+                          onChangeText={setTitleQuery}
+                          placeholder="Search titles"
+                          style={uiStyles.input}
+                        />
+                        <Actions>
+                          <Action
+                            selected={titleSelectedOnly}
+                            title="Selected only"
+                            onPress={() => setTitleSelectedOnly(!titleSelectedOnly)}
+                          />
+                        </Actions>
+                        <Actions>
+                          {titleRows.map((title) => {
+                            const read = draft.history.includes(title.id);
+                            return (
+                              <View key={title.id} style={modalStyles.chip}>
+                                <TitleCover
+                                  coverUrl={title.coverUrl}
+                                  isbn={title.isbn}
+                                  style={modalStyles.thumb}
+                                />
+                                <View style={modalStyles.grow}>
+                                  <Action
+                                    selected={read}
+                                    title={`${read ? "✓ " : ""}${title.name}`}
+                                    onPress={() => toggleTitle(title.id)}
+                                  />
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </Actions>
+                        {titleRows.length === 0 && <Note>No matching titles.</Note>}
+                        <SyncLine
+                          state={status.history}
+                          onRetry={() => void retry("history")}
+                          onRevert={() => void revert("history")}
+                        />
+                      </Fold>
+                    </>
+                  )}
+                </ScrollView>
+              </View>
+            </KeyboardAvoidingView>
+          ) : null}
         </Modal>
       )}
       {message && !formOpen ? <Text>{message}</Text> : null}
@@ -717,5 +1143,47 @@ const modalStyles = StyleSheet.create({
     maxHeight: "90%",
     backgroundColor: "#fffefa",
   },
-  content: { padding: 20, gap: 12 },
+  content: { padding: 16, gap: 10 },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  close: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeText: { fontSize: 22 },
+  fold: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#d8d2c4",
+    borderRadius: 6,
+  },
+  foldHeader: {
+    minHeight: 44,
+    padding: 10,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  foldTitle: { fontWeight: "600" },
+  foldSummary: { color: "#666" },
+  foldBody: { padding: 10, paddingTop: 0, gap: 8 },
+  sync: { gap: 6 },
+  syncText: { color: "#555" },
+  syncError: { color: "#a33" },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexBasis: 240,
+    flexGrow: 1,
+  },
+  grow: { flex: 1 },
+  thumb: { width: 34, height: 50 },
 });
