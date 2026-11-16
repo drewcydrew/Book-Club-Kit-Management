@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { Text } from 'react-native';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import { today, validDate } from '../domain/dates';
-import { clubPriorities, groupSlotsByMonth, lastDayOfMonth, memberVotes, monthsInRange, shiftMonth } from '../domain/cycle-overview';
+import { clubPriorities, clubStatuses, groupSlotsByMonth, lastDayOfMonth, memberVotes, monthsInRange, shiftMonth, type ClubStatus } from '../domain/cycle-overview';
 import { id } from '../domain/logic';
-import type { Club, Cycle, Data } from '../domain/model';
+import type { Club, Cycle, Data, Slot } from '../domain/model';
 import { deleteCycle, saveCycle } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
@@ -135,32 +135,35 @@ function ScheduleOverview({ data, cycle, clubFilter, onFilter }: OverviewProps) 
     <Card><Label>Filter by club</Label><ClubChips clubs={scheduledClubs(data, cycle)} selected={clubFilter} onSelect={onFilter} /></Card>
     {groups.length === 0 && <Card><Note>No meetings for this selection.</Note></Card>}
     {groups.map((group) => <Card key={group.month}><Label>{monthLabel(group.month)}</Label>
-      {group.slots.map((slot) => {
-        const assignment = data.assignments.find((item) => item.cycleId === cycle.id && item.slotId === slot.id);
-        const kit = data.kits.find((item) => item.id === assignment?.kitId);
-        const title = data.titles.find((item) => item.id === kit?.titleId);
-        return <Text key={slot.id}>{clubName(data, slot.clubId)} · {slot.meeting ?? `${monthLabel(slot.month)}, no date`} · {title && kit ? `${title.name} (${kit.barcode})` : 'No kit assigned'}</Text>;
-      })}
+      {group.slots.map((slot) => <Text key={slot.id}>{slotText(data, cycle, slot)}</Text>)}
     </Card>)}
   </>;
 }
 
 function PlanningOverview({ data, cycle, clubFilter, onFilter }: OverviewProps) {
-  const clubs = scheduledClubs(data, cycle);
+  const clubs = data.clubs;
   const club = clubs.find((item) => item.id === clubFilter) ?? clubs[0];
-  if (!club) return <Card><Note>No clubs have meetings in this cycle yet.</Note></Card>;
+  if (!club) return <Card><Note>No clubs yet.</Note></Card>;
+  const statuses = Object.fromEntries(clubStatuses(data, cycle).map((status) => [status.clubId, status]));
   const priorities = clubPriorities(data, cycle, club.id);
   const finalized = cycle.finalized[club.id] ?? [];
   const votes = memberVotes(data.memberships, data.ballots, cycle.id, club.id);
   const voted = votes.filter((vote) => vote.voted).length;
+  const meetings = groupSlotsByMonth(cycle.slots, club.id);
   return <>
-    <Card><Label>Select a club</Label><ClubChips clubs={clubs} selected={club.id} onSelect={onFilter} /></Card>
+    <Card><Label>Select a club</Label><ClubChips clubs={clubs} selected={club.id} onSelect={onFilter} statuses={statuses} /></Card>
     <Card><Label>{club.name} · aggregated priorities</Label>
       {finalized.length > 0 && <><Label>Finalized ranking</Label>{finalized.map((titleId, index) => <Text key={titleId}>{index + 1}. {titleName(data, titleId)}</Text>)}</>}
       {priorities.length === 0 && <Note>No titles selected yet.</Note>}
       {priorities.map((item, index) => <Text key={item.titleId} style={item.history ? { color: '#888' } : undefined}>
         {index + 1}. {titleName(data, item.titleId)} · score {item.score} · {item.supporters} {item.supporters === 1 ? 'supporter' : 'supporters'}{item.history ? ' · previously read' : ''}
       </Text>)}
+    </Card>
+    <Card><Label>{club.name} · meetings</Label>
+      {meetings.length === 0 && <Note>No meetings for this club in this cycle.</Note>}
+      {meetings.map((group) => <React.Fragment key={group.month}><Label>{monthLabel(group.month)}</Label>
+        {group.slots.map((slot) => <Text key={slot.id}>{slotText(data, cycle, slot)}</Text>)}
+      </React.Fragment>)}
     </Card>
     <Card><Label>{club.name} · {voted} of {votes.length} voted</Label>
       {votes.length === 0 && <Note>No members in this club.</Note>}
@@ -173,10 +176,22 @@ function PlanningOverview({ data, cycle, clubFilter, onFilter }: OverviewProps) 
   </>;
 }
 
-function ClubChips({ clubs, selected, onSelect }: { clubs: Club[]; selected: string; onSelect: (clubId: string) => void }) {
+function ClubChips({ clubs, selected, onSelect, statuses }: { clubs: Club[]; selected: string; onSelect: (clubId: string) => void; statuses?: Record<string, ClubStatus> }) {
   return <Actions><Action selected={!selected} title="All clubs" onPress={() => onSelect('')} />
-    {clubs.map((club) => <Action key={club.id} selected={club.id === selected} title={club.name} onPress={() => onSelect(club.id)} />)}
+    {clubs.map((club) => <Action key={club.id} selected={club.id === selected} title={`${club.name}${club.id === selected ? ' ✓' : ''}${statusSuffix(statuses?.[club.id])}`} onPress={() => onSelect(club.id)} />)}
   </Actions>;
+}
+
+function statusSuffix(status: ClubStatus | undefined): string {
+  if (!status) return '';
+  return ` · ${status.hasPreferences ? 'prefs' : 'no prefs'} · ${status.meetingCount > 0 ? `${status.meetingCount} ${status.meetingCount === 1 ? 'meeting' : 'meetings'}` : 'no meetings'}`;
+}
+
+function slotText(data: Data, cycle: Cycle, slot: Slot): string {
+  const assignment = data.assignments.find((item) => item.cycleId === cycle.id && item.slotId === slot.id);
+  const kit = data.kits.find((item) => item.id === assignment?.kitId);
+  const title = data.titles.find((item) => item.id === kit?.titleId);
+  return `${clubName(data, slot.clubId)} · ${slot.meeting ?? `${monthLabel(slot.month)}, no date`} · ${title && kit ? `${title.name} (${kit.barcode})` : 'No kit assigned'}`;
 }
 
 function scheduledClubs(data: Data, cycle: Cycle): Club[] {
