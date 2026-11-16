@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Text } from 'react-native';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import { today, validDate } from '../domain/dates';
-import { groupSlotsByMonth, memberVotes } from '../domain/cycle-overview';
+import { clubPriorities, groupSlotsByMonth, memberVotes } from '../domain/cycle-overview';
 import { id } from '../domain/logic';
 import type { Club, Cycle, Data } from '../domain/model';
 import { deleteCycle, saveCycle } from '../state/api';
@@ -115,22 +115,29 @@ function ScheduleOverview({ data, cycle, clubFilter, onFilter }: OverviewProps) 
 
 function PlanningOverview({ data, cycle, clubFilter, onFilter }: OverviewProps) {
   const clubs = scheduledClubs(data, cycle);
-  const visible = clubFilter ? clubs.filter((club) => club.id === clubFilter) : clubs;
+  const club = clubs.find((item) => item.id === clubFilter) ?? clubs[0];
+  if (!club) return <Card><Note>No clubs have meetings in this cycle yet.</Note></Card>;
+  const priorities = clubPriorities(data, cycle, club.id);
+  const finalized = cycle.finalized[club.id] ?? [];
+  const votes = memberVotes(data.memberships, data.ballots, cycle.id, club.id);
+  const voted = votes.filter((vote) => vote.voted).length;
   return <>
-    <Card><Label>Filter by club</Label><ClubChips clubs={clubs} selected={clubFilter} onSelect={onFilter} /></Card>
-    {visible.length === 0 && <Card><Note>No clubs have meetings in this cycle yet.</Note></Card>}
-    {visible.map((club) => {
-      const votes = memberVotes(data.memberships, data.ballots, cycle.id, club.id);
-      const voted = votes.filter((vote) => vote.voted).length;
-      return <Card key={club.id}><Label>{club.name} · {voted} of {votes.length} voted</Label>
-        {votes.length === 0 && <Note>No members in this club.</Note>}
-        {votes.map((vote) => <Text key={vote.personId}>
-          {personName(data, vote.personId)} · {vote.voted
-            ? `Voted · Top: ${topTitles(data, vote.ranking)} · Selected ${vote.marks.selected}, read ${vote.marks.read}, won't read ${vote.marks.wont}`
-            : 'Not voted'}
-        </Text>)}
-      </Card>;
-    })}
+    <Card><Label>Select a club</Label><ClubChips clubs={clubs} selected={club.id} onSelect={onFilter} /></Card>
+    <Card><Label>{club.name} · aggregated priorities</Label>
+      {finalized.length > 0 && <><Label>Finalized ranking</Label>{finalized.map((titleId, index) => <Text key={titleId}>{index + 1}. {titleName(data, titleId)}</Text>)}</>}
+      {priorities.length === 0 && <Note>No titles selected yet.</Note>}
+      {priorities.map((item, index) => <Text key={item.titleId} style={item.history ? { color: '#888' } : undefined}>
+        {index + 1}. {titleName(data, item.titleId)} · score {item.score} · {item.supporters} {item.supporters === 1 ? 'supporter' : 'supporters'}{item.history ? ' · previously read' : ''}
+      </Text>)}
+    </Card>
+    <Card><Label>{club.name} · {voted} of {votes.length} voted</Label>
+      {votes.length === 0 && <Note>No members in this club.</Note>}
+      {votes.map((vote) => <Text key={vote.personId}>
+        {personName(data, vote.personId)} · {vote.voted
+          ? `Selected: ${vote.selected.length > 0 ? vote.selected.map((titleId) => titleName(data, titleId)).join(', ') : 'none'} · Selected ${vote.marks.selected}, read ${vote.marks.read}, won't read ${vote.marks.wont}`
+          : 'Not voted'}
+      </Text>)}
+    </Card>
   </>;
 }
 
@@ -152,9 +159,8 @@ function personName(data: Data, personId: string): string {
   return data.people.find((person) => person.id === personId)?.name ?? 'Unknown member';
 }
 
-function topTitles(data: Data, ranking: string[]): string {
-  if (ranking.length === 0) return 'none ranked';
-  return ranking.slice(0, 3).map((titleId) => data.titles.find((title) => title.id === titleId)?.name ?? 'Unknown title').join(', ');
+function titleName(data: Data, titleId: string): string {
+  return data.titles.find((title) => title.id === titleId)?.name ?? 'Unknown title';
 }
 
 function monthLabel(month: string): string {
