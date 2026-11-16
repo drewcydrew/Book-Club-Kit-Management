@@ -33,8 +33,8 @@ export function Label({ children }: { children: React.ReactNode }) {
   return <Text style={styles.label}>{children}</Text>;
 }
 
-export function Field({ label, value, onChangeText, placeholder, editable = true }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; editable?: boolean }) {
-  return <View style={{ gap: 5 }}><Label>{label}</Label><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} editable={editable} style={styles.input} /></View>;
+export function Field({ label, value, onChangeText, placeholder, editable = true, multiline = false }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; editable?: boolean; multiline?: boolean }) {
+  return <View style={{ gap: 5 }}><Label>{label}</Label><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} editable={editable} multiline={multiline} style={[styles.input, multiline && styles.multilineInput]} /></View>;
 }
 
 export function Action({ title, onPress, disabled = false, selected, tone = 'default' }: {
@@ -60,6 +60,7 @@ export const styles = StyleSheet.create({
   label: { fontWeight: '700', color: '#183a36', fontSize: 16 },
   card: { backgroundColor: '#fffefa', paddingHorizontal: 16, paddingVertical: 18, borderLeftWidth: 3, borderLeftColor: '#75958a', gap: 12 },
   input: { borderWidth: 1, borderColor: '#718b82', paddingHorizontal: 10, paddingVertical: 9, color: '#173832', backgroundColor: '#fff', minHeight: 44 },
+  multilineInput: { minHeight: 96, textAlignVertical: 'top' },
   button: { backgroundColor: '#fffefa', borderWidth: 1, borderColor: '#65877b', paddingHorizontal: 14, paddingVertical: 10, minHeight: 44, maxWidth: '100%', justifyContent: 'center' },
   buttonText: { color: '#244c40', fontWeight: '600', textAlign: 'center' },
   primaryButton: { backgroundColor: '#245e51', borderColor: '#245e51' },

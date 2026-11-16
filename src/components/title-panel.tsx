@@ -37,6 +37,8 @@ export function TitlePanel({ titles, kits, query, onQueryChange, staff, saving, 
           <Label>{title.name}</Label>
           <Note>{title.author} {title.isbn ? `· ISBN ${title.isbn}` : ''}</Note>
           <Note>{title.genres || 'No genres'} · {title.pages || 'Unknown'} pages · {title.largePrint ? 'Large print' : 'No large print'} · {title.audio ? 'Audio available' : 'No audio'}</Note>
+          {title.publisher || title.datePublished ? <Note>{[title.publisher, title.datePublished].filter(Boolean).join(' · ')}</Note> : null}
+          {title.synopsis ? <Text>{title.synopsis}</Text> : null}
           {title.notes ? <Text>Content notes: {title.notes}</Text> : null}
           <Note>{kitCount} {kitCount === 1 ? 'kit' : 'kits'}</Note>
         </View></View>

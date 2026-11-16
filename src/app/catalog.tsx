@@ -43,6 +43,11 @@ const blankTitle = (): Title => ({
   largePrint: false,
   audio: false,
   coverUrl: null,
+  publisher: null,
+  synopsis: null,
+  datePublished: null,
+  binding: null,
+  language: null,
 });
 const blankKit = (branch: string): Kit => ({
   id: "",
@@ -108,6 +113,8 @@ function lookupMessage(status: LookupStatus): string {
 // Fills only empty fields so that text the user has already typed is never replaced.
 function applyLookup(draft: TitleDraft, found: IsbnLookup): TitleDraft {
   const { value } = draft;
+  const fillEmpty = (current: string | null | undefined, fromLookup: string | null) =>
+    current?.trim() ? current : (fromLookup ?? null);
   return {
     ...draft,
     pages:
@@ -120,6 +127,11 @@ function applyLookup(draft: TitleDraft, found: IsbnLookup): TitleDraft {
       author: value.author.trim() ? value.author : (found.author ?? ""),
       genres: value.genres.trim() ? value.genres : (found.genres ?? ""),
       coverUrl: value.coverUrl ?? found.coverUrl,
+      publisher: fillEmpty(value.publisher, found.publisher),
+      synopsis: fillEmpty(value.synopsis, found.synopsis),
+      datePublished: fillEmpty(value.datePublished, found.datePublished),
+      binding: fillEmpty(value.binding, found.binding),
+      language: fillEmpty(value.language, found.language),
     },
   };
 }
@@ -640,6 +652,62 @@ export default function Catalog() {
                             setDraft({
                               ...draft,
                               value: { ...draft.value, genres },
+                            })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Publisher"
+                          value={draft.value.publisher ?? ""}
+                          onChangeText={(publisher) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, publisher },
+                            })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Date published"
+                          value={draft.value.datePublished ?? ""}
+                          onChangeText={(datePublished) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, datePublished },
+                            })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Binding"
+                          value={draft.value.binding ?? ""}
+                          onChangeText={(binding) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, binding },
+                            })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Language"
+                          value={draft.value.language ?? ""}
+                          onChangeText={(language) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, language },
+                            })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Synopsis"
+                          multiline
+                          value={draft.value.synopsis ?? ""}
+                          onChangeText={(synopsis) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, synopsis },
                             })
                           }
                         />

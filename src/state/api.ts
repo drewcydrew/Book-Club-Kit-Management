@@ -32,10 +32,15 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function isString(value: unknown): value is string { return typeof value === 'string'; }
 function isNumber(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
 function isStringArray(value: unknown): value is string[] { return Array.isArray(value) && value.every(isString); }
+function isNullableString(value: unknown): value is string | null | undefined {
+  return value === undefined || value === null || isString(value);
+}
 function isTitle(value: unknown): value is SharedTitle {
   return isObject(value) && isString(value.id) && isString(value.name) && isString(value.author) &&
     isString(value.isbn) && isNumber(value.pages) && isString(value.genres) && isString(value.notes) &&
-    typeof value.largePrint === 'boolean' && typeof value.audio === 'boolean' && isNumber(value.revision);
+    typeof value.largePrint === 'boolean' && typeof value.audio === 'boolean' && isNumber(value.revision) &&
+    isNullableString(value.publisher) && isNullableString(value.synopsis) && isNullableString(value.datePublished) &&
+    isNullableString(value.binding) && isNullableString(value.language);
 }
 function isKit(value: unknown): value is SharedKit {
   return isObject(value) && isString(value.id) && isString(value.titleId) && isString(value.barcode) &&
@@ -201,12 +206,25 @@ export async function fetchIsbnCover(isbn: string): Promise<string | null> {
   return typeof body?.imageUrl === 'string' ? body.imageUrl : null;
 }
 
-export type IsbnLookup = { title: string | null; author: string | null; pages: number | null; genres: string | null; coverUrl: string | null };
+export type IsbnLookup = {
+  title: string | null;
+  author: string | null;
+  pages: number | null;
+  genres: string | null;
+  coverUrl: string | null;
+  publisher: string | null;
+  synopsis: string | null;
+  datePublished: string | null;
+  binding: string | null;
+  language: string | null;
+};
 
 function isIsbnLookup(value: unknown): value is IsbnLookup {
   const nullable = (check: (item: unknown) => boolean) => (item: unknown) => item === null || check(item);
   return isObject(value) && nullable(isString)(value.title) && nullable(isString)(value.author) &&
-    nullable(isNumber)(value.pages) && nullable(isString)(value.genres) && nullable(isString)(value.coverUrl);
+    nullable(isNumber)(value.pages) && nullable(isString)(value.genres) && nullable(isString)(value.coverUrl) &&
+    nullable(isString)(value.publisher) && nullable(isString)(value.synopsis) && nullable(isString)(value.datePublished) &&
+    nullable(isString)(value.binding) && nullable(isString)(value.language);
 }
 
 export async function lookupIsbn(isbn: string): Promise<IsbnLookup> {
