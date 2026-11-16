@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Text } from 'react-native';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
+import { TitleGallery } from '../components/title-gallery';
 import { today } from '../domain/dates';
 import { finalizeRanking, saveBallot } from '../state/api';
 import { rankings } from '../domain/logic';
@@ -23,6 +24,8 @@ export default function Preferences() {
   const [selectedId, setSelectedId] = useState(data.cycles[0]?.id ?? '');
   const [clubId, setClubId] = useState('');
   const [review, setReview] = useState<{ key: string; ranking: string[] } | null>(null);
+  const [pendingTitleId, setPendingTitleId] = useState<string | null>(null);
+  const [lastDismissedId, setLastDismissedId] = useState<string | null>(null);
   const cycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
   const membershipClubs = person
     ? data.memberships.filter((membership) => membership.personId === person.id).map((membership) => membership.clubId)
@@ -41,36 +44,40 @@ export default function Preferences() {
     : undefined;
   const reviewKey = `${cycle?.id ?? ''}:${club?.id ?? ''}:${person?.id ?? ''}`;
   const reviewRanking = review?.key === reviewKey ? review.ranking : null;
+  const clubRead = club ? data.titles.filter((title) => club.history.includes(title.id)) : [];
 
   function chooseClub(value: string) {
     setReview(null);
+    setLastDismissedId(null);
     setClubId(value);
   }
 
-  function changeBallot(fn: (current: Ballot) => Ballot) {
+  function changeBallot(fn: (current: Ballot) => Ballot, titleId?: string) {
     if (!club || !cycle || !person || !editable || !isMember || shared.saving) return;
     const current: Ballot = ballot ?? {
       cycleId: cycle.id, clubId: club.id, personId: person.id, marks: {}, ranking: [], revision: 0,
     };
     const next = fn(current);
     setReview(null);
-    void shared.mutate(() => saveBallot(next)).catch(() => undefined);
+    if (titleId) setPendingTitleId(titleId);
+    void shared.mutate(() => saveBallot(next)).catch(() => undefined).finally(() => setPendingTitleId(null));
   }
 
   function mark(titleId: string, value: Mark | null) {
+    setLastDismissedId(value === 'wont' ? titleId : null);
     changeBallot((current) => {
       const marks = { ...current.marks };
       if (value) marks[titleId] = value; else delete marks[titleId];
       const ranking = current.ranking.filter((id) => id !== titleId);
       if (value === 'selected') ranking.push(titleId);
       return { ...current, marks, ranking };
-    });
+    }, titleId);
   }
 
   if (!person) return <Page title="Preferences"><Note>No demo user is selected on this device. Choose a shared user in Settings; no user is selected automatically.</Note></Page>;
   if (!cycle) return <Page title="Preferences"><Note>No shared voting cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   return <Page title="Preferences">
-    <Card><Label>Choose a cycle</Label><Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} title={`${value.name}${value.id === cycle.id ? ' ✓' : ''}`} onPress={() => { setSelectedId(value.id); setReview(null); }} />)}</Actions></Card>
+    <Card><Label>Choose a cycle</Label><Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} title={`${value.name}${value.id === cycle.id ? ' ✓' : ''}`} onPress={() => { setSelectedId(value.id); setReview(null); setLastDismissedId(null); }} />)}</Actions></Card>
     <Card><Label>{cycle.name}</Label><Note>Status: {cycle.status} · Deadline: {cycle.deadline}. Voting is {editable ? 'open' : 'closed'}.</Note>
       {cycle.status !== 'collecting' && <Note>Voting is not open for this cycle.</Note>}
       {cycle.status === 'collecting' && today() > cycle.deadline && <Note>The preference deadline has passed.</Note>}
@@ -80,15 +87,18 @@ export default function Preferences() {
     {person.role === 'member' && availableClubs.length > 0 && !club && <Note>Choose a club to view this user’s independent preferences. Memberships and preferences are shared across devices.</Note>}
     {club && <><Card><Label>1. Choose titles for {club.name}</Label>
       {data.titles.length === 0 && <Note>No shared titles are available. Staff can add titles in the Catalog.</Note>}
-      {data.titles.map((title) => <React.Fragment key={title.id}>
-        <Text style={{ fontWeight: '600' }}>{title.name} — {title.author}</Text>
-        {club.history.includes(title.id) ? <><Note>Excluded: this club has already read this title.{ballot?.marks[title.id] ? ` Existing mark: ${ballot.marks[title.id]}.` : ''}</Note>
-          {ballot?.marks[title.id] && <Action title="Clear existing mark" disabled={!editable || !isMember || shared.saving} onPress={() => mark(title.id, null)} />}
-        </> : <Actions>
-          {(['selected', 'read', 'wont'] as const).map((value) => <Action key={value} selected={ballot?.marks[title.id] === value} title={`${value === 'selected' ? 'Select' : value === 'read' ? 'Already read' : 'Won’t read'}${ballot?.marks[title.id] === value ? ' ✓' : ''}`} disabled={!editable || !isMember || shared.saving} onPress={() => mark(title.id, value)} />)}
-          <Action title="Clear" disabled={!editable || !isMember || shared.saving} onPress={() => mark(title.id, null)} />
-        </Actions>}
-      </React.Fragment>)}
+      {data.titles.length > 0 && <TitleGallery
+        titles={data.titles.filter((title) => !club.history.includes(title.id))}
+        marks={ballot?.marks ?? {}}
+        pendingTitleId={pendingTitleId}
+        disabled={!editable || !isMember || shared.saving}
+        lastDismissedId={lastDismissedId}
+        onMark={mark} />}
+      {clubRead.length > 0 && <Note>{clubRead.length} {clubRead.length === 1 ? 'title' : 'titles'} already read by this club {clubRead.length === 1 ? 'is' : 'are'} hidden.</Note>}
+      {clubRead.filter((title) => ballot?.marks[title.id]).map((title) => <Actions key={title.id}>
+        <Text>{title.name}: existing mark {ballot?.marks[title.id]}</Text>
+        <Action title="Clear existing mark" disabled={!editable || !isMember || shared.saving} onPress={() => mark(title.id, null)} />
+      </Actions>)}
       {!isMember && <Note>Only a user assigned to this club can submit preferences for it.</Note>}
     </Card><Card><Label>2. Rank selected titles</Label><Note>Move your favorite to the top. Each ranking is shared for this user, club and cycle.</Note>
       {(ballot?.ranking ?? []).map((titleId, index) => <Actions key={titleId}><Text>{index + 1}. {data.titles.find((t) => t.id === titleId)?.name ?? 'Unavailable title'}</Text>
