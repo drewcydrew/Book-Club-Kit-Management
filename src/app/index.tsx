@@ -11,7 +11,7 @@ export default function Home() {
     <Card><Label>Explore a fictional library</Label>
       <Note>Users, memberships, clubs, titles, kits, preferences, cycles, schedules, lending settings, reading history and circulation are shared and publicly writable. Use fictional data only. Your selected user remains on this device; club enrolment is shared. Previous local shared records are not imported.</Note>
       {!data.people.some((person) => person.role === 'admin') && <Note>No shared admin exists. Run the explicit demo seed, or restore an admin through the API if it was already seeded.</Note>}
-      {data.people.length > 0 && !data.selectedPersonId && <Note>Select a shared demo user in Settings to begin.</Note>}
+      {data.people.length > 0 && !data.selectedPersonId && <Note>Select a shared demo user on the User tab to begin.</Note>}
       <Text>{data.titles.length} titles · {data.kits.length} kits · {data.clubs.length} clubs · {data.cycles.length} cycles</Text>
     </Card>
     <Card><Label>Start here</Label>

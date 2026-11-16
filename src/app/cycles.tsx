@@ -49,7 +49,7 @@ export default function Cycles() {
       .then((saved) => { if (saved) setMeeting(''); });
   }
 
-  if (!staff) return <Page title="Cycles"><Note>Staff manage shared planning cycles. Members can vote on Preferences. Switch to a demo staff/admin role in Settings.</Note></Page>;
+  if (!staff) return <Page title="Cycles"><Note>Staff manage shared planning cycles. Members can vote on Preferences. Switch to a demo staff/admin role on the User tab.</Note></Page>;
   return <Page title="Cycles">
     <Card><Label>Create a cycle</Label><Field label="Cycle name" value={name} onChangeText={setName} />
       <Field label="Preference deadline (YYYY-MM-DD)" value={deadline} onChangeText={setDeadline} /><Action tone="primary" title="Create shared cycle" onPress={create} />

@@ -4,7 +4,7 @@ This Expo prototype uses a separate Express API and PostgreSQL for shared users,
 
 **Public demo only:** there is no login or authorization. Anyone who can reach the API can read, change or delete shared data. Demo roles and CORS are not security controls. Use fictional data only; do not enter real names, addresses or other sensitive information.
 
-Users can belong to multiple clubs and have separate preferences for each club and cycle. Leaders are assigned per club. Reading history, lending settings, kit status and circulation events are shared because schedules depend on them. The selected user remains local to each device; club enrolment is shared. Standard members enrol in clubs in Settings and see only their enrolled clubs in Preferences. Clubs, Catalog & kits and Cycles are hidden from members. Previous locally created users, preferences, cycles and schedules are not imported.
+Users can belong to multiple clubs and have separate preferences for each club and cycle. Leaders are assigned per club. Reading history, lending settings, kit status and circulation events are shared because schedules depend on them. The selected user remains local to each device; club enrolment is shared. Standard members enrol in clubs on the My clubs tab and see only their enrolled clubs in Preferences. Clubs, Catalog & kits and Cycles are hidden from members. Previous locally created users, preferences, cycles and schedules are not imported.
 
 ## Set up the backend
 
@@ -72,7 +72,7 @@ npm run web
 
 For a physical device, use a server address reachable from the device, not `localhost`. Deployed HTTPS web apps need an HTTPS API URL. Expo embeds `EXPO_PUBLIC_API_URL` in the client bundle, so never place secrets there. Restart or reload Expo after changing configuration.
 
-Choose a demo person in Settings; switching to an admin exposes the admin interface. The demo roles are only interface controls: anyone can switch users or call the API directly. Create users and manage their club memberships; members enrol in clubs in Settings, then choose one of their clubs in Preferences to set cycle preferences. Open or refresh the relevant screens on a second device to see changes. Conflicting edits require a refresh before retrying. Deletion of referenced records is restricted. Resetting local selections does not delete shared database records.
+Choose a demo person on the User tab; switching to an admin exposes the Admin tab with user management and lending settings. The demo roles are only interface controls: anyone can switch users or call the API directly. Create users and manage their club memberships on the Admin tab; members enrol in clubs on the My clubs tab, then choose one of their clubs in Preferences to set cycle preferences. Open or refresh the relevant screens on a second device to see changes. Conflicting edits require a refresh before retrying. Deletion of referenced records is restricted. Resetting local selections does not delete shared database records.
 
 In Catalog & kits, staff and admins can use **Add title** or **Add kit**, or an existing record's edit button, to open a dialog. Canceling a changed form asks before discarding it. If a save's outcome is uncertain or conflicts with another edit, refresh and inspect the shared catalog before reopening the form.
 

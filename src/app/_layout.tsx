@@ -6,14 +6,20 @@ import { NavigationGuardProvider, useNavigationGuard } from '../components/navig
 import { StoreProvider, useStore } from '../state/store';
 import { SharedProvider } from '../state/shared';
 
-const staffOnlyRoutes = ['/catalog', '/clubs', '/cycles', '/circulation'];
+const staffOnlyRoutes = ['/catalog', '/clubs', '/cycles', '/circulation', '/admin'];
+const memberOnlyRoutes = ['/my-clubs'];
+
+function matchesRoute(pathname: string, routes: string[]) {
+  return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+}
 
 function Shell() {
   const { data } = useStore();
   const pathname = usePathname();
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const member = person?.role === 'member';
-  const blocked = member && staffOnlyRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+  const blocked = member && matchesRoute(pathname, staffOnlyRoutes);
+  const wrongRole = !member && matchesRoute(pathname, memberOnlyRoutes);
   const enrolled = data.memberships.filter((membership) => membership.personId === person?.id)
     .map((membership) => data.clubs.find((club) => club.id === membership.clubId)?.name)
     .filter((name): name is string => !!name);
@@ -26,13 +32,15 @@ function Shell() {
         {!member && <NavigationLink href="/catalog">Catalog & kits</NavigationLink>}
         {!member && <NavigationLink href="/clubs">Clubs</NavigationLink>}
         {!member && <NavigationLink href="/cycles">Cycles</NavigationLink>}
+        {member && <NavigationLink href="/my-clubs">My clubs</NavigationLink>}
         <NavigationLink href="/preferences">Preferences</NavigationLink>
         <NavigationLink href="/schedule">Schedule</NavigationLink>
         {!member && <NavigationLink href="/circulation">Circulation</NavigationLink>}
-        <NavigationLink href="/settings">Settings</NavigationLink>
+        {!member && <NavigationLink href="/admin">Admin</NavigationLink>}
+        <NavigationLink href="/user">User</NavigationLink>
       </ScrollView>
     </View>
-    {blocked ? <Redirect href="/preferences" /> : <Slot />}
+    {blocked ? <Redirect href="/preferences" /> : wrongRole ? <Redirect href="/user" /> : <Slot />}
   </View>;
 }
 
