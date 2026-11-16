@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { Text } from 'react-native';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import { today, validDate } from '../domain/dates';
+import { groupSlotsByMonth, memberVotes } from '../domain/cycle-overview';
 import { id } from '../domain/logic';
-import type { Cycle } from '../domain/model';
+import type { Club, Cycle, Data } from '../domain/model';
 import { deleteCycle, saveCycle } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
@@ -21,6 +22,8 @@ export default function Cycles() {
   const [message, setMessage] = useState('');
   const [deleteId, setDeleteId] = useState('');
   const cycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
+  const editable = cycle?.status === 'open' || cycle?.status === 'collecting';
+  const [clubFilter, setClubFilter] = useState('');
 
   async function persist(value: Cycle, success: string): Promise<Cycle | undefined> {
     try {
@@ -56,14 +59,19 @@ export default function Cycles() {
     </Card>
     <Card><Label>Select a cycle</Label>
       {data.cycles.length === 0 && <Note>No shared cycles yet. Create one here or run the explicit server demo seed.</Note>}
-      <Actions>{data.cycles.map((c) => <Action key={c.id} selected={c.id === selectedId} title={`${c.name}${c.id === selectedId ? ' ✓' : ''}`} onPress={() => { setSelectedId(c.id); setMessage(''); }} />)}</Actions>
+      <Actions>{data.cycles.map((c) => <Action key={c.id} selected={c.id === selectedId} title={`${c.name}${c.id === selectedId ? ' ✓' : ''}`} onPress={() => { setSelectedId(c.id); setMessage(''); setClubFilter(''); }} />)}</Actions>
     </Card>
-    {cycle && <Card><Label>{cycle.name} · {cycle.status}</Label><Text>Preference deadline: {cycle.deadline}</Text>
+    {cycle && <>
+      <Card><Label>{cycle.name} · {cycle.status}</Label><Text>Preference deadline: {cycle.deadline}</Text></Card>
+      {editable
+        ? <PlanningOverview data={data} cycle={cycle} clubFilter={clubFilter} onFilter={setClubFilter} />
+        : <ScheduleOverview data={data} cycle={cycle} clubFilter={clubFilter} onFilter={setClubFilter} />}
+    <Card><Label>Manage cycle</Label>
       {(cycle.status === 'open' || cycle.status === 'collecting') && <EditCycle key={cycle.id} cycle={cycle} onSave={(value) => persist(value, 'Shared cycle saved.')} />}
       {cycle.status === 'open' && <Action title="Open member voting" onPress={() => persist({ ...cycle, status: 'collecting' }, 'Voting opened.')} />}
-      <Label>Meetings</Label>
-      {cycle.slots.length === 0 && <Note>No meetings added.</Note>}
-      {cycle.slots.map((slot) => <Actions key={slot.id}><Text>{data.clubs.find((c) => c.id === slot.clubId)?.name ?? 'Unavailable club'} · {slot.meeting}</Text>
+      {editable && <Label>Meetings</Label>}
+      {editable && cycle.slots.length === 0 && <Note>No meetings added.</Note>}
+      {editable && cycle.slots.map((slot) => <Actions key={slot.id}><Text>{data.clubs.find((c) => c.id === slot.clubId)?.name ?? 'Unavailable club'} · {slot.meeting}</Text>
         {(cycle.status === 'open' || cycle.status === 'collecting') && <Action tone="danger" title="Remove" onPress={() => {
           persist({ ...cycle, slots: cycle.slots.filter((item) => item.id !== slot.id) }, 'Meeting removed.');
         }} />}
@@ -77,9 +85,81 @@ export default function Cycles() {
           }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to delete cycle.'));
         }} /><Action title="Cancel" onPress={() => setDeleteId('')} /></Actions>
         : <Action tone="danger" title="Delete cycle" onPress={() => setDeleteId(cycle.id)} />}
-    </Card>}
+    </Card></>}
     {message ? <Text>{message}</Text> : null}
   </Page>;
+}
+
+interface OverviewProps {
+  data: Data;
+  cycle: Cycle;
+  clubFilter: string;
+  onFilter: (clubId: string) => void;
+}
+
+function ScheduleOverview({ data, cycle, clubFilter, onFilter }: OverviewProps) {
+  const groups = groupSlotsByMonth(cycle.slots, clubFilter);
+  return <>
+    <Card><Label>Filter by club</Label><ClubChips clubs={scheduledClubs(data, cycle)} selected={clubFilter} onSelect={onFilter} /></Card>
+    {groups.length === 0 && <Card><Note>No meetings for this selection.</Note></Card>}
+    {groups.map((group) => <Card key={group.month}><Label>{monthLabel(group.month)}</Label>
+      {group.slots.map((slot) => {
+        const assignment = data.assignments.find((item) => item.cycleId === cycle.id && item.slotId === slot.id);
+        const kit = data.kits.find((item) => item.id === assignment?.kitId);
+        const title = data.titles.find((item) => item.id === kit?.titleId);
+        return <Text key={slot.id}>{clubName(data, slot.clubId)} · {slot.meeting} · {title && kit ? `${title.name} (${kit.barcode})` : 'No kit assigned'}</Text>;
+      })}
+    </Card>)}
+  </>;
+}
+
+function PlanningOverview({ data, cycle, clubFilter, onFilter }: OverviewProps) {
+  const clubs = scheduledClubs(data, cycle);
+  const visible = clubFilter ? clubs.filter((club) => club.id === clubFilter) : clubs;
+  return <>
+    <Card><Label>Filter by club</Label><ClubChips clubs={clubs} selected={clubFilter} onSelect={onFilter} /></Card>
+    {visible.length === 0 && <Card><Note>No clubs have meetings in this cycle yet.</Note></Card>}
+    {visible.map((club) => {
+      const votes = memberVotes(data.memberships, data.ballots, cycle.id, club.id);
+      const voted = votes.filter((vote) => vote.voted).length;
+      return <Card key={club.id}><Label>{club.name} · {voted} of {votes.length} voted</Label>
+        {votes.length === 0 && <Note>No members in this club.</Note>}
+        {votes.map((vote) => <Text key={vote.personId}>
+          {personName(data, vote.personId)} · {vote.voted
+            ? `Voted · Top: ${topTitles(data, vote.ranking)} · Selected ${vote.marks.selected}, read ${vote.marks.read}, won't read ${vote.marks.wont}`
+            : 'Not voted'}
+        </Text>)}
+      </Card>;
+    })}
+  </>;
+}
+
+function ClubChips({ clubs, selected, onSelect }: { clubs: Club[]; selected: string; onSelect: (clubId: string) => void }) {
+  return <Actions><Action selected={!selected} title="All clubs" onPress={() => onSelect('')} />
+    {clubs.map((club) => <Action key={club.id} selected={club.id === selected} title={club.name} onPress={() => onSelect(club.id)} />)}
+  </Actions>;
+}
+
+function scheduledClubs(data: Data, cycle: Cycle): Club[] {
+  return data.clubs.filter((club) => cycle.slots.some((slot) => slot.clubId === club.id));
+}
+
+function clubName(data: Data, clubId: string): string {
+  return data.clubs.find((club) => club.id === clubId)?.name ?? 'Unavailable club';
+}
+
+function personName(data: Data, personId: string): string {
+  return data.people.find((person) => person.id === personId)?.name ?? 'Unknown member';
+}
+
+function topTitles(data: Data, ranking: string[]): string {
+  if (ranking.length === 0) return 'none ranked';
+  return ranking.slice(0, 3).map((titleId) => data.titles.find((title) => title.id === titleId)?.name ?? 'Unknown title').join(', ');
+}
+
+function monthLabel(month: string): string {
+  const [year, monthNumber] = month.split('-').map(Number);
+  return new Date(Date.UTC(year, monthNumber - 1, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 
 function EditCycle({ cycle, onSave }: { cycle: Cycle; onSave: (value: Cycle) => Promise<Cycle | undefined> }) {
