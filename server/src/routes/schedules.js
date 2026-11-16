@@ -3,9 +3,11 @@ const { HttpError, object, boolean } = require('../http');
 const { id, date, list, unique, expected, transaction, one, stale } = require('./workflow-util');
 const router = express.Router();
 const addDays = (d,n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400000).toISOString().slice(0,10);
+const MAX_ASSIGNMENTS = 5000;
+const found = (rows, key, label) => { const row = rows.get(key); if (!row) throw new HttpError(404, `${label} not found.`); return row; };
 router.put('/cycles/:cycleId/schedule', async (req,res) => {
   const b = object(req.body); const cycleId = id(req.params.cycleId); const rev = expected(b.revision); const publish = boolean(b.publish,'publish');
-  const assignments = list(b.assignments,'assignments').map((a) => {
+  const assignments = list(b.assignments,'assignments',MAX_ASSIGNMENTS).map((a) => {
     object(a);
     const item = { id:id(a.id),cycleId:id(a.cycleId,'cycleId'),slotId:id(a.slotId,'slotId'),clubId:id(a.clubId,'clubId'),kitId:id(a.kitId,'kitId'),
       ready:date(a.ready,'ready'),meeting:date(a.meeting,'meeting'),due:date(a.due,'due'),locked:boolean(a.locked,'locked') };
@@ -28,31 +30,42 @@ router.put('/cycles/:cycleId/schedule', async (req,res) => {
     const allOther = (await c.query(`SELECT a.id,a.cycle_id AS "cycleId",a.slot_id AS "slotId",a.club_id AS "clubId",a.kit_id AS "kitId",
       to_char(a.ready,'YYYY-MM-DD') AS ready,to_char(a.due,'YYYY-MM-DD') AS due,k.title_id AS "titleId",cy.status
       FROM schedule_assignments a JOIN kits k ON k.id=a.kit_id JOIN cycles cy ON cy.id=a.cycle_id WHERE a.cycle_id<>$1`,[cycleId])).rows;
+    const slotIds = assignments.map((a) => a.slotId);
+    const kitIds = [...new Set(assignments.map((a) => a.kitId))];
+    const clubIds = [...new Set(assignments.map((a) => a.clubId))];
+    const slotById = new Map((await c.query(`SELECT id,club_id AS "clubId",to_char(meeting,'YYYY-MM-DD') AS meeting FROM meeting_slots WHERE cycle_id=$1 AND id=ANY($2)`,[cycleId,slotIds])).rows.map((r) => [r.id,r]));
+    const kitById = new Map((await c.query('SELECT id,title_id AS "titleId",status FROM kits WHERE id=ANY($1)',[kitIds])).rows.map((r) => [r.id,r]));
+    const readTitles = new Set((await c.query('SELECT club_id,title_id FROM club_history WHERE club_id=ANY($1)',[clubIds])).rows.map((r) => `${r.club_id}|${r.title_id}`));
+    const existingById = new Map((await c.query(`SELECT id,club_id AS "clubId",kit_id AS "kitId",to_char(ready,'YYYY-MM-DD') AS ready,to_char(meeting,'YYYY-MM-DD') AS meeting,
+      to_char(due,'YYYY-MM-DD') AS due FROM schedule_assignments WHERE cycle_id=$1`,[cycleId])).rows.map((r) => [r.id,r]));
+    const activeByKit = new Map((await c.query(`SELECT DISTINCT ON (a.kit_id) a.kit_id AS "kitId",a.id,to_char(a.ready,'YYYY-MM-DD') AS ready,to_char(a.due,'YYYY-MM-DD') AS due
+      FROM schedule_assignments a JOIN cycles cy ON cy.id=a.cycle_id WHERE a.kit_id=ANY($1) AND cy.status='published' AND a.ready <= CURRENT_DATE ORDER BY a.kit_id,a.ready DESC`,[kitIds])).rows.map((r) => [r.kitId,r]));
+    const dbToday = (await c.query("SELECT to_char(CURRENT_DATE,'YYYY-MM-DD') AS today")).rows[0].today;
     const enriched = [];
     for (const a of assignments) {
-      const slot = await one(c,"SELECT club_id,to_char(meeting,'YYYY-MM-DD') AS meeting FROM meeting_slots WHERE id=$1 AND cycle_id=$2",[a.slotId,cycleId],'Slot');
-      if (slot.club_id !== a.clubId || slot.meeting !== a.meeting) throw new HttpError(409,'Assignment does not match the meeting slot.');
-      const kit = await one(c,'SELECT title_id,status FROM kits WHERE id=$1',[a.kitId],'Kit');
+      const slot = found(slotById,a.slotId,'Slot');
+      if (slot.clubId !== a.clubId || slot.meeting !== a.meeting) throw new HttpError(409,'Assignment does not match the meeting slot.');
+      const kit = found(kitById,a.kitId,'Kit');
       if (['inspection','unavailable'].includes(kit.status)) throw new HttpError(409,'Kit is currently unavailable.');
+      const existing = existingById.get(a.id);
       if (addDays(a.ready,settings.loan_days) !== a.due) {
-        const existing = await c.query('SELECT 1 FROM schedule_assignments WHERE id=$1 AND cycle_id=$2 AND ready=$3 AND due=$4',[a.id,cycleId,a.ready,a.due]);
-        if (!existing.rowCount) throw new HttpError(409,'New or rescheduled assignments must use the current loan length.');
+        if (!existing || existing.ready !== a.ready || existing.due !== a.due) throw new HttpError(409,'New or rescheduled assignments must use the current loan length.');
       }
-      if ((await c.query('SELECT 1 FROM club_history WHERE club_id=$1 AND title_id=$2',[a.clubId,kit.title_id])).rowCount) {
-        const historic = await c.query(`SELECT 1 FROM schedule_assignments WHERE id=$1 AND cycle_id=$2 AND club_id=$3 AND kit_id=$4
-          AND meeting=$5 AND meeting<CURRENT_DATE`,[a.id,cycleId,a.clubId,a.kitId,a.meeting]);
-        if (cycle.status !== 'published' || !historic.rowCount) throw new HttpError(409,'Club has already read this title.');
+      if (readTitles.has(`${a.clubId}|${kit.titleId}`)) {
+        const historic = existing && existing.clubId === a.clubId && existing.kitId === a.kitId && existing.meeting === a.meeting && existing.meeting < dbToday;
+        if (cycle.status !== 'published' || !historic) throw new HttpError(409,'Club has already read this title.');
       }
       if (kit.status === 'out') {
-        const active = (await c.query(`SELECT id,to_char(ready,'YYYY-MM-DD') AS ready,to_char(due,'YYYY-MM-DD') AS due FROM schedule_assignments a
-          JOIN cycles cy ON cy.id=a.cycle_id WHERE a.kit_id=$1 AND cy.status='published' AND a.ready <= CURRENT_DATE ORDER BY a.ready DESC LIMIT 1`,[a.kitId])).rows[0];
+        const active = activeByKit.get(a.kitId);
         const today = new Date().toISOString().slice(0,10);
         if (!active || (active.id !== a.id && (a.ready <= addDays(active.due,settings.buffer_days) || (active.due < today && a.ready <= addDays(today,settings.buffer_days))))) throw new HttpError(409,'A checked-out or overdue kit blocks this assignment.');
       }
-      const candidate = { ...a, titleId: kit.title_id };
-      for (const other of [...allOther,...enriched]) {
-        if (other.cycleId === cycleId && other.clubId === a.clubId && other.titleId === kit.title_id) throw new HttpError(409,'Club already has this title in the cycle.');
-        if (other.kitId === a.kitId && a.ready <= addDays(other.due,settings.buffer_days) && other.ready <= addDays(a.due,settings.buffer_days)) throw new HttpError(409,'Kit loan windows conflict, including the turnaround buffer.');
+      const candidate = { ...a, titleId: kit.titleId };
+      for (const pool of [allOther,enriched]) {
+        for (const other of pool) {
+          if (other.cycleId === cycleId && other.clubId === a.clubId && other.titleId === kit.titleId) throw new HttpError(409,'Club already has this title in the cycle.');
+          if (other.kitId === a.kitId && a.ready <= addDays(other.due,settings.buffer_days) && other.ready <= addDays(a.due,settings.buffer_days)) throw new HttpError(409,'Kit loan windows conflict, including the turnaround buffer.');
+        }
       }
       enriched.push(candidate);
     }
@@ -61,7 +74,10 @@ router.put('/cycles/:cycleId/schedule', async (req,res) => {
       if (!slots.rows[0].count || slots.rows[0].count !== assignments.length) throw new HttpError(409,'Every meeting needs an assignment before publication.');
     }
     await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1',[cycleId]);
-    for (const a of assignments) await c.query('INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[a.id,cycleId,a.slotId,a.clubId,a.kitId,a.ready,a.meeting,a.due,a.locked]);
+    const column = (key) => assignments.map((a) => a[key]);
+    await c.query(`INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked)
+      SELECT * FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::date[],$7::date[],$8::date[],$9::boolean[])`,
+      [column('id'),column('cycleId'),column('slotId'),column('clubId'),column('kitId'),column('ready'),column('meeting'),column('due'),column('locked')]);
     return (await c.query('UPDATE cycles SET status=$2,revision=revision+1 WHERE id=$1 RETURNING revision',[cycleId,publish?'published':'drafted'])).rows[0].revision;
   });
   res.json({ revision:next });
