@@ -39,12 +39,12 @@ export function seed(): Data {
       { id: 'c2', name: 'Westside Stories', branch: 'West', leaderId: 'p5', size: 10, cadence: 'Monthly', pickup: 'delivery', address: 'Fictional West Community Centre', history: [], revision: 1, membershipRevision: 1 },
     ],
     cycles: [{
-      id: 'cycle1', name: 'Upcoming reading cycle', deadline: addDays(now, 14), status: 'collecting', finalized: {}, revision: 1,
+      id: 'cycle1', name: 'Upcoming reading cycle', deadline: addDays(now, 14), startsOn: `${addDays(now, 35).slice(0, 7)}-01`, endsOn: addDays(now, 70), status: 'collecting', finalized: {}, revision: 1,
       slots: [
-        { id: 's1', clubId: 'c1', meeting: addDays(now, 35) },
-        { id: 's2', clubId: 'c2', meeting: addDays(now, 35) },
-        { id: 's3', clubId: 'c1', meeting: addDays(now, 70) },
-        { id: 's4', clubId: 'c2', meeting: addDays(now, 70) },
+        { id: 's1', clubId: 'c1', month: addDays(now, 35).slice(0, 7), meeting: addDays(now, 35) },
+        { id: 's2', clubId: 'c2', month: addDays(now, 35).slice(0, 7), meeting: addDays(now, 35) },
+        { id: 's3', clubId: 'c1', month: addDays(now, 70).slice(0, 7), meeting: addDays(now, 70) },
+        { id: 's4', clubId: 'c2', month: addDays(now, 70).slice(0, 7), meeting: addDays(now, 70) },
       ],
     }],
     ballots: [

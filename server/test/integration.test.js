@@ -74,7 +74,7 @@ test('shared records persist, enforce constraints and reject stale edits', { ski
   const cycleId = `cycle-${suffix}`;
   await pool.query("INSERT INTO people(id,name,role) VALUES($1,'Cascade member','member')", [personId]);
   await pool.query("INSERT INTO memberships(club_id,person_id,leader) VALUES($1,$2,false)", [club.json.id, personId]);
-  await pool.query("INSERT INTO cycles(id,name,deadline,status) VALUES($1,'Cascade cycle',now()::date,'published')", [cycleId]);
+  await pool.query("INSERT INTO cycles(id,name,deadline,starts_on,ends_on,status) VALUES($1,'Cascade cycle',now()::date,now()::date,now()::date,'published')", [cycleId]);
   await pool.query("INSERT INTO ballots(cycle_id,club_id,person_id) VALUES($1,$2,$3)", [cycleId, club.json.id, personId]);
   await pool.query("INSERT INTO ballot_marks(cycle_id,club_id,person_id,title_id,mark,rank) VALUES($1,$2,$3,$4,'selected',1)", [cycleId, club.json.id, personId, cascadeTitle.json.id]);
   await pool.query("INSERT INTO finalized_groups(cycle_id,club_id) VALUES($1,$2)", [cycleId, club.json.id]);
@@ -85,8 +85,8 @@ test('shared records persist, enforce constraints and reject stale edits', { ski
   assert.equal((await pool.query("SELECT 1 FROM finalized_rankings WHERE title_id=$1", [cascadeTitle.json.id])).rowCount, 0);
   assert.equal((await pool.query("SELECT 1 FROM club_history WHERE title_id=$1", [cascadeTitle.json.id])).rowCount, 0);
   const inUseCycleId = `in-use-${suffix}`;
-  await pool.query("INSERT INTO cycles(id,name,deadline,status) VALUES($1,'In-use cycle',now()::date,'published')", [inUseCycleId]);
-  await pool.query("INSERT INTO meeting_slots(id,cycle_id,club_id,meeting) VALUES($1,$2,$3,now()::date)", [`slot-${suffix}`, inUseCycleId, club.json.id]);
+  await pool.query("INSERT INTO cycles(id,name,deadline,starts_on,ends_on,status) VALUES($1,'In-use cycle',now()::date,now()::date,now()::date,'published')", [inUseCycleId]);
+  await pool.query("INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES($1,$2,$3,to_char(now(),'YYYY-MM'),now()::date)", [`slot-${suffix}`, inUseCycleId, club.json.id]);
   await pool.query("INSERT INTO ballots(cycle_id,club_id,person_id) VALUES($1,$2,$3)", [inUseCycleId, club.json.id, personId]);
   await pool.query("INSERT INTO finalized_groups(cycle_id,club_id) VALUES($1,$2)", [inUseCycleId, club.json.id]);
   await pool.query("INSERT INTO finalized_rankings(cycle_id,club_id,title_id,rank) VALUES($1,$2,$3,1)", [inUseCycleId, club.json.id, titleId]);

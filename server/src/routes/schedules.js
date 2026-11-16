@@ -16,7 +16,7 @@ router.put('/cycles/:cycleId/schedule', async (req,res) => {
   });
   unique(assignments.map((a) => a.id),'assignments'); unique(assignments.map((a) => a.slotId),'slots');
   const next = await transaction(async (c) => {
-    const cycle = await one(c,'SELECT revision,status FROM cycles WHERE id=$1 FOR UPDATE',[cycleId],'Cycle'); stale(cycle.revision,rev);
+    const cycle = await one(c,`SELECT revision,status,to_char(deadline,'YYYY-MM-DD') AS deadline FROM cycles WHERE id=$1 FOR UPDATE`,[cycleId],'Cycle'); stale(cycle.revision,rev);
     if (!['collecting','drafted','published'].includes(cycle.status)) throw new HttpError(409,'Cycle must be collecting before drafting.');
     if (publish && cycle.status === 'collecting') throw new HttpError(409,'Save a draft before publishing.');
     if (cycle.status === 'published' && !publish) throw new HttpError(409,'A published schedule cannot be reverted to a draft.');
@@ -33,7 +33,7 @@ router.put('/cycles/:cycleId/schedule', async (req,res) => {
     const slotIds = assignments.map((a) => a.slotId);
     const kitIds = [...new Set(assignments.map((a) => a.kitId))];
     const clubIds = [...new Set(assignments.map((a) => a.clubId))];
-    const slotById = new Map((await c.query(`SELECT id,club_id AS "clubId",to_char(meeting,'YYYY-MM-DD') AS meeting FROM meeting_slots WHERE cycle_id=$1 AND id=ANY($2)`,[cycleId,slotIds])).rows.map((r) => [r.id,r]));
+    const slotById = new Map((await c.query(`SELECT id,club_id AS "clubId",month,to_char(meeting,'YYYY-MM-DD') AS meeting FROM meeting_slots WHERE cycle_id=$1 AND id=ANY($2)`,[cycleId,slotIds])).rows.map((r) => [r.id,r]));
     const kitById = new Map((await c.query('SELECT id,title_id AS "titleId",status FROM kits WHERE id=ANY($1)',[kitIds])).rows.map((r) => [r.id,r]));
     const readTitles = new Set((await c.query('SELECT club_id,title_id FROM club_history WHERE club_id=ANY($1)',[clubIds])).rows.map((r) => `${r.club_id}|${r.title_id}`));
     const existingById = new Map((await c.query(`SELECT id,club_id AS "clubId",kit_id AS "kitId",to_char(ready,'YYYY-MM-DD') AS ready,to_char(meeting,'YYYY-MM-DD') AS meeting,
@@ -42,9 +42,16 @@ router.put('/cycles/:cycleId/schedule', async (req,res) => {
       FROM schedule_assignments a JOIN cycles cy ON cy.id=a.cycle_id WHERE a.kit_id=ANY($1) AND cy.status='published' AND a.ready <= CURRENT_DATE ORDER BY a.kit_id,a.ready DESC`,[kitIds])).rows.map((r) => [r.kitId,r]));
     const dbToday = (await c.query("SELECT to_char(CURRENT_DATE,'YYYY-MM-DD') AS today")).rows[0].today;
     const enriched = [];
+    const dateless = [];
     for (const a of assignments) {
       const slot = found(slotById,a.slotId,'Slot');
-      if (slot.clubId !== a.clubId || slot.meeting !== a.meeting) throw new HttpError(409,'Assignment does not match the meeting slot.');
+      if (slot.clubId !== a.clubId) throw new HttpError(409,'Assignment does not match the meeting slot.');
+      if (slot.meeting) {
+        if (slot.meeting !== a.meeting) throw new HttpError(409,'Assignment does not match the meeting slot.');
+      } else {
+        if (a.meeting.slice(0,7) !== slot.month || a.meeting <= cycle.deadline) throw new HttpError(409,'Assignment meeting must fall in the slot month and after the voting deadline.');
+        dateless.push({ slotId:a.slotId, meeting:a.meeting });
+      }
       const kit = found(kitById,a.kitId,'Kit');
       if (['inspection','unavailable'].includes(kit.status)) throw new HttpError(409,'Kit is currently unavailable.');
       const existing = existingById.get(a.id);
@@ -73,6 +80,7 @@ router.put('/cycles/:cycleId/schedule', async (req,res) => {
       const slots = await c.query('SELECT count(*)::int AS count FROM meeting_slots WHERE cycle_id=$1',[cycleId]);
       if (!slots.rows[0].count || slots.rows[0].count !== assignments.length) throw new HttpError(409,'Every meeting needs an assignment before publication.');
     }
+    for (const d of dateless) await c.query('UPDATE meeting_slots SET meeting=$3 WHERE cycle_id=$1 AND id=$2',[cycleId,d.slotId,d.meeting]);
     await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1',[cycleId]);
     const column = (key) => assignments.map((a) => a[key]);
     await c.query(`INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked)

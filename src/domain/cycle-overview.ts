@@ -24,12 +24,40 @@ export function groupSlotsByMonth(slots: Slot[], clubId = ''): MonthGroup[] {
   const groups = new Map<string, Slot[]>();
   const visible = [...slots]
     .filter((slot) => !clubId || slot.clubId === clubId)
-    .sort((a, b) => a.meeting.localeCompare(b.meeting) || a.clubId.localeCompare(b.clubId));
+    .sort((a, b) => a.month.localeCompare(b.month)
+      || (a.meeting ?? '9999').localeCompare(b.meeting ?? '9999')
+      || a.clubId.localeCompare(b.clubId));
   for (const slot of visible) {
-    const month = slot.meeting.slice(0, 7);
-    groups.set(month, [...(groups.get(month) ?? []), slot]);
+    groups.set(slot.month, [...(groups.get(slot.month) ?? []), slot]);
   }
   return [...groups].map(([month, grouped]) => ({ month, slots: grouped }));
+}
+
+export function monthsInRange(startsOn: string, endsOn: string): string[] {
+  const months: string[] = [];
+  const [startYear, startMonth] = startsOn.slice(0, 7).split('-').map(Number);
+  const [endYear, endMonth] = endsOn.slice(0, 7).split('-').map(Number);
+  for (let year = startYear, month = startMonth; year < endYear || (year === endYear && month <= endMonth);) {
+    months.push(`${year}-${String(month).padStart(2, '0')}`);
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return months;
+}
+
+export function shiftMonth(month: string, delta: number): string {
+  const [year, monthNumber] = month.split('-').map(Number);
+  const index = year * 12 + (monthNumber - 1) + delta;
+  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
+}
+
+export function lastDayOfMonth(month: string): string {
+  const [year, monthNumber] = month.split('-').map(Number);
+  const day = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  return `${month}-${String(day).padStart(2, '0')}`;
 }
 
 export function memberVotes(memberships: Membership[], ballots: Ballot[], cycleId: string, clubId: string): MemberVote[] {

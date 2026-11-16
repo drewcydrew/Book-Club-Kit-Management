@@ -71,7 +71,11 @@ async function importDemoSchedule(pool, meetings, { dryRun = false } = {}) {
       return { ...summary, skipped: true };
     }
 
-    await client.query('INSERT INTO cycles(id,name,deadline,status) VALUES($1,$2,$3,$4)', [CYCLE_ID, CYCLE_NAME, DEADLINE, 'collecting']);
+    const months = clubs.flatMap((club) => club.rows.map((meeting) => meeting.meeting.slice(0,7))).sort();
+    const [lastYear, lastMonth] = months[months.length - 1].split('-').map(Number);
+    const startsOn = `${months[0]}-01`;
+    const endsOn = new Date(Date.UTC(lastYear, lastMonth, 0)).toISOString().slice(0,10);
+    await client.query('INSERT INTO cycles(id,name,deadline,starts_on,ends_on,status) VALUES($1,$2,$3,$4,$5,$6)', [CYCLE_ID, CYCLE_NAME, DEADLINE, startsOn, endsOn, 'collecting']);
     for (const club of clubs) {
       const personId = `demo-person-${club.clubId}`;
       await client.query('INSERT INTO people(id,name,role) VALUES($1,$2,$3)', [personId, `Sample member (${clubNames.get(club.clubId)})`, 'member']);
@@ -79,7 +83,7 @@ async function importDemoSchedule(pool, meetings, { dryRun = false } = {}) {
       await client.query('INSERT INTO membership_versions(club_id,revision) VALUES($1,1) ON CONFLICT(club_id) DO UPDATE SET revision=membership_versions.revision+1', [club.clubId]);
 
       for (const [index, meeting] of club.rows.entries()) {
-        await client.query('INSERT INTO meeting_slots(id,cycle_id,club_id,meeting) VALUES($1,$2,$3,$4)', [`demo-slot-${club.clubId}-${index + 1}`, CYCLE_ID, club.clubId, meeting.meeting]);
+        await client.query('INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES($1,$2,$3,$4,$5)', [`demo-slot-${club.clubId}-${index + 1}`, CYCLE_ID, club.clubId, meeting.meeting.slice(0,7), meeting.meeting]);
       }
 
       await client.query('INSERT INTO ballots(cycle_id,club_id,person_id) VALUES($1,$2,$3)', [CYCLE_ID, club.clubId, personId]);

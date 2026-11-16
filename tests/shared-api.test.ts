@@ -133,7 +133,7 @@ test('shared user, membership, cycle, settings, history and circulation APIs use
     const person = await saveUser({ id: 'p3', name: 'Casey', role: 'member', revision: 1 });
     assert.equal(person.revision, 2);
     await saveMemberships('c1', [{ personId: 'p3', clubId: 'c1', leader: true }], 1);
-    const createdCycle = await saveCycle({ id: 'new-cycle', name: 'New', deadline: '2026-03-01', status: 'open', slots: [], finalized: {} });
+    const createdCycle = await saveCycle({ id: 'new-cycle', name: 'New', deadline: '2026-03-01', startsOn: '2026-04-01', endsOn: '2026-12-31', status: 'open', slots: [], finalized: {} });
     await saveCycle({ ...demo.cycles[0], revision: 1 });
     await finalizeRanking('cycle1', 'c1', ['t1'], 2);
     await saveSchedule('cycle1', [], 3, true);
@@ -148,7 +148,7 @@ test('shared user, membership, cycle, settings, history and circulation APIs use
     assert.deepEqual(membership?.body?.members, [{ personId: 'p3', leader: true }]);
     const createCycle = requests.find((request) => request.path === '/api/cycles' && request.method === 'POST');
     assert.equal(createdCycle.id, 'new-cycle');
-    assert.deepEqual(Object.keys(createCycle?.body ?? {}).sort(), ['deadline', 'id', 'name', 'slots', 'status']);
+    assert.deepEqual(Object.keys(createCycle?.body ?? {}).sort(), ['deadline', 'endsOn', 'id', 'name', 'slots', 'startsOn', 'status']);
     const history = requests.find((request) => request.path.endsWith('/history'));
     assert.equal(history?.body?.revision, 2);
     const circulation = requests.find((request) => request.path.endsWith('/events'));
