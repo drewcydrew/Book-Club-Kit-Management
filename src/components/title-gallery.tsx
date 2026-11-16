@@ -4,13 +4,13 @@ import type { Mark, Title } from '../domain/model';
 import { TitleCard } from './title-card';
 import { Action, Actions, Note } from './ui';
 
-export function TitleGallery({ titles, marks, pendingTitleId, disabled, lastDismissedId, onMark }: {
-  titles: Title[]; marks: Record<string, Mark>; pendingTitleId: string | null; disabled: boolean;
+export function TitleGallery({ titles, marks, disabled, lastDismissedId, onMark }: {
+  titles: Title[]; marks: Record<string, Mark>; disabled: boolean;
   lastDismissedId: string | null; onMark: (titleId: string, value: Mark | null) => void;
 }) {
   const { width } = useWindowDimensions();
   const [showHidden, setShowHidden] = useState(false);
-  const columns = width >= 1000 ? 5 : width >= 700 ? 4 : width >= 480 ? 3 : 2;
+  const columns = width >= 1000 ? 6 : width >= 700 ? 5 : width >= 480 ? 4 : 3;
   const cardWidth: DimensionValue = `${100 / columns}%`;
   const visible = titles.filter((title) => !marks[title.id] || marks[title.id] === 'selected');
   const hidden = titles.filter((title) => marks[title.id] === 'wont' || marks[title.id] === 'read');
@@ -27,7 +27,6 @@ export function TitleGallery({ titles, marks, pendingTitleId, disabled, lastDism
         title={title}
         mark={marks[title.id]}
         width={cardWidth}
-        pending={pendingTitleId === title.id}
         disabled={disabled}
         onToggleSelect={() => onMark(title.id, marks[title.id] === 'selected' ? null : 'selected')}
         onDismiss={() => onMark(title.id, 'wont')}
@@ -42,7 +41,6 @@ export function TitleGallery({ titles, marks, pendingTitleId, disabled, lastDism
           title={title}
           mark={marks[title.id]}
           width={cardWidth}
-          pending={pendingTitleId === title.id}
           disabled={disabled}
           onToggleSelect={() => undefined}
           onDismiss={() => undefined}

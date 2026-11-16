@@ -5,6 +5,54 @@ import { addDays, today } from '../src/domain/dates';
 import { assignmentProblem, circulate, draft, rankings, satisfactionDebt } from '../src/domain/logic';
 import { filterOptions, type PickerOption } from '../src/domain/search';
 import { seed } from '../src/domain/seed';
+import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
+import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
+import type { Ballot } from '../src/domain/model';
+
+test('ballot marks append to the ranking and moves reorder it', () => {
+  let ballot = emptyBallot('cycle', 'club', 'person');
+  for (const titleId of ['a', 'b', 'c']) ballot = setMark(ballot, titleId, 'selected');
+  ballot = moveInRanking(ballot, 2, 0);
+  assert.deepEqual(ballot.ranking, ['c', 'a', 'b']);
+  assert.equal(setMark(ballot, 'a', 'wont').ranking.includes('a'), false);
+  assert.equal(setMark(ballot, 'a', null).marks.a, undefined);
+});
+
+test('background ballot sync sends the latest draft with the latest server revision', async () => {
+  const sent: Ballot[] = [];
+  const statuses: SyncStatus[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const sync = new BallotSync((status) => statuses.push(status));
+  sync.configure(async (ballot) => {
+    sent.push(ballot);
+    if (sent.length === 1) await gate;
+    return { ...ballot, revision: ballot.revision + 1 };
+  }, () => undefined);
+  const base = emptyBallot('cycle', 'club', 'person');
+  sync.enqueue({ ...base, ranking: ['a'] });
+  sync.enqueue({ ...base, ranking: ['a', 'b'] });
+  release();
+  await sync.flush();
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent[1].ranking, ['a', 'b']);
+  assert.equal(sent[1].revision, 1);
+  assert.equal(statuses.at(-1)?.state, 'saved');
+});
+
+test('a failed ballot sync keeps the draft so a later flush retries it', async () => {
+  let attempts = 0;
+  const sync = new BallotSync(() => undefined);
+  sync.configure(async (ballot) => {
+    attempts += 1;
+    if (attempts === 1) throw new Error('Conflict');
+    return { ...ballot, revision: ballot.revision + 1 };
+  }, () => undefined);
+  sync.enqueue(emptyBallot('cycle', 'club', 'person'));
+  await assert.rejects(sync.flush(), /Conflict/);
+  await sync.flush();
+  assert.equal(attempts, 2);
+});
 
 test('aggregates ballots and excludes club history', () => {
   const data = seed();
