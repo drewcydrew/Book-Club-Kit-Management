@@ -1,6 +1,6 @@
 import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigationGuard } from '../components/navigation-guard';
 import { TitleCover } from '../components/title-cover';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
@@ -36,6 +36,15 @@ function coverPreviewMessage(status: CoverPreviewStatus): string {
   }
 }
 
+type PendingAction = 'Saving' | 'Deleting';
+
+function PendingStatus({ action }: { action: PendingAction | null }) {
+  if (!action) return null;
+  return <View style={modalStyles.pending} accessibilityRole="progressbar" accessibilityLabel={`${action}…`}>
+    <ActivityIndicator /><Note>{action}…</Note>
+  </View>;
+}
+
 export default function Catalog() {
   const { data } = useStore();
   const shared = useShared();
@@ -54,6 +63,9 @@ export default function Catalog() {
   const saving = useRef(false);
   const [deleting, setDeleting] = useState<{ kind: 'titles' | 'kits'; id: string; revision: number; name: string } | null>(null);
   const [deleteError, setDeleteError] = useState('');
+  const [pending, setPending] = useState<{ kind: 'titles' | 'kits'; id: string; action: PendingAction } | null>(null);
+  const pendingFor = (kind: 'titles' | 'kits', id: string): PendingAction | null =>
+    pending?.kind === kind && pending.id === id ? pending.action : null;
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const staff = person?.role === 'staff' || person?.role === 'admin';
   const search = query.trim().toLowerCase();
@@ -165,6 +177,7 @@ export default function Catalog() {
         operation = () => saveRecord('kits', value);
       }
       saving.current = true;
+      setPending({ kind: draft.kind === 'title' ? 'titles' : 'kits', id: draft.value.id, action: 'Saving' });
       const result = await saveCatalogChange(shared.mutate, operation);
       if (!result.ok) {
         setFormError(result.message);
@@ -175,6 +188,7 @@ export default function Catalog() {
       setMessage(draft.kind === 'title' ? 'Title saved.' : 'Kit saved.');
     } finally {
       saving.current = false;
+      setPending(null);
     }
   }
 
@@ -191,12 +205,15 @@ export default function Catalog() {
 
   async function confirmDelete() {
     if (!deleting) return;
+    setPending({ kind: deleting.kind, id: deleting.id, action: 'Deleting' });
     try {
       await shared.mutate(() => deleteRecord(deleting.kind, deleting.id, deleting.revision));
       setDeleting(null);
       setMessage('Record deleted.');
     } catch (error: unknown) {
       setDeleteError(error instanceof Error ? error.message : 'Unable to delete this record.');
+    } finally {
+      setPending(null);
     }
   }
 
@@ -224,24 +241,24 @@ export default function Catalog() {
     {message ? <Text>{message}</Text> : null}
     <Field label="Search titles, authors or kit barcode" value={query} onChangeText={setQuery} />
     {data.titles.filter((t) => !search || `${t.name} ${t.author} ${t.isbn}`.toLowerCase().includes(search) || data.kits.some((k) => k.titleId === t.id && [k.barcode, ...k.components].some((b) => b.toLowerCase().includes(search)))).map((item) =>
-      <Card key={item.id}><View style={{ flexDirection: 'row' }}><TitleCover coverUrl={item.coverUrl} isbn={item.isbn} /><View style={{ flex: 1 }}><Label>{item.name}</Label><Note>{item.author} {item.isbn ? `· ISBN ${item.isbn}` : ''}</Note>
+      <Card key={item.id}><PendingStatus action={pendingFor('titles', item.id)} /><View style={{ flexDirection: 'row' }}><TitleCover coverUrl={item.coverUrl} isbn={item.isbn} /><View style={{ flex: 1 }}><Label>{item.name}</Label><Note>{item.author} {item.isbn ? `· ISBN ${item.isbn}` : ''}</Note>
         <Note>{item.genres || 'No genres'} · {item.pages || 'Unknown'} pages · {item.largePrint ? 'Large print' : 'No large print'} · {item.audio ? 'Audio available' : 'No audio'}</Note>
         {item.notes ? <Text>Content notes: {item.notes}</Text> : null}</View></View>
-        {staff && <Actions><Action title="Edit title" onPress={() => {
+        {staff && <Actions><Action disabled={shared.saving} title="Edit title" onPress={() => {
           const record = shared.data.titles.find((title) => title.id === item.id);
           if (record) open(titleDraft(item, record.revision));
           else setMessage('This title is no longer available. Refresh the shared catalog.');
-        }} /><Action tone="danger" title="Delete title" onPress={() => {
+        }} /><Action disabled={shared.saving} tone="danger" title="Delete title" onPress={() => {
           const record = shared.data.titles.find((title) => title.id === item.id);
           if (record) startDelete({ kind: 'titles', id: record.id, revision: record.revision, name: record.name });
         }} /></Actions>}
-        {data.kits.filter((k) => k.titleId === item.id).map((value) => <React.Fragment key={value.id}><Text>{value.barcode} · {value.branch} · {value.copies} copies · {value.status}{value.extras ? ` · ${value.extras}` : ''}</Text>
+        {data.kits.filter((k) => k.titleId === item.id).map((value) => <React.Fragment key={value.id}><PendingStatus action={pendingFor('kits', value.id)} /><Text>{value.barcode} · {value.branch} · {value.copies} copies · {value.status}{value.extras ? ` · ${value.extras}` : ''}</Text>
           {value.components.length > 0 && <Note>Copies: {value.components.join(', ')}</Note>}
-          {staff && <Actions><Action title={`Edit ${value.barcode}`} onPress={() => {
+          {staff && <Actions><Action disabled={shared.saving} title={`Edit ${value.barcode}`} onPress={() => {
             const record = shared.data.kits.find((kit) => kit.id === value.id);
             if (record) open(kitDraft(value, record.revision));
             else setMessage('This kit is no longer available. Refresh the shared catalog.');
-          }} /><Action tone="danger" title={`Delete ${value.barcode}`} onPress={() => {
+          }} /><Action disabled={shared.saving} tone="danger" title={`Delete ${value.barcode}`} onPress={() => {
             const record = shared.data.kits.find((item) => item.id === value.id);
             if (record) startDelete({ kind: 'kits', id: record.id, revision: record.revision, name: record.barcode });
           }} /></Actions>}
@@ -280,7 +297,7 @@ export default function Catalog() {
               {formError ? <Text accessibilityRole="alert" style={modalStyles.error}>{formError}</Text> : null}
               {recovery && <><Note>Refresh and inspect the shared catalog before retrying. Close and reopen an existing record to edit the latest version.</Note>
                 <Action title="Refresh shared data" disabled={busy} onPress={() => { void refreshAndReload(); }} /></>}
-              <Actions><Action tone="primary" title={`Save ${draft.kind}`} disabled={busy || !!recovery} onPress={() => { void save(); }} />
+              <Actions>{pending && <PendingStatus action={pending.action} />}<Action tone="primary" title={`Save ${draft.kind}`} disabled={busy || !!recovery} onPress={() => { void save(); }} />
                 <Action title="Cancel" disabled={busy} onPress={close} /></Actions>
             </>}
           </ScrollView>
@@ -293,9 +310,10 @@ export default function Catalog() {
           <ScrollView contentContainerStyle={modalStyles.content}>
             <Label>Delete {deleting.name}?</Label>
             <Note>{deleting.kind === 'titles'
-              ? 'This removes the title for every user. A title that a kit or shared schedule still uses cannot be deleted until those are removed.'
+              ? 'This removes the title for every user, along with its kits, their club links, circulation history and schedule assignments. A title still used in ballots, rankings or club history cannot be deleted.'
               : 'This removes the kit for every user. A kit that a shared schedule still uses cannot be deleted until it is removed from that schedule.'}</Note>
             {deleteError ? <Text accessibilityRole="alert" style={modalStyles.error}>{deleteError}</Text> : null}
+            <PendingStatus action={pending?.action ?? null} />
             <Actions><Action tone="danger" title="Confirm deletion" disabled={shared.saving} onPress={() => { void confirmDelete(); }} />
               <Action title="Cancel deletion" disabled={shared.saving} onPress={closeDelete} /></Actions>
           </ScrollView>
@@ -311,4 +329,5 @@ const modalStyles = StyleSheet.create({
   content: { padding: 20, gap: 12 },
   preview: { width: 96, height: 144, borderRadius: 4, alignSelf: 'flex-start' },
   error: { color: '#a22525', fontWeight: '600' },
+  pending: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });

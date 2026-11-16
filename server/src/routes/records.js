@@ -3,7 +3,7 @@ const { randomUUID } = require('node:crypto');
 const { getPool } = require('../db');
 const { HttpError, revision, checkUpdated } = require('../http');
 
-function records({ table, columns, select, validate }) {
+function records({ table, columns, select, validate, remove }) {
   const router = express.Router();
   router.get('/', async (_req, res) => {
     const result = await getPool().query(`SELECT ${select} FROM ${table} ORDER BY id`);
@@ -28,12 +28,12 @@ function records({ table, columns, select, validate }) {
     if (!result.rowCount) await checkUpdated(getPool(), table, req.params.id);
     res.json(result.rows[0]);
   });
-  router.delete('/:id', async (req, res) => {
+  router.delete('/:id', remove || (async (req, res) => {
     const expected = revision(req.header('If-Match'));
     const result = await getPool().query(`DELETE FROM ${table} WHERE id=$1 AND revision=$2 RETURNING id`, [req.params.id, expected]);
     if (!result.rowCount) await checkUpdated(getPool(), table, req.params.id);
     res.status(204).end();
-  });
+  }));
   return router;
 }
 
