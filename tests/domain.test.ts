@@ -8,7 +8,7 @@ import { seed } from '../src/domain/seed';
 import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Ballot, Cycle, Data } from '../src/domain/model';
-import { clubPriorities, groupSlotsByMonth, memberVotes, monthsInRange } from '../src/domain/cycle-overview';
+import { clubPriorities, clubStatuses, groupSlotsByMonth, memberVotes, monthsInRange, scheduleGrid } from '../src/domain/cycle-overview';
 
 test('meetings group by month in date order and filter by club', () => {
   const slots = [
@@ -61,6 +61,47 @@ test('ballot marks append to the ranking and moves reorder it', () => {
   ballot = moveInRanking(ballot, 2, 0);
   assert.deepEqual(ballot.ranking, ['c', 'a', 'b']);
   assert.equal(setMark(ballot, 'a', 'wont').ranking.includes('a'), false);
+});
+
+test('club statuses report preferences and meeting counts for every club', () => {
+  const data = {
+    clubs: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
+    ballots: [
+      { cycleId: 'cy', clubId: 'c1', personId: 'p1', marks: { t1: 'read' }, ranking: ['t1'], revision: 1 },
+      { cycleId: 'cy', clubId: 'c2', personId: 'p2', marks: { t2: 'selected' }, ranking: ['t2'], revision: 1 },
+    ],
+  } as unknown as Data;
+  const slots = [{ id: 's1', clubId: 'c2', month: '2026-01', meeting: null }, { id: 's2', clubId: 'c2', month: '2026-02', meeting: null }];
+  const cycle = { id: 'cy', name: '', deadline: '', startsOn: '2026-01-01', endsOn: '2026-12-31', status: 'collecting', slots, finalized: {}, revision: 1 } as unknown as Cycle;
+  assert.deepEqual(clubStatuses(data, cycle), [
+    { clubId: 'c1', hasPreferences: false, meetingCount: 0 },
+    { clubId: 'c2', hasPreferences: true, meetingCount: 2 },
+    { clubId: 'c3', hasPreferences: false, meetingCount: 0 },
+  ]);
+});
+
+test('schedule grid covers every cycle month per club and flags clashes on assigned cells', () => {
+  const data = {
+    library: { bufferDays: 0 },
+    clubs: [{ id: 'c1', history: ['t1'] }],
+    kits: [{ id: 'k1', titleId: 't1', status: 'available' }],
+    cycles: [],
+    assignments: [{ id: 'a1', cycleId: 'cy', slotId: 's1', clubId: 'c1', kitId: 'k1', ready: '2026-01-05', meeting: '2026-01-10', due: '2026-01-20', locked: false }],
+  } as unknown as Data;
+  const slots = [{ id: 's1', clubId: 'c1', month: '2026-01', meeting: null }, { id: 's2', clubId: 'c1', month: '2026-03', meeting: null }];
+  const cycle = { id: 'cy', name: '', deadline: '', startsOn: '2026-01-01', endsOn: '2026-03-31', status: 'drafted', slots, finalized: {}, revision: 1 } as unknown as Cycle;
+  data.cycles = [cycle];
+  const grid = scheduleGrid(data, cycle, ['c1'], data.assignments);
+  assert.deepEqual(grid.months, ['2026-01', '2026-02', '2026-03']);
+  const [row] = grid.rows;
+  assert.equal(row.clubId, 'c1');
+  assert.equal(row.cells[0].assignment?.id, 'a1');
+  assert.equal(row.cells[0].problem, 'The club has already read this title.');
+  assert.equal(row.cells[1].slot, undefined);
+  assert.equal(row.cells[1].assignment, undefined);
+  assert.equal(row.cells[2].slot?.id, 's2');
+  assert.equal(row.cells[2].assignment, undefined);
+  assert.equal(row.cells[2].problem, null);
 });
 
 test('monthsInRange lists every month inclusively, across year boundaries', () => {

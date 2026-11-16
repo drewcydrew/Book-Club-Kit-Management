@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
+import { ScheduleGridView } from '../components/schedule-grid';
 import { TitleCover } from '../components/title-cover';
+import { scheduleGrid } from '../domain/cycle-overview';
 import { assignmentProblem, draft } from '../domain/logic';
 import type { Assignment } from '../domain/model';
 import { saveSchedule } from '../state/api';
@@ -32,6 +34,8 @@ export default function Schedule() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
   const [selectedClubId, setSelectedClubId] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [gridClubIds, setGridClubIds] = useState<string[] | null>(null);
   const staff = person?.role === 'staff' || person?.role === 'admin';
   const personId = person?.id;
   const enrolledClubIds = useMemo(() => data.memberships.filter((membership) => membership.personId === personId).map((membership) => membership.clubId), [data.memberships, personId]);
@@ -50,6 +54,11 @@ export default function Schedule() {
   const kitById = useMemo(() => new Map(data.kits.map((kit) => [kit.id, kit] as const)), [data.kits]);
   const titleById = useMemo(() => new Map(data.titles.map((title) => [title.id, title] as const)), [data.titles]);
   const clubById = useMemo(() => new Map(data.clubs.map((club) => [club.id, club] as const)), [data.clubs]);
+  const gridCycle = staff ? cycle : data.cycles.find((c) => c.status === 'published' && data.assignments.some((a) => a.cycleId === c.id && enrolledClubIds.includes(a.clubId)));
+  const gridClubs = gridClubIds ? clubChoices.filter((club) => gridClubIds.includes(club.id)) : clubChoices;
+  const gridClubKey = gridClubs.map((club) => club.id).join('|');
+  const grid = useMemo(() => gridCycle ? scheduleGrid(data, gridCycle, gridClubKey ? gridClubKey.split('|') : [], data.assignments.filter((a) => a.cycleId === gridCycle.id)) : null,
+    [data, gridCycle, gridClubKey]);
   if (!person) return <Page title="Schedule"><Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
   if (!cycle) return <Page title="Schedule"><Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = data.assignments.filter((assignment) => assignment.cycleId === cycle.id);
@@ -150,13 +159,41 @@ export default function Schedule() {
     {staff && <Card><Label>Choose a cycle</Label><Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} title={`${value.name}${value.id === cycle.id ? ' ✓' : ''}`} onPress={() => {
       setSelectedId(value.id); setMessages([]); setReplacement(null); setSwap(null); setExpandedId(null); setShowAllMessages(false);
     }} />)}</Actions></Card>}
-    <Card><Label>Choose a club</Label>
+    <Card><Label>View</Label><Actions>
+      <Action selected={viewMode === 'grid'} title="Grid" onPress={() => setViewMode('grid')} />
+      <Action selected={viewMode === 'list'} title="List by club" onPress={() => setViewMode('list')} />
+    </Actions></Card>
+    {viewMode === 'grid' ? <Card><Label>{staff ? 'Clubs shown' : 'Your clubs'}</Label>
+      {clubChoices.length === 0
+        ? <Note>{staff ? 'No clubs exist yet.' : 'You are not enrolled in any clubs. Enrol in a club on the My clubs tab.'}</Note>
+        : <>
+          <Actions>
+            <Action title={gridClubs.length === clubChoices.length ? 'Hide all' : 'Show all'} onPress={() => {
+              setGridClubIds(gridClubs.length === clubChoices.length ? [] : clubChoices.map((club) => club.id));
+            }} />
+          </Actions>
+          <Actions>{clubChoices.map((value) => <Action key={value.id} selected={gridClubs.some((club) => club.id === value.id)} title={value.name} onPress={() => {
+            const current = gridClubs.map((club) => club.id);
+            setGridClubIds(current.includes(value.id) ? current.filter((id) => id !== value.id) : [...current, value.id]);
+          }} />)}</Actions>
+        </>}
+      {staff && <Note>Tap a cover to see its details. Clashes are marked with a red &quot;!&quot;. Expanded details include the same lock, replacement and swap controls as the list view.</Note>}
+    </Card> : <Card><Label>Choose a club</Label>
       {clubChoices.length === 0
         ? <Note>{staff ? 'No clubs exist yet.' : 'You are not enrolled in any clubs. Enrol in a club on the My clubs tab.'}</Note>
         : <Actions>{clubChoices.map((value) => <Action key={value.id} selected={value.id === clubId} title={value.name} onPress={() => {
           setSelectedClubId(value.id); setExpandedId(null);
         }} />)}</Actions>}
-    </Card>
+    </Card>}
+    {viewMode === 'grid' && (grid
+      ? (grid.rows.length === 0
+        ? <Note>Select at least one club to show the grid.</Note>
+        : <ScheduleGridView grid={grid} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
+          titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
+          expandedId={expandedId} showProblems={staff} onToggle={(assignmentId) => setExpandedId(expandedId === assignmentId ? null : assignmentId)}
+          renderDetail={renderDetail} />)
+      : <Note>No published schedule is available for your clubs yet.</Note>)}
+    {viewMode === 'list' && <>
     {staff && <Card><Label>{cycle.name} · {cycle.status}</Label>
       <Note>Schedule proposals use shared preferences, reading history, kit availability and lending settings. Drafts and publication are checked again by the server; revisions reject stale writes. Loans include a {data.library.bufferDays}-day turnaround buffer.</Note>
       <Note>Assignments are grouped by month. Months with no kit yet show a placeholder, and slots without a meeting date use the first Monday of the month for loan timing.</Note>
@@ -186,5 +223,6 @@ export default function Schedule() {
         </View>)}
       </View>
     </View>)}
+    </>}
   </Page>;
 }

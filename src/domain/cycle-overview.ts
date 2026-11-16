@@ -1,4 +1,22 @@
-import type { Ballot, Cycle, Data, Membership, Mark, Slot } from './model';
+import { assignmentProblem } from './logic';
+import type { Assignment, Ballot, Cycle, Data, Membership, Mark, Slot } from './model';
+
+export interface GridCell {
+  month: string;
+  slot?: Slot;
+  assignment?: Assignment;
+  problem: string | null;
+}
+
+export interface GridRow {
+  clubId: string;
+  cells: GridCell[];
+}
+
+export interface ScheduleGrid {
+  months: string[];
+  rows: GridRow[];
+}
 
 export interface MonthGroup {
   month: string;
@@ -73,6 +91,21 @@ export function memberVotes(memberships: Membership[], ballots: Ballot[], cycleI
     });
 }
 
+export interface ClubStatus {
+  clubId: string;
+  hasPreferences: boolean;
+  meetingCount: number;
+}
+
+export function clubStatuses(data: Data, cycle: Cycle): ClubStatus[] {
+  return data.clubs.map((club) => ({
+    clubId: club.id,
+    hasPreferences: data.ballots.some((ballot) => ballot.cycleId === cycle.id && ballot.clubId === club.id
+      && Object.values(ballot.marks).includes('selected')),
+    meetingCount: cycle.slots.filter((slot) => slot.clubId === club.id).length,
+  }));
+}
+
 export function clubPriorities(data: Data, cycle: Cycle, clubId: string): TitlePriority[] {
   const history = data.clubs.find((club) => club.id === clubId)?.history ?? [];
   const scores = new Map<string, { score: number; supporters: number }>();
@@ -90,3 +123,19 @@ export function clubPriorities(data: Data, cycle: Cycle, clubId: string): TitleP
     .map(([titleId, entry]) => ({ titleId, ...entry, history: history.includes(titleId) }))
     .sort((a, b) => b.score - a.score || a.titleId.localeCompare(b.titleId));
 }
+
+export function scheduleGrid(data: Data, cycle: Cycle, clubIds: string[], assignments: Assignment[]): ScheduleGrid {
+  const months = [...new Set([...monthsInRange(cycle.startsOn, cycle.endsOn), ...cycle.slots.map((slot) => slot.month)])].sort();
+  const assignmentBySlot = new Map(assignments.filter((assignment) => assignment.cycleId === cycle.id).map((assignment) => [assignment.slotId, assignment] as const));
+  const rows = clubIds.map((clubId) => ({
+    clubId,
+    cells: months.map((month): GridCell => {
+      const slot = cycle.slots.find((item) => item.clubId === clubId && item.month === month);
+      const assignment = slot ? assignmentBySlot.get(slot.id) : undefined;
+      const problem = assignment ? assignmentProblem(data, assignment, data.assignments) : null;
+      return { month, slot, assignment, problem };
+    }),
+  }));
+  return { months, rows };
+}
+
