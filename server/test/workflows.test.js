@@ -158,6 +158,20 @@ test('shared workflows enforce membership, voting, schedules, circulation and re
   const admins = (await req('/api/users')).json.filter((user) => user.role === 'admin');
   assert.equal(admins.length,1);
   assert.match(competing.find((r) => r.status === 409).json.error,/last administrator/i);
+  const bigBase = plus(new Date().toISOString().slice(0,10),400);
+  await pool.query("INSERT INTO titles(id,name,author,isbn,pages) SELECT 'big-t-'||n,'Big '||n,'Writer','9790000'||lpad(n::text,6,'0'),0 FROM generate_series(1,400) n");
+  await pool.query("INSERT INTO kits(id,title_id,branch,copies,extras) SELECT 'big-k-'||n,'big-t-'||n,'Central',10,'' FROM generate_series(1,400) n");
+  await pool.query("INSERT INTO cycles(id,name,deadline,status) VALUES('big','Big cycle',$1,'collecting')",[plus(bigBase,-14)]);
+  await pool.query("INSERT INTO meeting_slots(id,cycle_id,club_id,meeting) SELECT 'big-s-'||n,'big',CASE WHEN n%2=0 THEN 'c1' ELSE 'c2' END,$1::date+n*7 FROM generate_series(1,400) n",[bigBase]);
+  const bigAssignments = Array.from({length:400},(_,k) => {
+    const n = k + 1; const meeting = plus(bigBase,n*7); const ready = plus(meeting,-21);
+    return {id:`big-a-${n}`,cycleId:'big',slotId:`big-s-${n}`,clubId:n%2===0?'c1':'c2',kitId:`big-k-${n}`,ready,meeting,due:plus(ready,28),locked:false};
+  });
+  const bigDraft = await req('/api/cycles/big/schedule','PUT',{revision:1,assignments:bigAssignments,publish:false});
+  assert.equal(bigDraft.status,200);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM schedule_assignments WHERE cycle_id='big'")).rows[0].n,400);
+  assert.equal((await req('/api/cycles/big/schedule','PUT',{revision:bigDraft.json.revision,assignments:bigAssignments,publish:true})).status,200);
+  assert.equal((await req('/api/cycles/big/schedule','PUT',{revision:bigDraft.json.revision+1,assignments:[],publish:false,padding:'x'.repeat(3*1024*1024)})).status,413);
 });
 
 test('upgrade and separate seed step preserve existing edits and rollback conflicts', { skip: !enabled, timeout:30000 }, async (t) => {
@@ -240,4 +254,24 @@ test('title kit creation adds one 10-copy kit per untitled title and aborts on b
   await pool.query("INSERT INTO titles(id,name,author,isbn,pages) VALUES('t4','kin','Someone','9781761000004',0)");
   await assert.rejects(createTitleKits(pool), { code:'BARCODE_CONFLICT' });
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM kits')).rows[0].n,3);
+});
+
+test('demo schedule import ranks titles by meeting order and writes one ballot per club once', { skip: !enabled, timeout:30000 }, async (t) => {
+  const schema = `demo_${randomBytes(8).toString('hex')}`;
+  const admin = new Pool({ connectionString:url }); await admin.query(`CREATE SCHEMA "${schema}"`);
+  const pool = new Pool({ connectionString:url, options:`-c search_path=${schema}` });
+  t.after(async () => { await pool.end(); await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin.end(); });
+  const { migrate } = require('../src/migrate'); const { parseDemoSchedule, importDemoSchedule } = require('../src/import-demo-schedule');
+  await migrate(pool);
+  await pool.query("INSERT INTO titles(id,name,author,isbn,pages) VALUES('t1','Kin','Tayari Jones','9781761041976',0),('t2','Molly','Rosalie Ham','9781761566851',0)");
+  const { meetings, invalid } = parseDemoSchedule('club_id\tisbn13\tmeeting\nclub-001\t9781761566851\t2027-02-01\nclub-001\t9781761041976\t2027-01-01\nclub-002\t9781761041976\t2027-01-01\nclub-002\tnot-an-isbn\t2027-03-01\n');
+  assert.equal(invalid.length, 1);
+  assert.equal(meetings.length, 3);
+  assert.deepEqual(await importDemoSchedule(pool, meetings, { dryRun:true }), { clubs:2, meetings:3, cycle:'demo-cycle-2027', skipped:false });
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM ballots')).rows[0].n, 0);
+  assert.deepEqual(await importDemoSchedule(pool, meetings), { clubs:2, meetings:3, cycle:'demo-cycle-2027', skipped:false });
+  const marks = await pool.query('SELECT club_id,title_id,rank FROM ballot_marks ORDER BY club_id,rank');
+  assert.deepEqual(marks.rows, [{ club_id:'club-001', title_id:'t1', rank:1 }, { club_id:'club-001', title_id:'t2', rank:2 }, { club_id:'club-002', title_id:'t1', rank:1 }]);
+  assert.deepEqual(await importDemoSchedule(pool, meetings), { clubs:2, meetings:3, cycle:'demo-cycle-2027', skipped:true });
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM ballots')).rows[0].n, 2);
 });

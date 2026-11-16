@@ -15,6 +15,7 @@ app.use((request, response, next) => {
   if (request.method === 'OPTIONS') return response.status(204).end();
   return next();
 });
+app.put('/api/cycles/:cycleId/schedule', express.json({ limit: '2mb' }));
 app.use(express.json({ limit: '64kb' }));
 
 app.get('/health', (_request, response) => {
