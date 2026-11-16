@@ -65,7 +65,16 @@ test('shared records persist, enforce constraints and reject stale edits', { ski
   const restartedUrl = `${base}/api/clubs/${club.json.id}/kits`;
   assert.equal((await (await fetch(restartedUrl)).json()).length, 1);
   assert.equal((await request(`/api/kits/${kit.json.id}`, 'DELETE', undefined, kit.json.revision)).status, 409);
-  assert.equal((await request(`/api/titles/${titleId}`, 'DELETE', undefined, created.json.revision)).status, 409);
+  const cascadeTitle = await request('/api/titles', 'POST', { ...title, name: 'Cascade title' });
+  const cascadeKit = await request('/api/kits', 'POST', { ...kitBody, titleId: cascadeTitle.json.id, barcode: 'cascade-kit', components: [] });
+  assert.equal((await request(`/api/clubs/${club.json.id}/kits/${cascadeKit.json.id}`, 'PUT')).status, 204);
+  await pool.query("INSERT INTO circulation_events(id,kit_id,action,at,notes) VALUES($1,$2,'reserved',now(),'')", [randomBytes(8).toString('hex'), cascadeKit.json.id]);
+  assert.equal((await request(`/api/titles/${cascadeTitle.json.id}`, 'DELETE', undefined, cascadeTitle.json.revision)).status, 204);
+  assert.equal((await request(`/api/titles/${cascadeTitle.json.id}`)).status, 404);
+  assert.equal((await request(`/api/kits/${cascadeKit.json.id}`)).status, 404);
+  assert.equal((await pool.query("SELECT 1 FROM club_kits WHERE kit_id=$1", [cascadeKit.json.id])).rowCount, 0);
+  assert.equal((await pool.query("SELECT 1 FROM circulation_events WHERE kit_id=$1", [cascadeKit.json.id])).rowCount, 0);
+  assert.equal((await pool.query("SELECT tgenabled FROM pg_trigger WHERE tgname='circulation_events_append_only'")).rows[0].tgenabled, 'O');
   const concurrent = await Promise.all(['Updated', 'Other update'].map((name) =>
     request(`/api/titles/${titleId}`, 'PUT', { ...title, name, revision: created.json.revision })));
   assert.deepEqual(concurrent.map((result) => result.status).sort(), [200, 409]);
