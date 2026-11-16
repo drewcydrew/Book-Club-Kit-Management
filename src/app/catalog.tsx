@@ -1,38 +1,107 @@
-import { usePreventRemove } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useNavigationGuard } from '../components/navigation-guard';
-import { TitleCover } from '../components/title-cover';
-import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
-import type { Kit, Title } from '../domain/model';
-import { ApiError, deleteRecord, lookupIsbn, saveRecord, type IsbnLookup } from '../state/api';
-import { saveCatalogChange } from '../state/catalog-save';
-import { useShared } from '../state/shared';
-import { useStore } from '../state/store';
+import { usePreventRemove } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import {
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { KitPanel } from "../components/kit-panel";
+import { useNavigationGuard } from "../components/navigation-guard";
+import {
+  PendingStatus,
+  type PendingAction,
+} from "../components/pending-status";
+import { TitlePanel } from "../components/title-panel";
+import { TitlePicker } from "../components/title-picker";
+import { Action, Actions, Field, Label, Note, Page } from "../components/ui";
+import type { Kit, Title } from "../domain/model";
+import {
+  ApiError,
+  deleteRecord,
+  lookupIsbn,
+  saveRecord,
+  type IsbnLookup,
+} from "../state/api";
+import { saveCatalogChange } from "../state/catalog-save";
+import { useShared } from "../state/shared";
+import { useStore } from "../state/store";
 
-const blankTitle = (): Title => ({ id: '', name: '', author: '', isbn: '', pages: 0, genres: '', notes: '', largePrint: false, audio: false, coverUrl: null });
-const blankKit = (branch: string): Kit => ({ id: '', titleId: '', barcode: '', branch, copies: 1, extras: '', components: [], status: 'available' });
+const blankTitle = (): Title => ({
+  id: "",
+  name: "",
+  author: "",
+  isbn: "",
+  pages: 0,
+  genres: "",
+  notes: "",
+  largePrint: false,
+  audio: false,
+  coverUrl: null,
+});
+const blankKit = (branch: string): Kit => ({
+  id: "",
+  titleId: "",
+  barcode: "",
+  branch,
+  copies: 1,
+  extras: "",
+  components: [],
+  status: "available",
+});
 
-type TitleDraft = { kind: 'title'; value: Title; pages: string; revision: number | null };
-type KitDraft = { kind: 'kit'; value: Kit; copies: string; components: string; revision: number | null };
+type TitleDraft = {
+  kind: "title";
+  value: Title;
+  pages: string;
+  revision: number | null;
+};
+type KitDraft = {
+  kind: "kit";
+  value: Kit;
+  copies: string;
+  components: string;
+  revision: number | null;
+};
 type Draft = TitleDraft | KitDraft;
 
 function titleDraft(value: Title, revision: number | null): TitleDraft {
-  return { kind: 'title', value, pages: value.pages ? String(value.pages) : '', revision };
+  return {
+    kind: "title",
+    value,
+    pages: value.pages ? String(value.pages) : "",
+    revision,
+  };
 }
 function kitDraft(value: Kit, revision: number | null): KitDraft {
-  return { kind: 'kit', value, copies: String(value.copies), components: value.components.join(', '), revision };
+  return {
+    kind: "kit",
+    value,
+    copies: String(value.copies),
+    components: value.components.join(", "),
+    revision,
+  };
 }
 
-type LookupStatus = 'loading' | 'found' | 'none' | 'invalid' | 'error';
+type LookupStatus = "loading" | "found" | "none" | "invalid" | "error";
 
 function lookupMessage(status: LookupStatus): string {
   switch (status) {
-    case 'loading': return 'Looking up book details…';
-    case 'found': return 'Filled in from ISBNdb. Check the details before saving.';
-    case 'none': return 'No book found for this ISBN. Enter the details manually.';
-    case 'invalid': return 'Enter a valid ISBN-10 or ISBN-13 to look up the book.';
-    case 'error': return 'Book lookup is unavailable right now. Enter the details manually.';
+    case "loading":
+      return "Looking up book details…";
+    case "found":
+      return "Filled in from ISBNdb. Check the details before saving.";
+    case "none":
+      return "No book found for this ISBN. Enter the details manually.";
+    case "invalid":
+      return "Enter a valid ISBN-10 or ISBN-13 to look up the book.";
+    case "error":
+      return "Book lookup is unavailable right now. Enter the details manually.";
   }
 }
 
@@ -41,70 +110,93 @@ function applyLookup(draft: TitleDraft, found: IsbnLookup): TitleDraft {
   const { value } = draft;
   return {
     ...draft,
-    pages: (draft.pages.trim() || found.pages === null) ? draft.pages : String(found.pages),
+    pages:
+      draft.pages.trim() || found.pages === null
+        ? draft.pages
+        : String(found.pages),
     value: {
       ...value,
-      name: value.name.trim() ? value.name : found.title ?? '',
-      author: value.author.trim() ? value.author : found.author ?? '',
-      genres: value.genres.trim() ? value.genres : found.genres ?? '',
+      name: value.name.trim() ? value.name : (found.title ?? ""),
+      author: value.author.trim() ? value.author : (found.author ?? ""),
+      genres: value.genres.trim() ? value.genres : (found.genres ?? ""),
       coverUrl: value.coverUrl ?? found.coverUrl,
     },
   };
-}
-
-type PendingAction = 'Saving' | 'Deleting';
-
-function PendingStatus({ action }: { action: PendingAction | null }) {
-  if (!action) return null;
-  return <View style={modalStyles.pending} accessibilityRole="progressbar" accessibilityLabel={`${action}…`}>
-    <ActivityIndicator /><Note>{action}…</Note>
-  </View>;
 }
 
 export default function Catalog() {
   const { data } = useStore();
   const shared = useShared();
   const navigationGuard = useNavigationGuard();
-  const [query, setQuery] = useState('');
+  const [kitQuery, setKitQuery] = useState("");
+  const [titleQuery, setTitleQuery] = useState("");
+  const [view, setView] = useState<"kits" | "titles">("kits");
+  const { width } = useWindowDimensions();
+  const wide = width >= 900;
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [initial, setInitial] = useState('');
-  const [pendingIsbn, setPendingIsbn] = useState('');
-  const [preview, setPreview] = useState<{ isbn: string; status: LookupStatus } | null>(null);
-  const [message, setMessage] = useState('');
-  const [formError, setFormError] = useState('');
-  const [recovery, setRecovery] = useState<'conflict' | 'uncertain' | null>(null);
+  const [initial, setInitial] = useState("");
+  const [pendingIsbn, setPendingIsbn] = useState("");
+  const [preview, setPreview] = useState<{
+    isbn: string;
+    status: LookupStatus;
+  } | null>(null);
+  const [message, setMessage] = useState("");
+  const [formError, setFormError] = useState("");
+  const [recovery, setRecovery] = useState<"conflict" | "uncertain" | null>(
+    null,
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+
+  const [pendingNavigation, setPendingNavigation] = useState<
+    (() => void) | null
+  >(null);
   const saving = useRef(false);
-  const [deleting, setDeleting] = useState<{ kind: 'titles' | 'kits'; id: string; revision: number; name: string } | null>(null);
-  const [deleteError, setDeleteError] = useState('');
-  const [pending, setPending] = useState<{ kind: 'titles' | 'kits'; id: string; action: PendingAction } | null>(null);
-  const pendingFor = (kind: 'titles' | 'kits', id: string): PendingAction | null =>
+  const [deleting, setDeleting] = useState<{
+    kind: "titles" | "kits";
+    id: string;
+    revision: number;
+    name: string;
+  } | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [pending, setPending] = useState<{
+    kind: "titles" | "kits";
+    id: string;
+    action: PendingAction;
+  } | null>(null);
+  const pendingFor = (
+    kind: "titles" | "kits",
+    id: string,
+  ): PendingAction | null =>
     pending?.kind === kind && pending.id === id ? pending.action : null;
   const person = data.people.find((p) => p.id === data.selectedPersonId);
-  const staff = person?.role === 'staff' || person?.role === 'admin';
-  const search = query.trim().toLowerCase();
+  const staff = person?.role === "staff" || person?.role === "admin";
   const dirty = draft !== null && JSON.stringify(draft) !== initial;
   const busy = shared.saving || refreshing;
 
-  const disablePrevention = usePreventRemove(dirty || (draft !== null && busy), ({ repeat }) => {
-    if (busy) {
-      setFormError('Wait for the shared change to finish before leaving.');
-      return;
-    }
-    setPendingNavigation(() => repeat);
-    setConfirmDiscard(true);
-  });
+  const disablePrevention = usePreventRemove(
+    dirty || (draft !== null && busy),
+    ({ repeat }) => {
+      if (busy) {
+        setFormError("Wait for the shared change to finish before leaving.");
+        return;
+      }
+      setPendingNavigation(() => repeat);
+      setConfirmDiscard(true);
+    },
+  );
 
   useEffect(() => {
     if (!draft || (!dirty && !busy)) return;
     return navigationGuard.register((continueNavigation) => {
       if (busy) {
-        setFormError('Wait for the shared change to finish before leaving.');
+        setFormError("Wait for the shared change to finish before leaving.");
         return;
       }
-      setPendingNavigation(() => () => { disablePrevention(); continueNavigation(); });
+      setPendingNavigation(() => () => {
+        disablePrevention();
+        continueNavigation();
+      });
       setConfirmDiscard(true);
     });
   }, [busy, dirty, disablePrevention, draft, navigationGuard]);
@@ -113,48 +205,71 @@ export default function Catalog() {
     if (!pendingIsbn) return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      setPreview({ isbn: pendingIsbn, status: 'loading' });
-      lookupIsbn(pendingIsbn).then((found) => {
-        if (cancelled) return;
-        setPreview({ isbn: pendingIsbn, status: 'found' });
-        // Only fill the form while it still holds this ISBN.
-        setDraft((current) => current?.kind === 'title' && current.value.isbn.trim() === pendingIsbn
-          ? applyLookup(current, found) : current);
-      }).catch((error: unknown) => {
-        if (cancelled) return;
-        const status: LookupStatus = error instanceof ApiError && error.status === 404 ? 'none'
-          : error instanceof ApiError && error.status === 400 ? 'invalid' : 'error';
-        setPreview({ isbn: pendingIsbn, status });
-      });
+      setPreview({ isbn: pendingIsbn, status: "loading" });
+      lookupIsbn(pendingIsbn)
+        .then((found) => {
+          if (cancelled) return;
+          setPreview({ isbn: pendingIsbn, status: "found" });
+          // Only fill the form while it still holds this ISBN.
+          setDraft((current) =>
+            current?.kind === "title" &&
+            current.value.isbn.trim() === pendingIsbn
+              ? applyLookup(current, found)
+              : current,
+          );
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          const status: LookupStatus =
+            error instanceof ApiError && error.status === 404
+              ? "none"
+              : error instanceof ApiError && error.status === 400
+                ? "invalid"
+                : "error";
+          setPreview({ isbn: pendingIsbn, status });
+        });
     }, 600);
-    return () => { cancelled = true; clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [pendingIsbn]);
 
   function open(next: Draft) {
     setDraft(next);
     setInitial(JSON.stringify(next));
-    setPendingIsbn('');
+    setPendingIsbn("");
     setPreview(null);
-    setFormError('');
+    setFormError("");
     setRecovery(null);
     setConfirmDiscard(false);
     setPendingNavigation(null);
-    setMessage('');
+    setMessage("");
   }
   function changeIsbn(isbn: string) {
-    if (!draft || draft.kind !== 'title') return;
+    if (!draft || draft.kind !== "title") return;
     const trimmed = isbn.trim();
     const changed = trimmed !== draft.value.isbn.trim();
     // A cover belongs to one ISBN, so editing the ISBN drops the previous cover until a new preview arrives.
-    setDraft({ ...draft, value: { ...draft.value, isbn, coverUrl: changed ? null : draft.value.coverUrl } });
+    setDraft({
+      ...draft,
+      value: {
+        ...draft.value,
+        isbn,
+        coverUrl: changed ? null : draft.value.coverUrl,
+      },
+    });
     if (!changed) return;
     setPendingIsbn(trimmed);
-    setPreview(trimmed ? { isbn: trimmed, status: 'loading' } : null);
+    setPreview(trimmed ? { isbn: trimmed, status: "loading" } : null);
   }
 
   function close() {
     if (busy || saving.current) return;
-    if (dirty) { setConfirmDiscard(true); return; }
+    if (dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
     setDraft(null);
   }
   function discard() {
@@ -167,35 +282,77 @@ export default function Catalog() {
 
   async function save() {
     if (!draft || saving.current || shared.saving || recovery) return;
-    setFormError('');
+    setFormError("");
     try {
       let operation: () => Promise<unknown>;
-      if (draft.kind === 'title') {
+      if (draft.kind === "title") {
         const pages = draft.pages.trim() ? Number(draft.pages) : 0;
-        if (!draft.value.name.trim() || !draft.value.author.trim() || !Number.isInteger(pages) || pages < 0) {
-          setFormError('Enter a title, author and a nonnegative whole page count.'); return;
+        if (
+          !draft.value.name.trim() ||
+          !draft.value.author.trim() ||
+          !Number.isInteger(pages) ||
+          pages < 0
+        ) {
+          setFormError(
+            "Enter a title, author and a nonnegative whole page count.",
+          );
+          return;
         }
-        const value = { ...draft.value, name: draft.value.name.trim(), author: draft.value.author.trim(), pages,
-          ...(draft.revision === null ? {} : { revision: draft.revision }) };
-        operation = () => saveRecord('titles', value);
+        const value = {
+          ...draft.value,
+          name: draft.value.name.trim(),
+          author: draft.value.author.trim(),
+          pages,
+          ...(draft.revision === null ? {} : { revision: draft.revision }),
+        };
+        operation = () => saveRecord("titles", value);
       } else {
         const copies = Number(draft.copies);
-        const components = draft.components.split(',').map((value) => value.trim()).filter(Boolean);
-        if (!draft.value.titleId || !draft.value.barcode.trim() || !draft.value.branch.trim() ||
-          !Number.isInteger(copies) || copies < 1 || components.length > copies) {
-          setFormError('Select a title, enter a barcode and branch, and use a positive copy count at least as large as the component list.'); return;
+        const components = draft.components
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        if (
+          !draft.value.titleId ||
+          !draft.value.barcode.trim() ||
+          !draft.value.branch.trim() ||
+          !Number.isInteger(copies) ||
+          copies < 1 ||
+          components.length > copies
+        ) {
+          setFormError(
+            "Select a title, enter a barcode and branch, and use a positive copy count at least as large as the component list.",
+          );
+          return;
         }
         const old = data.kits.find((item) => item.id === draft.value.id);
-        if (old && old.titleId !== draft.value.titleId && data.assignments.some((item) => item.kitId === draft.value.id)) {
-          setFormError('Cannot change the title of a kit referenced by a shared schedule.'); return;
+        if (
+          old &&
+          old.titleId !== draft.value.titleId &&
+          data.assignments.some((item) => item.kitId === draft.value.id)
+        ) {
+          setFormError(
+            "Cannot change the title of a kit referenced by a shared schedule.",
+          );
+          return;
         }
         const { status: _status, ...fields } = draft.value;
-        const value = { ...fields, barcode: draft.value.barcode.trim(), branch: draft.value.branch.trim(), copies, components,
-          ...(draft.revision === null ? {} : { revision: draft.revision }) };
-        operation = () => saveRecord('kits', value);
+        const value = {
+          ...fields,
+          barcode: draft.value.barcode.trim(),
+          branch: draft.value.branch.trim(),
+          copies,
+          components,
+          ...(draft.revision === null ? {} : { revision: draft.revision }),
+        };
+        operation = () => saveRecord("kits", value);
       }
       saving.current = true;
-      setPending({ kind: draft.kind === 'title' ? 'titles' : 'kits', id: draft.value.id, action: 'Saving' });
+      setPending({
+        kind: draft.kind === "title" ? "titles" : "kits",
+        id: draft.value.id,
+        action: "Saving",
+      });
       const result = await saveCatalogChange(shared.mutate, operation);
       if (!result.ok) {
         setFormError(result.message);
@@ -203,33 +360,44 @@ export default function Catalog() {
         return;
       }
       setDraft(null);
-      setMessage(draft.kind === 'title' ? 'Title saved.' : 'Kit saved.');
+      setMessage(draft.kind === "title" ? "Title saved." : "Kit saved.");
     } finally {
       saving.current = false;
       setPending(null);
     }
   }
 
-  function startDelete(value: { kind: 'titles' | 'kits'; id: string; revision: number; name: string }) {
-    setDeleteError('');
+  function startDelete(value: {
+    kind: "titles" | "kits";
+    id: string;
+    revision: number;
+    name: string;
+  }) {
+    setDeleteError("");
     setDeleting(value);
   }
 
   function closeDelete() {
     if (shared.saving) return;
     setDeleting(null);
-    setDeleteError('');
+    setDeleteError("");
   }
 
   async function confirmDelete() {
     if (!deleting) return;
-    setPending({ kind: deleting.kind, id: deleting.id, action: 'Deleting' });
+    setPending({ kind: deleting.kind, id: deleting.id, action: "Deleting" });
     try {
-      await shared.mutate(() => deleteRecord(deleting.kind, deleting.id, deleting.revision));
+      await shared.mutate(() =>
+        deleteRecord(deleting.kind, deleting.id, deleting.revision),
+      );
       setDeleting(null);
-      setMessage('Record deleted.');
+      setMessage("Record deleted.");
     } catch (error: unknown) {
-      setDeleteError(error instanceof Error ? error.message : 'Unable to delete this record.');
+      setDeleteError(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete this record.",
+      );
     } finally {
       setPending(null);
     }
@@ -241,111 +409,457 @@ export default function Catalog() {
     try {
       await shared.refresh();
       // Refresh completes before React updates the shared context; reload is explicit below.
-      setFormError('Shared data refreshed. Close this form and reopen the record to review the latest version.');
-      setRecovery('uncertain');
+      setFormError(
+        "Shared data refreshed. Close this form and reopen the record to review the latest version.",
+      );
+      setRecovery("uncertain");
     } catch (error: unknown) {
-      setFormError(error instanceof Error ? error.message : 'Unable to refresh shared data.');
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : "Unable to refresh shared data.",
+      );
     } finally {
       setRefreshing(false);
     }
   }
 
-  return <Page title="Catalog & kits">
-    <Actions><Action title="Refresh shared catalog" onPress={() => { void shared.refresh().catch(() => undefined); }} />
-      {staff && <><Action tone="primary" title="Add title" onPress={() => open(titleDraft(blankTitle(), null))} />
-        <Action tone="primary" title="Add kit" onPress={() => open(kitDraft(blankKit(data.library.branches[0] ?? ''), null))} /></>}
-    </Actions>
-    <Note>Titles, kits, kit status and circulation are shared across devices.</Note>
-    {message ? <Text>{message}</Text> : null}
-    <Field label="Search titles, authors or kit barcode" value={query} onChangeText={setQuery} />
-    {data.titles.filter((t) => !search || `${t.name} ${t.author} ${t.isbn}`.toLowerCase().includes(search) || data.kits.some((k) => k.titleId === t.id && [k.barcode, ...k.components].some((b) => b.toLowerCase().includes(search)))).map((item) =>
-      <Card key={item.id}><PendingStatus action={pendingFor('titles', item.id)} /><View style={{ flexDirection: 'row' }}><TitleCover coverUrl={item.coverUrl} isbn={item.isbn} /><View style={{ flex: 1 }}><Label>{item.name}</Label><Note>{item.author} {item.isbn ? `· ISBN ${item.isbn}` : ''}</Note>
-        <Note>{item.genres || 'No genres'} · {item.pages || 'Unknown'} pages · {item.largePrint ? 'Large print' : 'No large print'} · {item.audio ? 'Audio available' : 'No audio'}</Note>
-        {item.notes ? <Text>Content notes: {item.notes}</Text> : null}</View></View>
-        {staff && <Actions><Action disabled={shared.saving} title="Edit title" onPress={() => {
-          const record = shared.data.titles.find((title) => title.id === item.id);
-          if (record) open(titleDraft(item, record.revision));
-          else setMessage('This title is no longer available. Refresh the shared catalog.');
-        }} /><Action disabled={shared.saving} tone="danger" title="Delete title" onPress={() => {
-          const record = shared.data.titles.find((title) => title.id === item.id);
-          if (record) startDelete({ kind: 'titles', id: record.id, revision: record.revision, name: record.name });
-        }} /></Actions>}
-        {data.kits.filter((k) => k.titleId === item.id).map((value) => <React.Fragment key={value.id}><PendingStatus action={pendingFor('kits', value.id)} /><Text>{value.barcode} · {value.branch} · {value.copies} copies · {value.status}{value.extras ? ` · ${value.extras}` : ''}</Text>
-          {value.components.length > 0 && <Note>Copies: {value.components.join(', ')}</Note>}
-          {staff && <Actions><Action disabled={shared.saving} title={`Edit ${value.barcode}`} onPress={() => {
-            const record = shared.data.kits.find((kit) => kit.id === value.id);
-            if (record) open(kitDraft(value, record.revision));
-            else setMessage('This kit is no longer available. Refresh the shared catalog.');
-          }} /><Action disabled={shared.saving} tone="danger" title={`Delete ${value.barcode}`} onPress={() => {
-            const record = shared.data.kits.find((item) => item.id === value.id);
-            if (record) startDelete({ kind: 'kits', id: record.id, revision: record.revision, name: record.barcode });
-          }} /></Actions>}
-        </React.Fragment>)}
-      </Card>)}
-    {draft && <Modal transparent visible onRequestClose={confirmDiscard ? () => { setConfirmDiscard(false); setPendingNavigation(null); } : close}
-      accessibilityLabel={`${draft.value.id ? 'Edit' : 'Add'} ${draft.kind}`}>
-      <KeyboardAvoidingView style={modalStyles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={modalStyles.dialog}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={modalStyles.content}>
-            {confirmDiscard ? <>
-              <Label>Discard unsaved changes?</Label><Note>Your changes have not been saved.</Note>
-              <Actions><Action tone="danger" title="Discard changes" onPress={discard} /><Action title="Keep editing" onPress={() => { setConfirmDiscard(false); setPendingNavigation(null); }} /></Actions>
-            </> : <>
-              <Label>{draft.value.id ? `Edit ${draft.kind}` : `Add ${draft.kind}`}</Label>
-              {draft.kind === 'title' ? <>
-                <Field editable={!shared.saving} label="ISBN" value={draft.value.isbn} onChangeText={changeIsbn} />
-                {preview && preview.isbn === draft.value.isbn.trim() ? <Note>{lookupMessage(preview.status)}</Note> : null}
-                {draft.value.coverUrl ? <Image source={{ uri: draft.value.coverUrl }} style={modalStyles.preview} accessibilityLabel="Cover preview" resizeMode="contain" /> : null}
-                <Field editable={!shared.saving} label="Title" value={draft.value.name} onChangeText={(name) => setDraft({ ...draft, value: { ...draft.value, name } })} />
-                <Field editable={!shared.saving} label="Author" value={draft.value.author} onChangeText={(author) => setDraft({ ...draft, value: { ...draft.value, author } })} />
-                <Field editable={!shared.saving} label="Pages" value={draft.pages} onChangeText={(pages) => setDraft({ ...draft, pages })} />
-                <Field editable={!shared.saving} label="Genres" value={draft.value.genres} onChangeText={(genres) => setDraft({ ...draft, value: { ...draft.value, genres } })} />
-                <Field editable={!shared.saving} label="Content notes" value={draft.value.notes} onChangeText={(notes) => setDraft({ ...draft, value: { ...draft.value, notes } })} />
-                <Actions><Action disabled={shared.saving} selected={draft.value.largePrint} title={`Large print: ${draft.value.largePrint ? 'yes' : 'no'}`} onPress={() => setDraft({ ...draft, value: { ...draft.value, largePrint: !draft.value.largePrint } })} />
-                  <Action disabled={shared.saving} selected={draft.value.audio} title={`Audio: ${draft.value.audio ? 'yes' : 'no'}`} onPress={() => setDraft({ ...draft, value: { ...draft.value, audio: !draft.value.audio } })} /></Actions>
-              </> : <>
-                <Note>Select the title:</Note><Actions>{data.titles.map((title) => <Action key={title.id} disabled={shared.saving} selected={draft.value.titleId === title.id} title={`${title.name}${draft.value.titleId === title.id ? ' ✓' : ''}`} onPress={() => setDraft({ ...draft, value: { ...draft.value, titleId: title.id } })} />)}</Actions>
-                {data.titles.length === 0 && <Note>Add a title before creating a kit.</Note>}
-                <Field editable={!shared.saving} label="Kit barcode" value={draft.value.barcode} onChangeText={(barcode) => setDraft({ ...draft, value: { ...draft.value, barcode } })} />
-                <Field editable={!shared.saving} label="Branch" value={draft.value.branch} onChangeText={(branch) => setDraft({ ...draft, value: { ...draft.value, branch } })} />
-                <Field editable={!shared.saving} label="Number of copies" value={draft.copies} onChangeText={(copies) => setDraft({ ...draft, copies })} />
-                <Field editable={!shared.saving} label="Extras" value={draft.value.extras} onChangeText={(extras) => setDraft({ ...draft, value: { ...draft.value, extras } })} />
-                <Field editable={!shared.saving} label="Copy barcodes (comma separated)" value={draft.components} onChangeText={(components) => setDraft({ ...draft, components })} />
-              </>}
-              {formError ? <Text accessibilityRole="alert" style={modalStyles.error}>{formError}</Text> : null}
-              {recovery && <><Note>Refresh and inspect the shared catalog before retrying. Close and reopen an existing record to edit the latest version.</Note>
-                <Action title="Refresh shared data" disabled={busy} onPress={() => { void refreshAndReload(); }} /></>}
-              <Actions>{pending && <PendingStatus action={pending.action} />}<Action tone="primary" title={`Save ${draft.kind}`} disabled={busy || !!recovery} onPress={() => { void save(); }} />
-                <Action title="Cancel" disabled={busy} onPress={close} /></Actions>
-            </>}
-          </ScrollView>
+  function addTitle() {
+    open(titleDraft(blankTitle(), null));
+  }
+  function addKit() {
+    open(kitDraft(blankKit(data.library.branches[0] ?? ""), null));
+  }
+  function editTitle(id: string) {
+    const record = shared.data.titles.find((title) => title.id === id);
+    const item = data.titles.find((title) => title.id === id);
+    if (record && item) open(titleDraft(item, record.revision));
+    else
+      setMessage(
+        "This title is no longer available. Refresh the shared catalog.",
+      );
+  }
+  function deleteTitle(id: string) {
+    const record = shared.data.titles.find((title) => title.id === id);
+    if (record)
+      startDelete({
+        kind: "titles",
+        id: record.id,
+        revision: record.revision,
+        name: record.name,
+      });
+  }
+  function editKit(id: string) {
+    const record = shared.data.kits.find((kit) => kit.id === id);
+    const item = data.kits.find((kit) => kit.id === id);
+    if (record && item) open(kitDraft(item, record.revision));
+    else
+      setMessage(
+        "This kit is no longer available. Refresh the shared catalog.",
+      );
+  }
+  function deleteKit(id: string) {
+    const record = shared.data.kits.find((kit) => kit.id === id);
+    if (record)
+      startDelete({
+        kind: "kits",
+        id: record.id,
+        revision: record.revision,
+        name: record.barcode,
+      });
+  }
+
+  const kitPanel = (
+    <KitPanel
+      kits={data.kits}
+      titles={data.titles}
+      query={kitQuery}
+      onQueryChange={setKitQuery}
+      staff={staff}
+      saving={shared.saving}
+      pendingFor={(id) => pendingFor("kits", id)}
+      onAdd={addKit}
+      onEdit={(kit) => editKit(kit.id)}
+      onDelete={(kit) => deleteKit(kit.id)}
+    />
+  );
+  const titlePanel = (
+    <TitlePanel
+      titles={data.titles}
+      kits={data.kits}
+      query={titleQuery}
+      onQueryChange={setTitleQuery}
+      staff={staff}
+      saving={shared.saving}
+      pendingFor={(id) => pendingFor("titles", id)}
+      onAdd={addTitle}
+      onEdit={(title) => editTitle(title.id)}
+      onDelete={(title) => deleteTitle(title.id)}
+    />
+  );
+
+  return (
+    <Page title="Catalog & kits">
+      <Actions>
+        <Action
+          title="Refresh shared catalog"
+          onPress={() => {
+            void shared.refresh().catch(() => undefined);
+          }}
+        />
+      </Actions>
+      <Note>
+        Titles, kits, kit status and circulation are shared across devices.
+      </Note>
+      {message ? <Text>{message}</Text> : null}
+      {wide ? (
+        <View style={layoutStyles.columns}>
+          <View style={layoutStyles.kitColumn}>{kitPanel}</View>
+          <View style={layoutStyles.titleColumn}>{titlePanel}</View>
         </View>
-      </KeyboardAvoidingView>
-    </Modal>}
-    {deleting && <Modal transparent visible onRequestClose={closeDelete} accessibilityLabel={`Delete ${deleting.kind === 'titles' ? 'title' : 'kit'}`}>
-      <View style={modalStyles.backdrop}>
-        <View style={modalStyles.dialog}>
-          <ScrollView contentContainerStyle={modalStyles.content}>
-            <Label>Delete {deleting.name}?</Label>
-            <Note>{deleting.kind === 'titles'
-              ? 'This removes the title for every user, along with its kits, their club links, circulation history, schedule assignments, ballot marks, finalized rankings and club history.'
-              : 'This removes the kit for every user. A kit that a shared schedule still uses cannot be deleted until it is removed from that schedule.'}</Note>
-            {deleteError ? <Text accessibilityRole="alert" style={modalStyles.error}>{deleteError}</Text> : null}
-            <PendingStatus action={pending?.action ?? null} />
-            <Actions><Action tone="danger" title="Confirm deletion" disabled={shared.saving} onPress={() => { void confirmDelete(); }} />
-              <Action title="Cancel deletion" disabled={shared.saving} onPress={closeDelete} /></Actions>
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>}
-  </Page>;
+      ) : (
+        <>
+          <Actions>
+            <Action
+              selected={view === "kits"}
+              title="Kits"
+              onPress={() => setView("kits")}
+            />
+            <Action
+              selected={view === "titles"}
+              title="Titles"
+              onPress={() => setView("titles")}
+            />
+          </Actions>
+          {view === "kits" ? kitPanel : titlePanel}
+        </>
+      )}
+      {draft && (
+        <Modal
+          transparent
+          visible
+          onRequestClose={
+            confirmDiscard
+              ? () => {
+                  setConfirmDiscard(false);
+                  setPendingNavigation(null);
+                }
+              : close
+          }
+          accessibilityLabel={`${draft.value.id ? "Edit" : "Add"} ${draft.kind}`}
+        >
+          <KeyboardAvoidingView
+            style={modalStyles.backdrop}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <View style={modalStyles.dialog}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={modalStyles.content}
+              >
+                {confirmDiscard ? (
+                  <>
+                    <Label>Discard unsaved changes?</Label>
+                    <Note>Your changes have not been saved.</Note>
+                    <Actions>
+                      <Action
+                        tone="danger"
+                        title="Discard changes"
+                        onPress={discard}
+                      />
+                      <Action
+                        title="Keep editing"
+                        onPress={() => {
+                          setConfirmDiscard(false);
+                          setPendingNavigation(null);
+                        }}
+                      />
+                    </Actions>
+                  </>
+                ) : (
+                  <>
+                    <Label>
+                      {draft.value.id
+                        ? `Edit ${draft.kind}`
+                        : `Add ${draft.kind}`}
+                    </Label>
+                    {draft.kind === "title" ? (
+                      <>
+                        <Field
+                          editable={!shared.saving}
+                          label="ISBN"
+                          value={draft.value.isbn}
+                          onChangeText={changeIsbn}
+                        />
+                        {preview && preview.isbn === draft.value.isbn.trim() ? (
+                          <Note>{lookupMessage(preview.status)}</Note>
+                        ) : null}
+                        {draft.value.coverUrl ? (
+                          <Image
+                            source={{ uri: draft.value.coverUrl }}
+                            style={modalStyles.preview}
+                            accessibilityLabel="Cover preview"
+                            resizeMode="contain"
+                          />
+                        ) : null}
+                        <Field
+                          editable={!shared.saving}
+                          label="Title"
+                          value={draft.value.name}
+                          onChangeText={(name) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, name },
+                            })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Author"
+                          value={draft.value.author}
+                          onChangeText={(author) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, author },
+                            })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Pages"
+                          value={draft.pages}
+                          onChangeText={(pages) =>
+                            setDraft({ ...draft, pages })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Genres"
+                          value={draft.value.genres}
+                          onChangeText={(genres) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, genres },
+                            })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Content notes"
+                          value={draft.value.notes}
+                          onChangeText={(notes) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, notes },
+                            })
+                          }
+                        />
+                        <Actions>
+                          <Action
+                            disabled={shared.saving}
+                            selected={draft.value.largePrint}
+                            title={`Large print: ${draft.value.largePrint ? "yes" : "no"}`}
+                            onPress={() =>
+                              setDraft({
+                                ...draft,
+                                value: {
+                                  ...draft.value,
+                                  largePrint: !draft.value.largePrint,
+                                },
+                              })
+                            }
+                          />
+                          <Action
+                            disabled={shared.saving}
+                            selected={draft.value.audio}
+                            title={`Audio: ${draft.value.audio ? "yes" : "no"}`}
+                            onPress={() =>
+                              setDraft({
+                                ...draft,
+                                value: {
+                                  ...draft.value,
+                                  audio: !draft.value.audio,
+                                },
+                              })
+                            }
+                          />
+                        </Actions>
+                      </>
+                    ) : (
+                      <>
+                        <Note>Select the title:</Note>
+                        <TitlePicker
+                          titles={data.titles}
+                          selectedId={draft.value.titleId}
+                          disabled={shared.saving}
+                          onSelect={(titleId) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, titleId },
+                            })
+                          }
+                        />
+                        {data.titles.length === 0 && (
+                          <Note>Add a title before creating a kit.</Note>
+                        )}
+                        <Field
+                          editable={!shared.saving}
+                          label="Kit barcode"
+                          value={draft.value.barcode}
+                          onChangeText={(barcode) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, barcode },
+                            })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Branch"
+                          value={draft.value.branch}
+                          onChangeText={(branch) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, branch },
+                            })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Number of copies"
+                          value={draft.copies}
+                          onChangeText={(copies) =>
+                            setDraft({ ...draft, copies })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Extras"
+                          value={draft.value.extras}
+                          onChangeText={(extras) =>
+                            setDraft({
+                              ...draft,
+                              value: { ...draft.value, extras },
+                            })
+                          }
+                        />
+                        <Field
+                          editable={!shared.saving}
+                          label="Copy barcodes (comma separated)"
+                          value={draft.components}
+                          onChangeText={(components) =>
+                            setDraft({ ...draft, components })
+                          }
+                        />
+                      </>
+                    )}
+                    {formError ? (
+                      <Text accessibilityRole="alert" style={modalStyles.error}>
+                        {formError}
+                      </Text>
+                    ) : null}
+                    {recovery && (
+                      <>
+                        <Note>
+                          Refresh and inspect the shared catalog before
+                          retrying. Close and reopen an existing record to edit
+                          the latest version.
+                        </Note>
+                        <Action
+                          title="Refresh shared data"
+                          disabled={busy}
+                          onPress={() => {
+                            void refreshAndReload();
+                          }}
+                        />
+                      </>
+                    )}
+                    <Actions>
+                      {pending && <PendingStatus action={pending.action} />}
+                      <Action
+                        tone="primary"
+                        title={`Save ${draft.kind}`}
+                        disabled={busy || !!recovery}
+                        onPress={() => {
+                          void save();
+                        }}
+                      />
+                      <Action title="Cancel" disabled={busy} onPress={close} />
+                    </Actions>
+                  </>
+                )}
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+      )}
+      {deleting && (
+        <Modal
+          transparent
+          visible
+          onRequestClose={closeDelete}
+          accessibilityLabel={`Delete ${deleting.kind === "titles" ? "title" : "kit"}`}
+        >
+          <View style={modalStyles.backdrop}>
+            <View style={modalStyles.dialog}>
+              <ScrollView contentContainerStyle={modalStyles.content}>
+                <Label>Delete {deleting.name}?</Label>
+                <Note>
+                  {deleting.kind === "titles"
+                    ? "This removes the title for every user, along with its kits, their club links, circulation history, schedule assignments, ballot marks, finalized rankings and club history."
+                    : "This removes the kit for every user. A kit that a shared schedule still uses cannot be deleted until it is removed from that schedule."}
+                </Note>
+                {deleteError ? (
+                  <Text accessibilityRole="alert" style={modalStyles.error}>
+                    {deleteError}
+                  </Text>
+                ) : null}
+                <PendingStatus action={pending?.action ?? null} />
+                <Actions>
+                  <Action
+                    tone="danger"
+                    title="Confirm deletion"
+                    disabled={shared.saving}
+                    onPress={() => {
+                      void confirmDelete();
+                    }}
+                  />
+                  <Action
+                    title="Cancel deletion"
+                    disabled={shared.saving}
+                    onPress={closeDelete}
+                  />
+                </Actions>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
+    </Page>
+  );
 }
 
 const modalStyles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 16 },
-  dialog: { width: '100%', maxWidth: 650, maxHeight: '90%', backgroundColor: '#fffefa' },
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+  },
+  dialog: {
+    width: "100%",
+    maxWidth: 650,
+    maxHeight: "90%",
+    backgroundColor: "#fffefa",
+  },
   content: { padding: 20, gap: 12 },
-  preview: { width: 96, height: 144, borderRadius: 4, alignSelf: 'flex-start' },
-  error: { color: '#a22525', fontWeight: '600' },
-  pending: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  preview: { width: 96, height: 144, borderRadius: 4, alignSelf: "flex-start" },
+  error: { color: "#a22525", fontWeight: "600" },
+});
+
+const layoutStyles = StyleSheet.create({
+  columns: { flexDirection: "row", gap: 16, alignItems: "flex-start" },
+  kitColumn: { flex: 3, minWidth: 0 },
+  titleColumn: { flex: 2, minWidth: 0 },
 });

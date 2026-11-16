@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View, type ImageStyle, type StyleProp } from 'react-native';
 import { fetchIsbnCover } from '../state/api';
 
 const coverRequests = new Map<string, Promise<string | null>>();
@@ -18,7 +18,7 @@ function loadCover(isbn: string): Promise<string | null> {
 }
 
 // A saved cover URL is shown directly; otherwise the ISBN is looked up for a fallback image.
-export function TitleCover({ coverUrl, isbn }: { coverUrl?: string | null; isbn: string }) {
+export function TitleCover({ coverUrl, isbn, style }: { coverUrl?: string | null; isbn: string; style?: StyleProp<ImageStyle> }) {
   const hasIsbn = isbn.trim() !== '';
   const needsLookup = !coverUrl && hasIsbn;
   const [result, setResult] = useState<{ isbn: string; imageUrl: string | null } | null>(null);
@@ -32,11 +32,11 @@ export function TitleCover({ coverUrl, isbn }: { coverUrl?: string | null; isbn:
     return () => { active = false; };
   }, [isbn, needsLookup]);
 
-  if (coverUrl) return <Image source={{ uri: coverUrl }} style={styles.cover} accessibilityLabel="Book cover" resizeMode="cover" />;
+  if (coverUrl) return <Image source={{ uri: coverUrl }} style={[styles.cover, style]} accessibilityLabel="Book cover" resizeMode="cover" />;
   if (!hasIsbn) return null;
   const current = result?.isbn === isbn ? result : null;
-  if (current?.imageUrl) return <Image source={{ uri: current.imageUrl }} style={styles.cover} accessibilityLabel="Book cover" resizeMode="cover" />;
-  return <View style={[styles.cover, styles.placeholder]}>
+  if (current?.imageUrl) return <Image source={{ uri: current.imageUrl }} style={[styles.cover, style]} accessibilityLabel="Book cover" resizeMode="cover" />;
+  return <View style={[styles.cover, styles.placeholder, style]}>
     <Text style={styles.placeholderText}>{current ? 'No cover' : '…'}</Text>
   </View>;
 }

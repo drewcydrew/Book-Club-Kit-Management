@@ -183,3 +183,61 @@ test('upgrade and separate seed step preserve existing edits and rollback confli
   assert.equal((await pool.query("SELECT name FROM titles WHERE id='t1'")).rows[0].name,'Existing 1');
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migrations WHERE name='seed:shared-demo-v1'")).rows[0].n,1);
 });
+
+test('club import migration adds the listed clubs once with valid required fields', { skip: !enabled, timeout:30000 }, async (t) => {
+  const schema = `clubs_${randomBytes(8).toString('hex')}`;
+  const admin = new Pool({ connectionString:url }); await admin.query(`CREATE SCHEMA "${schema}"`);
+  const pool = new Pool({ connectionString:url, options:`-c search_path=${schema}` });
+  t.after(async () => { await pool.end(); await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin.end(); });
+  const { migrate } = require('../src/migrate');
+  await migrate(pool);
+  const importSql = await readFile(path.join(__dirname,'..','migrations','005_import_clubs.sql'),'utf8');
+  await pool.query(importSql);
+  const imported = await pool.query("SELECT id,name,branch,size,pickup FROM clubs WHERE id LIKE 'club-%' ORDER BY id");
+  assert.equal(imported.rows.length,33);
+  assert.ok(imported.rows.every((r) => r.branch === 'Central' && r.size === 10 && r.pickup === 'pickup'));
+  await pool.query(importSql);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM clubs WHERE id LIKE 'club-%'")).rows[0].n,33);
+});
+
+test('title import cleans list entries and skips existing or repeated ISBNs', { skip: !enabled, timeout:30000 }, async (t) => {
+  const schema = `titles_${randomBytes(8).toString('hex')}`;
+  const admin = new Pool({ connectionString:url }); await admin.query(`CREATE SCHEMA "${schema}"`);
+  const pool = new Pool({ connectionString:url, options:`-c search_path=${schema}` });
+  t.after(async () => { await pool.end(); await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin.end(); });
+  const { migrate } = require('../src/migrate'); const { parseTitleList, importTitles } = require('../src/import-titles');
+  await migrate(pool);
+  await pool.query("INSERT INTO titles(id,name,author,isbn,pages) VALUES('existing','Existing','Writer','9781867255970',0)");
+  const content = ['Title\tAuthor\tISBN-13', 'A family of strangers\tFiona Lowe\t9781867255970', 'Kin [bookclub] /\tTayari Jones\t9781761041976', 'Bad row\tSomeone\t123', 'Repeat\tSomeone\t9781761041976', ''].join('\n');
+  const { rows, invalid, duplicates } = parseTitleList(content);
+  assert.equal(rows.length,2); assert.equal(invalid.length,1); assert.equal(duplicates.length,1);
+  assert.deepEqual(rows[1],{ isbn:'9781761041976', name:'Kin', author:'Tayari Jones' });
+  assert.deepEqual(await importTitles(pool, rows, { dryRun:true }), { added:1, existing:1 });
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM titles")).rows[0].n,1);
+  assert.deepEqual(await importTitles(pool, rows), { added:1, existing:1 });
+  assert.deepEqual(await importTitles(pool, rows), { added:0, existing:2 });
+  const stored = await pool.query("SELECT name,author,pages FROM titles WHERE isbn='9781761041976'");
+  assert.deepEqual(stored.rows, [{ name:'Kin', author:'Tayari Jones', pages:0 }]);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM titles")).rows[0].n,2);
+});
+
+test('title kit creation adds one 10-copy kit per untitled title and aborts on barcode conflicts', { skip: !enabled, timeout:30000 }, async (t) => {
+  const schema = `kits_${randomBytes(8).toString('hex')}`;
+  const admin = new Pool({ connectionString:url }); await admin.query(`CREATE SCHEMA "${schema}"`);
+  const pool = new Pool({ connectionString:url, options:`-c search_path=${schema}` });
+  t.after(async () => { await pool.end(); await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin.end(); });
+  const { migrate } = require('../src/migrate'); const { createTitleKits } = require('../src/create-title-kits');
+  await migrate(pool);
+  await pool.query("UPDATE lending_settings SET branches=ARRAY['Central','West'] WHERE singleton=true");
+  await pool.query("INSERT INTO titles(id,name,author,isbn,pages) VALUES('t1','Kin','Tayari Jones','9781761041976',0),('t2','Molly','Rosalie Ham','9781761566851',0),('t3','Covered','Writer','9781761000003',0)");
+  await pool.query("INSERT INTO kits(id,title_id,branch,copies,extras) VALUES('k-existing','t3','Central',10,'')");
+  assert.deepEqual(await createTitleKits(pool, { dryRun:true }), { created:2, branch:'Central', barcodes:['Kin','Molly'] });
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM kits')).rows[0].n,1);
+  assert.deepEqual(await createTitleKits(pool), { created:2, branch:'Central', barcodes:['Kin','Molly'] });
+  const kits = await pool.query("SELECT k.title_id,k.branch,k.copies,i.identifier FROM kits k JOIN kit_identifiers i ON i.kit_id=k.id AND i.kind='kit' WHERE k.title_id IN ('t1','t2') ORDER BY i.identifier");
+  assert.deepEqual(kits.rows, [{ title_id:'t1', branch:'Central', copies:10, identifier:'Kin' }, { title_id:'t2', branch:'Central', copies:10, identifier:'Molly' }]);
+  assert.deepEqual(await createTitleKits(pool), { created:0, branch:'Central', barcodes:[] });
+  await pool.query("INSERT INTO titles(id,name,author,isbn,pages) VALUES('t4','kin','Someone','9781761000004',0)");
+  await assert.rejects(createTitleKits(pool), { code:'BARCODE_CONFLICT' });
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM kits')).rows[0].n,3);
+});
