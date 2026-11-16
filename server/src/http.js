@@ -36,7 +36,7 @@ function errorHandler(error, _request, response, _next) {
   if (error instanceof HttpError) return response.status(error.status).json({ error: error.message });
   if (error.type === 'entity.parse.failed') return response.status(400).json({ error: 'Invalid JSON body.' });
   if (error.type === 'entity.too.large') return response.status(413).json({ error: 'Request body is too large.' });
-  if (['23505', '23503'].includes(error.code)) return response.status(409).json({ error: 'Record conflicts with an existing record or reference.' });
+  if (['23505', '23503', '23001'].includes(error.code)) return response.status(409).json({ error: 'Record conflicts with an existing record or reference.' });
   if (['23514', '23502', '22P02'].includes(error.code)) return response.status(400).json({ error: 'Record contains invalid values.' });
   console.error('Request failed:', error.code || 'unknown');
   const status = ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', '57P01', '08006', '08001'].includes(error.code) ? 503 : 500;

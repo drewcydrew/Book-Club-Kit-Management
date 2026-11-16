@@ -53,6 +53,7 @@ export default function Catalog() {
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
   const saving = useRef(false);
   const [deleting, setDeleting] = useState<{ kind: 'titles' | 'kits'; id: string; revision: number; name: string } | null>(null);
+  const [deleteError, setDeleteError] = useState('');
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const staff = person?.role === 'staff' || person?.role === 'admin';
   const search = query.trim().toLowerCase();
@@ -177,6 +178,28 @@ export default function Catalog() {
     }
   }
 
+  function startDelete(value: { kind: 'titles' | 'kits'; id: string; revision: number; name: string }) {
+    setDeleteError('');
+    setDeleting(value);
+  }
+
+  function closeDelete() {
+    if (shared.saving) return;
+    setDeleting(null);
+    setDeleteError('');
+  }
+
+  async function confirmDelete() {
+    if (!deleting) return;
+    try {
+      await shared.mutate(() => deleteRecord(deleting.kind, deleting.id, deleting.revision));
+      setDeleting(null);
+      setMessage('Record deleted.');
+    } catch (error: unknown) {
+      setDeleteError(error instanceof Error ? error.message : 'Unable to delete this record.');
+    }
+  }
+
   async function refreshAndReload() {
     if (!draft || busy) return;
     setRefreshing(true);
@@ -199,9 +222,6 @@ export default function Catalog() {
     </Actions>
     <Note>Titles, kits, kit status and circulation are shared across devices.</Note>
     {message ? <Text>{message}</Text> : null}
-    {deleting && <Card><Label>Delete {deleting.name}?</Label><Note>This affects every user and may fail if the record is referenced.</Note><Actions>
-      <Action tone="danger" title="Confirm deletion" onPress={() => { void shared.mutate(() => deleteRecord(deleting.kind, deleting.id, deleting.revision)).then(() => { setDeleting(null); setMessage('Record deleted.'); }).catch(() => undefined); }} />
-      <Action title="Cancel deletion" onPress={() => setDeleting(null)} /></Actions></Card>}
     <Field label="Search titles, authors or kit barcode" value={query} onChangeText={setQuery} />
     {data.titles.filter((t) => !search || `${t.name} ${t.author} ${t.isbn}`.toLowerCase().includes(search) || data.kits.some((k) => k.titleId === t.id && [k.barcode, ...k.components].some((b) => b.toLowerCase().includes(search)))).map((item) =>
       <Card key={item.id}><View style={{ flexDirection: 'row' }}><TitleCover coverUrl={item.coverUrl} isbn={item.isbn} /><View style={{ flex: 1 }}><Label>{item.name}</Label><Note>{item.author} {item.isbn ? `· ISBN ${item.isbn}` : ''}</Note>
@@ -213,7 +233,7 @@ export default function Catalog() {
           else setMessage('This title is no longer available. Refresh the shared catalog.');
         }} /><Action tone="danger" title="Delete title" onPress={() => {
           const record = shared.data.titles.find((title) => title.id === item.id);
-          if (record) setDeleting({ kind: 'titles', id: record.id, revision: record.revision, name: record.name });
+          if (record) startDelete({ kind: 'titles', id: record.id, revision: record.revision, name: record.name });
         }} /></Actions>}
         {data.kits.filter((k) => k.titleId === item.id).map((value) => <React.Fragment key={value.id}><Text>{value.barcode} · {value.branch} · {value.copies} copies · {value.status}{value.extras ? ` · ${value.extras}` : ''}</Text>
           {value.components.length > 0 && <Note>Copies: {value.components.join(', ')}</Note>}
@@ -223,7 +243,7 @@ export default function Catalog() {
             else setMessage('This kit is no longer available. Refresh the shared catalog.');
           }} /><Action tone="danger" title={`Delete ${value.barcode}`} onPress={() => {
             const record = shared.data.kits.find((item) => item.id === value.id);
-            if (record) setDeleting({ kind: 'kits', id: record.id, revision: record.revision, name: record.barcode });
+            if (record) startDelete({ kind: 'kits', id: record.id, revision: record.revision, name: record.barcode });
           }} /></Actions>}
         </React.Fragment>)}
       </Card>)}
@@ -266,6 +286,21 @@ export default function Catalog() {
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+    </Modal>}
+    {deleting && <Modal transparent visible onRequestClose={closeDelete} accessibilityLabel={`Delete ${deleting.kind === 'titles' ? 'title' : 'kit'}`}>
+      <View style={modalStyles.backdrop}>
+        <View style={modalStyles.dialog}>
+          <ScrollView contentContainerStyle={modalStyles.content}>
+            <Label>Delete {deleting.name}?</Label>
+            <Note>{deleting.kind === 'titles'
+              ? 'This removes the title for every user. A title that a kit or shared schedule still uses cannot be deleted until those are removed.'
+              : 'This removes the kit for every user. A kit that a shared schedule still uses cannot be deleted until it is removed from that schedule.'}</Note>
+            {deleteError ? <Text accessibilityRole="alert" style={modalStyles.error}>{deleteError}</Text> : null}
+            <Actions><Action tone="danger" title="Confirm deletion" disabled={shared.saving} onPress={() => { void confirmDelete(); }} />
+              <Action title="Cancel deletion" disabled={shared.saving} onPress={closeDelete} /></Actions>
+          </ScrollView>
+        </View>
+      </View>
     </Modal>}
   </Page>;
 }
