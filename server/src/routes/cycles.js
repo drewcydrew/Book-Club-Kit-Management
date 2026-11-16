@@ -62,6 +62,10 @@ router.put('/cycles/:cycleId', async (req, res) => {
 router.delete('/cycles/:cycleId', async (req, res) => {
   await transaction(async (c) => {
     const cycleId = id(req.params.cycleId); const row = await one(c,'SELECT revision FROM cycles WHERE id=$1 FOR UPDATE',[cycleId],'Cycle'); stale(row.revision,expected(Number(req.get('If-Match'))));
+    // Child rows first, in foreign-key order, since cycle references are ON DELETE RESTRICT.
+    for (const table of ['schedule_assignments','finalized_rankings','finalized_groups','ballot_marks','ballots','meeting_slots']) {
+      await c.query(`DELETE FROM ${table} WHERE cycle_id=$1`,[cycleId]);
+    }
     await c.query('DELETE FROM cycles WHERE id=$1',[cycleId]);
   });
   res.status(204).end();

@@ -70,7 +70,7 @@ export default function Cycles() {
       </Actions>)}
       {(cycle.status === 'open' || cycle.status === 'collecting') && <><Note>Select club:</Note><Actions>{data.clubs.map((club) => <Action key={club.id} selected={club.id === clubId} title={`${club.name}${club.id === clubId ? ' ✓' : ''}`} onPress={() => setClubId(club.id)} />)}</Actions>
         <Field label="Meeting date (YYYY-MM-DD)" value={meeting} onChangeText={setMeeting} /><Action title="Add meeting" onPress={addSlot} /></>}
-      {deleteId === cycle.id ? <Actions><Note>Delete cycle? This is blocked while meetings, preferences or schedules reference it.</Note>
+      {deleteId === cycle.id ? <Actions><Note>Delete this cycle? This removes its meetings, member preferences, finalized rankings and schedule. In-use cycles can be deleted; this cannot be undone.</Note>
         <Action tone="danger" title="Confirm delete cycle" onPress={() => {
           void shared.mutate(() => deleteCycle(cycle.id, cycle.revision)).then(() => {
             setDeleteId(''); setSelectedId(''); setMessage('Cycle deleted.');
