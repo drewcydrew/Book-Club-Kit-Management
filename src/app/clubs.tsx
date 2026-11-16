@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { useNavigationGuard } from "../components/navigation-guard";
+import { TitleCover } from "../components/title-cover";
 import {
   Action,
   Actions,
@@ -411,8 +412,10 @@ export default function Clubs() {
               .filter((link) => link.clubId === value.id)
               .map((link) => {
                 const kit = data.kits.find((item) => item.id === link.kitId);
+                const linkedTitle = kit ? data.titles.find((title) => title.id === kit.titleId) : undefined;
                 return (
                   <Actions key={link.kitId}>
+                    {linkedTitle && <TitleCover titleId={linkedTitle.id} isbn={linkedTitle.isbn} />}
                     <Text>
                       {kit
                         ? `${kit.barcode} · ${data.titles.find((title) => title.id === kit.titleId)?.name ?? "Title unavailable"}`
@@ -632,18 +635,20 @@ export default function Clubs() {
               <Label>Shared reading history</Label>
               <Actions>
                 {data.titles.map((title) => (
-                  <Action
-                    key={title.id}
-                    selected={historyDraft.includes(title.id)}
-                    title={`${title.name}${historyDraft.includes(title.id) ? " ✓" : ""}`}
-                    onPress={() =>
-                      setHistoryDraft(
-                        historyDraft.includes(title.id)
-                          ? historyDraft.filter((id) => id !== title.id)
-                          : [...historyDraft, title.id],
-                      )
-                    }
-                  />
+                  <View key={title.id} style={{ flexDirection: "row", alignItems: "center" }}>
+                    <TitleCover titleId={title.id} isbn={title.isbn} />
+                    <Action
+                      selected={historyDraft.includes(title.id)}
+                      title={`${title.name}${historyDraft.includes(title.id) ? " ✓" : ""}`}
+                      onPress={() =>
+                        setHistoryDraft(
+                          historyDraft.includes(title.id)
+                            ? historyDraft.filter((id) => id !== title.id)
+                            : [...historyDraft, title.id],
+                        )
+                      }
+                    />
+                  </View>
                 ))}
               </Actions>
               <Action
