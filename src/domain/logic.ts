@@ -47,8 +47,8 @@ export function assignmentProblem(data: Data, assignment: Assignment, others: As
   for (const other of others) {
     if (other.id === assignment.id) continue;
     if (other.cycleId === assignment.cycleId && other.slotId === assignment.slotId) return 'Meeting already has an assignment.';
-    const otherKit = data.kits.find((item) => item.id === other.kitId);
-    if (other.cycleId === assignment.cycleId && other.clubId === assignment.clubId && otherKit?.titleId === kit.titleId) {
+    if (other.cycleId === assignment.cycleId && other.clubId === assignment.clubId &&
+      data.kits.find((item) => item.id === other.kitId)?.titleId === kit.titleId) {
       return 'The club already has this title in the cycle.';
     }
     if (other.kitId === assignment.kitId &&
