@@ -1,10 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
-import { PriorityGridView } from '../components/priority-grid';
 import { ScheduleGridView } from '../components/schedule-grid';
 import { TitleCover } from '../components/title-cover';
-import { priorityMatrix, scheduleGrid } from '../domain/cycle-overview';
+import { scheduleGrid } from '../domain/cycle-overview';
 import { assignmentProblem, draft } from '../domain/logic';
 import type { Assignment } from '../domain/model';
 import { saveSchedule } from '../state/api';
@@ -35,7 +34,7 @@ export default function Schedule() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
   const [selectedClubId, setSelectedClubId] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'priorities'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [preview, setPreview] = useState<{ assignments: Assignment[]; problems: string[] } | null>(null);
   const [gridClubIds, setGridClubIds] = useState<string[] | null>(null);
   const staff = person?.role === 'staff' || person?.role === 'admin';
@@ -61,8 +60,6 @@ export default function Schedule() {
   const gridClubKey = gridClubs.map((club) => club.id).join('|');
   const grid = useMemo(() => gridCycle ? scheduleGrid(data, gridCycle, gridClubKey ? gridClubKey.split('|') : [], data.assignments.filter((a) => a.cycleId === gridCycle.id)) : null,
     [data, gridCycle, gridClubKey]);
-  const matrix = useMemo(() => cycle && staff ? priorityMatrix(data, cycle, gridClubKey ? gridClubKey.split('|') : [], data.assignments.filter((a) => a.cycleId === cycle.id)) : null,
-    [data, cycle, gridClubKey, staff]);
   const previewGrid = useMemo(() => preview && cycle ? scheduleGrid(data, cycle, gridClubKey ? gridClubKey.split('|') : [], preview.assignments) : null,
     [data, cycle, gridClubKey, preview]);
   if (!person) return <Page title="Schedule"><Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
@@ -168,7 +165,6 @@ export default function Schedule() {
     <Card><Label>View</Label><Actions>
       <Action selected={viewMode === 'grid'} title="Grid" onPress={() => setViewMode('grid')} />
       <Action selected={viewMode === 'list'} title="List by club" onPress={() => setViewMode('list')} />
-      {staff && <Action selected={viewMode === 'priorities'} title="Priorities" onPress={() => setViewMode('priorities')} />}
     </Actions></Card>
     {viewMode !== 'list' ? <Card><Label>{staff ? 'Clubs shown' : 'Your clubs'}</Label>
       {clubChoices.length === 0
@@ -192,9 +188,9 @@ export default function Schedule() {
           setSelectedClubId(value.id); setExpandedId(null);
         }} />)}</Actions>}
     </Card>}
-    {viewMode === 'priorities' && staff && cycle && matrix && <>
+    {viewMode === 'grid' && staff && <>
       <Card><Label>{cycle.name} · {cycle.status}</Label>
-        <Note>Each cell shows the club&apos;s rank for a title (1 is its top choice). Contested titles are selected by more than one club in view.</Note>
+        <Note>Preview a proposed schedule from current preferences. Nothing is saved until you confirm.</Note>
         <Actions>
           <Action title="Preview schedule" disabled={shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => {
             const result = draft(data, cycle);
@@ -213,8 +209,6 @@ export default function Schedule() {
         {preview?.problems.map((problem, index) => <Text key={`${problem}-${index}`} style={{ color: '#a22525' }}>{problem}</Text>)}
         {message ? <Text>{message}</Text> : null}
       </Card>
-      <PriorityGridView matrix={matrix} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
-        titleFor={(titleId) => titleById.get(titleId)} />
       {preview && previewGrid && <>
         <Label>Proposed schedule</Label>
         <ScheduleGridView grid={previewGrid} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
