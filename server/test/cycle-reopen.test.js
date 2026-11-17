@@ -210,4 +210,17 @@ test('discarding a published schedule clears all assignments and returns the cyc
   assert.deepEqual(after.ballots, state.ballots);
   assert.equal(after.kits.find((kit) => kit.id === 'k1').status, state.kits.find((kit) => kit.id === 'k1').status);
   assert.equal((await discard(afterCycle.revision)).status, 409, 'collecting cycle cannot be discarded again');
+
+  const redrafted = await req(`${cycleUrl}/schedule`, 'PUT', { revision: afterCycle.revision, assignments, publish: false });
+  assert.equal(redrafted.status, 200, JSON.stringify(redrafted.json));
+  const republished = await req(`${cycleUrl}/schedule`, 'PUT', { revision: redrafted.json.revision, assignments, publish: true });
+  assert.equal(republished.status, 200, JSON.stringify(republished.json));
+  const reopenedCycle = await req(`${cycleUrl}/reopen`, 'POST', { revision: republished.json.revision, acknowledge: true });
+  assert.equal(reopenedCycle.status, 200, JSON.stringify(reopenedCycle.json));
+  assert.equal((await snapshot()).assignments.length, assignments.length, 'reopening keeps assignments');
+  const reopenedRevision = (await snapshot()).cycles.find((item) => item.id === 'cycle1').revision;
+  const discardReopened = await discard(reopenedRevision);
+  assert.equal(discardReopened.status, 200, JSON.stringify(discardReopened.json));
+  assert.deepEqual((await snapshot()).assignments, []);
+  assert.equal((await snapshot()).cycles.find((item) => item.id === 'cycle1').status, 'collecting');
 });

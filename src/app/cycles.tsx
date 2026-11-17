@@ -112,7 +112,7 @@ export default function Cycles() {
             <Action title="Cancel reopening" disabled={shared.saving} onPress={() => setReopenId('')} />
           </Actions>
         </> : <Action title="Reopen for editing" disabled={shared.saving} onPress={() => { setMessage(''); setReopenId(cycle.id); }} />)}
-        {(cycle.status === 'drafted' || cycle.status === 'published') && (discardId === cycle.id ? <>
+        {cycleAssignments.length > 0 && (discardId === cycle.id ? <>
           <Note>Discard the schedule for {cycle.name}? This deletes {cycleAssignments.length} assignments ({lockedCount} locked) and returns the cycle to collecting. Slots, ballots and finalized rankings are kept.</Note>
           {heldKits.length > 0 && <Note>Warning: {heldKits.length} kit{heldKits.length === 1 ? ' is' : 's are'} checked out or reserved under these assignments ({heldKits.map((kit) => kit?.barcode).join(', ')}). {heldKits.length === 1 ? 'It' : 'They'} will have no published assignment until rescheduled.</Note>}
           <Actions>

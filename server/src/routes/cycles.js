@@ -73,9 +73,9 @@ router.post('/cycles/:cycleId/discard-schedule', async (req, res) => {
   const result = await transaction(async (c) => {
     const old = await one(c, 'SELECT status,revision FROM cycles WHERE id=$1 FOR UPDATE', [cycleId], 'Cycle');
     stale(old.revision, rev);
-    if (!['drafted','published'].includes(old.status)) throw new HttpError(409, 'Only a drafted or published cycle can have its schedule discarded.');
-    await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1', [cycleId]);
-    await c.query("UPDATE cycles SET status='collecting',revision=revision+1 WHERE id=$1", [cycleId]);
+    const removed = await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1', [cycleId]);
+    if (removed.rowCount === 0) throw new HttpError(409, 'This cycle has no schedule to discard.');
+    await c.query("UPDATE cycles SET status=CASE WHEN status IN ('drafted','published') THEN 'collecting' ELSE status END,revision=revision+1 WHERE id=$1", [cycleId]);
     return getCycle(c, cycleId);
   });
   res.json(result);
