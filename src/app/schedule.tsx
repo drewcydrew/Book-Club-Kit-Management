@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { KeyboardAvoidingView, LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
 import { ScheduleGridView } from '../components/schedule-grid';
@@ -41,6 +41,7 @@ export default function Schedule() {
   const editor = useScheduleWorkspace(data, selectedCycle);
   const hadModalConfirmation = useRef(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [highlightTitleId, setHighlightTitleId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
   const [selectedClubId, setSelectedClubId] = useState('');
   const [memberViewMode, setMemberViewMode] = useState<'upcoming' | 'past' | 'grid' | 'list'>('upcoming');
@@ -101,6 +102,14 @@ export default function Schedule() {
   const modalOpen = staff && !!editor.selectedSlotId;
   const modalSlot = editor.workspace?.cycle.slots.find((slot) => slot.id === editor.selectedSlotId);
   const modalClub = editor.workspace?.base.clubs.find((club) => club.id === modalSlot?.clubId);
+  const modalAssignment = editor.workspace?.assignments.find((item) => item.slotId === editor.selectedSlotId);
+  const modalTitleId = editor.workspace?.base.kits.find((kit) => kit.id === modalAssignment?.kitId)?.titleId;
+  const highlightTitle = highlightTitleId ? titleById.get(highlightTitleId) : undefined;
+  const highlightCount = grid?.rows.reduce((total, row) => total + row.cells.filter((cell) => cell.assignment && kitById.get(cell.assignment.kitId)?.titleId === highlightTitleId).length, 0) ?? 0;
+  function setHighlight(titleId: string | null) {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setHighlightTitleId(titleId);
+  }
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     if (modalOpen && editor.pendingAction) {
@@ -245,7 +254,10 @@ export default function Schedule() {
         <View accessibilityViewIsModal style={[scheduleStyles.modalDialog, { maxHeight: Math.max(100, height - insets.top - insets.bottom - 32) }]}>
           <View style={scheduleStyles.modalHeader}>
             <Label>Edit meeting · {modalClub?.name ?? 'Unavailable club'} · {modalSlot?.month}</Label>
-            <Action title="Close" accessibilityLabel="Close editor" onPress={editor.requestCloseSlot} />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {modalTitleId && <Action title="Highlight title" accessibilityLabel="Highlight title across the schedule" onPress={() => { setHighlight(modalTitleId); editor.requestCloseSlot(); }} />}
+              <Action title="Close" accessibilityLabel="Close editor" onPress={editor.requestCloseSlot} />
+            </View>
           </View>
           {editor.pendingAction ? pendingConfirmation : editor.activePicker
             ? editor.renderSelectedSlot()
@@ -367,11 +379,17 @@ export default function Schedule() {
       {publishedCycles.length > 1 && <Actions>{publishedCycles.map((value) => <Action key={value.id} selected={value.id === gridCycle.id} title={value.name} onPress={() => { setSelectedId(value.id); setExpandedId(null); }} />)}</Actions>}
     </Card>}
     {staff && mode === 'grid' && <Note>Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
+    {mode === 'grid' && staff && highlightTitle && grid && <Card>
+      <Label>Highlighting · {highlightTitle.name}</Label>
+      <Note>{highlightCount} {highlightCount === 1 ? 'meeting' : 'meetings'} in {gridCycle?.name ?? 'this cycle'}. Other clubs are hidden.</Note>
+      <Actions><Action title="Clear highlight" onPress={() => setHighlight(null)} /></Actions>
+    </Card>}
     {mode === 'grid' && (grid
       ? (grid.rows.length === 0
         ? (staff && clubChoices.length === 0 ? null : <Note>Select at least one club to show the grid.</Note>)
         : <ScheduleGridView grid={grid} wide={wide} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
           titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
+          sharedLayout={staff} highlightTitleId={staff ? highlightTitleId : null}
           expandedId={expandedId} showProblems={staff} onToggle={(assignmentId) => setExpandedId(expandedId === assignmentId ? null : assignmentId)}
           renderDetail={renderDetail}
           selectedSlotId={staff ? editor.selectedSlotId : undefined}
