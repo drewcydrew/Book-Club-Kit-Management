@@ -105,7 +105,9 @@ export default function Schedule() {
   const modalAssignment = editor.workspace?.assignments.find((item) => item.slotId === editor.selectedSlotId);
   const modalTitleId = editor.workspace?.base.kits.find((kit) => kit.id === modalAssignment?.kitId)?.titleId;
   const highlightTitle = highlightTitleId ? titleById.get(highlightTitleId) : undefined;
-  const highlightCount = grid?.rows.reduce((total, row) => total + row.cells.filter((cell) => cell.assignment && kitById.get(cell.assignment.kitId)?.titleId === highlightTitleId).length, 0) ?? 0;
+  const countTitleClubs = (titleId: string | null | undefined) => new Set(grid?.rows.filter((row) => row.cells.some((cell) => cell.assignment && kitById.get(cell.assignment.kitId)?.titleId === titleId)).map((row) => row.clubId)).size;
+  const highlightCount = countTitleClubs(highlightTitleId);
+  const modalTitleCount = countTitleClubs(modalTitleId);
   function setHighlight(titleId: string | null) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setHighlightTitleId(titleId);
@@ -255,7 +257,7 @@ export default function Schedule() {
           <View style={scheduleStyles.modalHeader}>
             <Label>Edit meeting · {modalClub?.name ?? 'Unavailable club'} · {modalSlot?.month}</Label>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              {modalTitleId && <Action title="Highlight title" accessibilityLabel="Highlight title across the schedule" onPress={() => { setHighlight(modalTitleId); editor.requestCloseSlot(); }} />}
+              {modalTitleId && <Action title={`Highlight title (${modalTitleCount} ${modalTitleCount === 1 ? 'club' : 'clubs'})`} accessibilityLabel={`Highlight title across the schedule, assigned to ${modalTitleCount} ${modalTitleCount === 1 ? 'club' : 'clubs'}`} onPress={() => { setHighlight(modalTitleId); editor.requestCloseSlot(); }} />}
               <Action title="Close" accessibilityLabel="Close editor" onPress={editor.requestCloseSlot} />
             </View>
           </View>
@@ -381,7 +383,7 @@ export default function Schedule() {
     {staff && mode === 'grid' && <Note>Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
     {mode === 'grid' && staff && highlightTitle && grid && <Card>
       <Label>Highlighting · {highlightTitle.name}</Label>
-      <Note>{highlightCount} {highlightCount === 1 ? 'meeting' : 'meetings'} in {gridCycle?.name ?? 'this cycle'}. Other clubs are hidden.</Note>
+      <Note>{highlightCount} {highlightCount === 1 ? 'club' : 'clubs'} in {gridCycle?.name ?? 'this cycle'}. Other clubs are hidden.</Note>
       <Actions><Action title="Clear highlight" onPress={() => setHighlight(null)} /></Actions>
     </Card>}
     {mode === 'grid' && (grid
