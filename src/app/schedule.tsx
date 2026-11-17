@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
 import { ScheduleGridView } from '../components/schedule-grid';
+import { SCHEDULE_DESKTOP_WIDTH } from '../components/schedule-layout';
 import { ScheduleInstructions } from '../components/schedule-instructions';
 import { useScheduleWorkspace } from '../components/schedule-workspace';
 import { TitleCover } from '../components/title-cover';
@@ -26,6 +27,8 @@ function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
 }
 
 export default function Schedule() {
+  const { width } = useWindowDimensions();
+  const wide = Platform.OS === 'web' && width >= SCHEDULE_DESKTOP_WIDTH;
   const { data } = useStore();
   const shared = useShared();
   const person = data.people.find((p) => p.id === data.selectedPersonId);
@@ -96,8 +99,8 @@ export default function Schedule() {
     <Note>Unsaved staff schedule changes are held on this device.</Note>
     <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={editor.requestDiscard} />
   </Card>;
-  if (!person) return <Page title="Schedule">{pendingConfirmation}{discardUnavailableProposal}<Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
-  if (!cycle) return <Page title="Schedule">{pendingConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
+  if (!person) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardUnavailableProposal}<Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
+  if (!cycle) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = viewData.assignments.filter((assignment) => assignment.cycleId === cycle.id);
   const assignedSlotIds = new Set(assignments.map((assignment) => assignment.slotId));
   const unassignedSlots = staff && clubId ? cycle.slots.filter((slot) => slot.clubId === clubId && !assignedSlotIds.has(slot.id)) : [];
@@ -160,7 +163,7 @@ export default function Schedule() {
     } finally { setValidating(false); }
   }
 
-  return <Page title="Schedule">
+  return <Page title="Schedule" wide={wide}>
     {!staff && editor.dirty && <Card>
       <Note>Unsaved staff schedule changes are still held on this device. Discard them before leaving or return to a staff user.</Note>
       <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={editor.requestDiscard} />
@@ -283,30 +286,30 @@ export default function Schedule() {
       {clubChoices.length > 0 && gridClubs.length === 0 ? <Note>Select clubs to see meetings.</Note>
         : clubChoices.length > 0 && publishedCycles.length === 0 ? <Note>No published schedules are available for your clubs yet.</Note>
           : clubChoices.length > 0 && memberMeetings.length === 0 ? <Note>No {mode} meetings for the selected clubs.</Note> : null}
-      {memberMeetings.map((assignment) => {
+      <View style={wide ? scheduleStyles.columns : scheduleStyles.singleColumn}>{memberMeetings.map((assignment) => {
         const kit = kitById.get(assignment.kitId);
         const title = titleById.get(kit?.titleId ?? '');
         const expanded = expandedId === assignment.id;
-        return <View key={assignment.id}>
+        return <View key={assignment.id} style={wide ? scheduleStyles.column : undefined}>
           <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpandedId(expanded ? null : assignment.id)} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d6ddd9' }}>
             <Text style={{ fontWeight: '700', color: '#183a36' }}>{assignment.meeting} · {title?.name ?? 'Unavailable title'}</Text>
             <Text>{clubById.get(assignment.clubId)?.name ?? 'Unavailable club'} · Ready {assignment.ready} · Due {assignment.due}</Text>
           </Pressable>
           {expanded && renderDetail(assignment)}
         </View>;
-      })}
+      })}</View>
     </Card>}
     {staff && mode === 'meetings' && <Card>
       <Label>Meetings</Label>
       {clubChoices.length > 0 && gridClubs.length === 0 && <Note>Select clubs to see meetings.</Note>}
-      {gridClubs.map((club) => {
+      <View style={wide ? scheduleStyles.columns : scheduleStyles.singleColumn}>{gridClubs.map((club) => {
         const clubAssignments = cycleAssignments.filter((a) => a.clubId === club.id).sort((a, b) => a.meeting.localeCompare(b.meeting) || a.id.localeCompare(b.id));
         const assigned = new Set(clubAssignments.map((a) => a.slotId));
         const missing = cycle.slots.filter((slot) => slot.clubId === club.id && !assigned.has(slot.id));
         const expanded = expandedClubs.includes(club.id);
         const needsReview = clubAssignments.filter((assignment) => problems.get(assignment.id)).length;
         const visible = expanded ? clubAssignments : clubAssignments.slice(0, 3);
-        return <View key={club.id} style={{ gap: 4, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d6ddd9' }}>
+        return <View key={club.id} style={[{ gap: 4, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d6ddd9' }, wide && scheduleStyles.column]}>
           <Text style={{ fontWeight: '700', color: '#183a36' }}>{club.name} · {clubAssignments.length} assigned{missing.length ? ` · ${missing.length} unassigned` : ''}{needsReview ? ` · ${needsReview} need review` : ''}</Text>
           {visible.map((assignment) => {
             const kit = kitById.get(assignment.kitId);
@@ -323,7 +326,7 @@ export default function Schedule() {
             setExpandedClubs(expanded ? expandedClubs.filter((id) => id !== club.id) : [...expandedClubs, club.id])} />}
           {!clubAssignments.length && !missing.length && <Note>No meetings for this club in this cycle.</Note>}
         </View>;
-      })}
+      })}</View>
     </Card>}
     {!staff && mode === 'grid' && gridCycle && <Card>
       <Label>Published cycle · {gridCycle.name}</Label>
@@ -333,7 +336,7 @@ export default function Schedule() {
     {mode === 'grid' && (grid
       ? (grid.rows.length === 0
         ? (staff && clubChoices.length === 0 ? null : <Note>Select at least one club to show the grid.</Note>)
-        : <ScheduleGridView grid={grid} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
+        : <ScheduleGridView grid={grid} wide={wide} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
           titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
           expandedId={expandedId} showProblems={staff} onToggle={(assignmentId) => setExpandedId(expandedId === assignmentId ? null : assignmentId)}
           renderDetail={renderDetail}
@@ -347,10 +350,10 @@ export default function Schedule() {
       <Label>Kits</Label>
       {clubChoices.length > 0 && gridClubs.length === 0 ? <Note>Select clubs to see their assigned kits.</Note>
         : gridClubs.length > 0 && kits.length === 0 ? <Note>No kits are assigned to the selected clubs in this cycle.</Note> : null}
-      {kits.map((group) => {
+      <View style={wide ? scheduleStyles.columns : scheduleStyles.singleColumn}>{kits.map((group) => {
         const kit = kitById.get(group.kitId);
         const title = titleById.get(kit?.titleId ?? '');
-        return <View key={group.kitId} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d6ddd9', gap: 8 }}>
+        return <View key={group.kitId} style={[{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d6ddd9', gap: 8 }, wide && scheduleStyles.column]}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
             {title && <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ width: 64, height: 96, marginRight: 0, marginBottom: 0 }} />}
             <View style={{ flex: 1, gap: 4 }}>
@@ -372,7 +375,7 @@ export default function Schedule() {
             </View>;
           })}
         </View>;
-      })}
+      })}</View>
     </Card>}
     {mode === 'list' && <>
     {clubId && assignments.length === 0 && unassignedSlots.length === 0 && <Note>{staff ? 'No assignments for this club in this cycle yet.' : 'No published assignments for this club yet.'}</Note>}
@@ -395,3 +398,9 @@ export default function Schedule() {
     </>}
   </Page>;
 }
+
+const scheduleStyles = StyleSheet.create({
+  columns: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' },
+  column: { width: '32%' },
+  singleColumn: { gap: 12 },
+});

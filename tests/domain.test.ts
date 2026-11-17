@@ -121,11 +121,17 @@ test('priority matrix ranks selected titles per club, flags contested titles and
   assert.deepEqual(matrix.rows.map((row) => row.titleId), ['t1', 't2']);
   const [t1, t2] = matrix.rows;
   assert.equal(t1.contested, true);
+  assert.equal(t1.rankedClubCount, 2);
   assert.deepEqual(t1.cells.map((cell) => cell.rank), [2, 1]);
   assert.equal(t2.contested, false);
+  assert.equal(t2.rankedClubCount, 1);
   assert.deepEqual(t2.cells.map((cell) => [cell.rank, cell.month]), [[1, '2026-02'], [null, null]]);
   assert.equal(t2.cells[0].assignment?.id, 'a1');
   assert.equal(t1.cells[0].assignment, undefined);
+  const filtered = priorityMatrix(data, cycle, ['c1'], [assignment]);
+  assert.equal(filtered.rows.find((row) => row.titleId === 't1')?.rankedClubCount, 1);
+  assert.equal(filtered.rows.find((row) => row.titleId === 't1')?.contested, false);
+  assert.deepEqual(priorityMatrix(data, cycle, [], [assignment]).rows, []);
 });
 
 test('schedule preview checks conflicts against proposed assignments, not replaced saved assignments', () => {
@@ -153,14 +159,38 @@ test('priority matrix combines member votes and respects finalized rankings and 
   } as unknown as Data;
   const cycle = { id: 'cy', slots: [], finalized: {} } as unknown as Cycle;
   const combined = priorityMatrix(data, cycle, ['c1', 'c2'], []);
+  assert.equal(combined.rows.find((row) => row.titleId === 'a')?.rankedClubCount, 2);
   assert.equal(combined.rows.find((row) => row.titleId === 'a')?.cells[0].rank, 1);
   assert.equal(combined.rows.find((row) => row.titleId === 'b')?.cells[0].rank, 2);
   assert.equal(combined.rows.some((row) => row.titleId === 'old'), false);
   cycle.finalized = { c1: ['b', 'old', 'missing', 'a'], c2: [] };
   const finalized = priorityMatrix(data, cycle, ['c1', 'c2'], []);
+  assert.equal(finalized.rows.find((row) => row.titleId === 'a')?.rankedClubCount, 1);
+  assert.equal(finalized.rows.find((row) => row.titleId === 'a')?.contested, false);
   assert.equal(finalized.rows.find((row) => row.titleId === 'b')?.cells[0].rank, 1);
   assert.equal(finalized.rows.find((row) => row.titleId === 'a')?.cells[1].rank, null);
   assert.equal(finalized.rows.some((row) => row.titleId === 'missing'), false);
+});
+
+test('assignment-only titles do not count as ranked clubs', () => {
+  const data = {
+    clubs: [{ id: 'c1', history: [] }, { id: 'c2', history: [] }],
+    titles: [{ id: 'ranked' }, { id: 'assigned' }],
+    kits: [{ id: 'k', titleId: 'assigned' }],
+    ballots: [
+      { cycleId: 'cy', clubId: 'c1', personId: 'p1', marks: { ranked: 'selected' }, ranking: ['ranked'] },
+      { cycleId: 'cy', clubId: 'c1', personId: 'p2', marks: { ranked: 'selected' }, ranking: ['ranked'] },
+    ],
+  } as unknown as Data;
+  const cycle = { id: 'cy', slots: [{ id: 's', clubId: 'c2', month: '2027-01' }], finalized: {} } as Cycle;
+  const assignment = { id: 'a', cycleId: 'cy', slotId: 's', clubId: 'c2', kitId: 'k' } as Assignment;
+  const matrix = priorityMatrix(data, cycle, ['c1', 'c2'], [assignment]);
+  assert.deepEqual(matrix.rows.map((row) => [row.titleId, row.rankedClubCount, row.contested]), [
+    ['ranked', 1, false], ['assigned', 0, false],
+  ]);
+  assert.equal(matrix.rows[1].cells[1].month, '2027-01');
+  assert.equal(matrix.rows[1].cells[1].assignment?.id, 'a');
+  assert.equal(priorityMatrix(data, cycle, ['c1'], [assignment]).rows.some((row) => row.titleId === 'assigned'), false);
 });
 
 test('title demand counts each selected club once regardless of finalization', () => {

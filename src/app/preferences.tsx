@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
-import { Pressable, StyleSheet, Text } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions } from "react-native";
 import { Action, Actions, Card, Label, Note, Page } from "../components/ui";
 import { PriorityGridView } from "../components/priority-grid";
+import { SCHEDULE_DESKTOP_WIDTH } from "../components/schedule-layout";
 import { RankingList } from "../components/ranking-list";
 import { TitleGallery } from "../components/title-gallery";
 import {
@@ -34,6 +35,7 @@ const syncMessages = {
 };
 
 export default function Preferences() {
+  const { width } = useWindowDimensions();
   const { data } = useStore();
   const shared = useShared();
   const person = data.people.find((p) => p.id === data.selectedPersonId);
@@ -52,7 +54,7 @@ export default function Preferences() {
   const [rankingOpen, setRankingOpen] = useState(true);
   const [leaderOpen, setLeaderOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [matrixOpen, setMatrixOpen] = useState(false);
+  const [summariesOpen, setSummariesOpen] = useState(false);
   const [demandOpen, setDemandOpen] = useState(false);
   const [cycleOpen, setCycleOpen] = useState(false);
   const [clubOpen, setClubOpen] = useState(false);
@@ -96,6 +98,7 @@ export default function Preferences() {
   const club = availableClubs.find((value) => value.id === clubId) ??
     (availableClubs.length === 1 ? availableClubs[0] : undefined);
   const staff = person?.role === "staff" || person?.role === "admin";
+  const wide = staff && Platform.OS === "web" && width >= SCHEDULE_DESKTOP_WIDTH;
   const isMember = !!person && !!club && membershipClubs.includes(club.id);
   const isLeader =
     !!person &&
@@ -194,7 +197,7 @@ export default function Preferences() {
 
   if (!person)
     return (
-      <Page title="Preferences">
+      <Page title="Preferences" wide={wide}>
         <Note>
           No demo user is selected on this device. Choose a shared user on the
           User tab; no user is selected automatically.
@@ -203,7 +206,7 @@ export default function Preferences() {
     );
   if (!cycle)
     return (
-      <Page title="Preferences">
+      <Page title="Preferences" wide={wide}>
         <Note>
           No shared voting cycle is available. Staff can create one, or an
           administrator can run the explicit server demo seed.
@@ -211,7 +214,7 @@ export default function Preferences() {
       </Page>
     );
   return (
-    <Page title="Preferences">
+    <Page title="Preferences" wide={wide}>
       <Card>
         <Label>{cycle.name}{club && !staff ? ` · ${club.name}` : ""}</Label>
         <Note>
@@ -470,7 +473,9 @@ export default function Preferences() {
       {staff && (
         <>
           <Card>
-            <Pressable accessibilityRole="button" accessibilityState={{ expanded: filtersOpen }} onPress={() => setFiltersOpen(!filtersOpen)} style={styles.panelHeader}>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: filtersOpen }}
+              accessibilityLabel={`Clubs shown, ${shownClubIds.length} of ${availableClubs.length}`}
+              onPress={() => setFiltersOpen(!filtersOpen)} style={styles.filterHeader}>
               <Label>{filtersOpen ? "▾" : "▸"} Clubs shown · {shownClubIds.length} of {data.clubs.length}</Label>
             </Pressable>
             {data.clubs.length === 0 ? (
@@ -478,20 +483,10 @@ export default function Preferences() {
             ) : filtersOpen ? (
               <>
                 <Actions>
-                  <Action
-                    title={
-                      shownClubIds.length === data.clubs.length
-                        ? "Hide all"
-                        : "Show all"
-                    }
-                    onPress={() =>
-                      setReviewClubIds(
-                        shownClubIds.length === data.clubs.length
-                          ? []
-                          : data.clubs.map((value) => value.id),
-                      )
-                    }
-                  />
+                  <Action title="Show all" disabled={shownClubIds.length === data.clubs.length}
+                    onPress={() => setReviewClubIds(data.clubs.map((value) => value.id))} />
+                  <Action title="Hide all" disabled={shownClubIds.length === 0}
+                    onPress={() => setReviewClubIds([])} />
                 </Actions>
                 <Actions>
                   {data.clubs.map((value) => (
@@ -516,9 +511,21 @@ export default function Preferences() {
             <Label>Preferences · {cycle.name}</Label>
             <Note>
               Club rankings use the finalized order where available, otherwise
-              the combined member rankings. Previously read titles are excluded.
+              the combined member rankings. Previously read titles are excluded. Contested counts include shown clubs that rank the title.
             </Note>
-            {shownClubIds.length === 0 ? <Note>Select clubs to see preferences.</Note> : shownClubIds.map((id) => {
+            {shownClubIds.length === 0 ? <Note>Select clubs to see preferences.</Note> : <PriorityGridView
+              matrix={priorityMatrix(data, cycle, shownClubIds, data.assignments)}
+              clubNameFor={(id) => data.clubs.find((value) => value.id === id)?.name ?? "Unknown club"}
+              titleFor={(id) => data.titles.find((value) => value.id === id)}
+              onHideClub={(id) => setReviewClubIds(shownClubIds.filter((clubId) => clubId !== id))}
+            />}
+          </Card>
+          <Card>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: summariesOpen }}
+              onPress={() => setSummariesOpen(!summariesOpen)} style={styles.filterHeader}>
+              <Label>{summariesOpen ? "▾" : "▸"} Club summaries · {shownClubIds.length} clubs</Label>
+            </Pressable>
+            {summariesOpen && (shownClubIds.length === 0 ? <Note>Select clubs to see preferences.</Note> : shownClubIds.map((id) => {
               const value = data.clubs.find((item) => item.id === id);
               const validOrder = clubPreferences(data, cycle, id);
               const expanded = expandedClubs.includes(id);
@@ -531,23 +538,7 @@ export default function Preferences() {
                 {validOrder.length > 3 && <Action title={expanded ? "Show fewer" : `Show all ${validOrder.length} ranks`} onPress={() =>
                   setExpandedClubs(expanded ? expandedClubs.filter((clubId) => clubId !== id) : [...expandedClubs, id])} />}
               </Actions>;
-            })}
-            <Action title={matrixOpen ? "Hide comparison grid" : "Compare clubs and assignments"} onPress={() => setMatrixOpen(!matrixOpen)} />
-            {matrixOpen && <PriorityGridView
-              matrix={priorityMatrix(
-                data,
-                cycle,
-                shownClubIds,
-                data.assignments,
-              )}
-              clubNameFor={(clubId) =>
-                data.clubs.find((value) => value.id === clubId)?.name ??
-                "Unknown club"
-              }
-              titleFor={(titleId) =>
-                data.titles.find((value) => value.id === titleId)
-              }
-            />}
+            }))}
           </Card>
         </>
       )}
@@ -579,4 +570,5 @@ export default function Preferences() {
 
 const styles = StyleSheet.create({
   panelHeader: { gap: 4 },
+  filterHeader: { minHeight: 44, justifyContent: "center" },
 });
