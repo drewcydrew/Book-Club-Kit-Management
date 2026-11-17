@@ -78,6 +78,10 @@ Preferences shows the selected cycle, voting deadline and club. Members can sear
 
 Schedule opens with upcoming published meetings across a member's clubs, with past meetings and club list or cycle-specific grid views also available. Staff and admins can filter the overview, expand assignment details, and use Schedule actions to preview, generate or publish a schedule. A preview is not saved until confirmed and must be regenerated if its cycle revision changes.
 
+On Cycles, staff and admins can confirm **Reopen for editing** on a drafted or published cycle. This changes it to collecting and retains slots, assignments, locks, ballots and finalized rankings; a later ballot change still invalidates that club's final ranking. Voting stays closed if the deadline has passed: edit the deadline and any incompatible meeting dates first. Changing or removing a slot deletes its assignment, including locked or in-use assignments, without another confirmation; other assignments remain. Redrafting replaces unlocked assignments and retains locked ones. Remove and recreate a slot to clear an invalid locked assignment.
+
+Reopening a published cycle removes its schedule from member views. Active-loan due dates and associations may disappear, affecting overdue, history and availability checks; out-of-circulation kits or existing history may also prevent redrafting or republication until resolved. This development feature is **not a production-safe circulation workflow**. Demo roles only control the interface: the API has no authorization.
+
 In Catalog & kits, staff and admins can use **Add title** or **Add kit**, or an existing record's edit button, to open a dialog. Canceling a changed form asks before discarding it. If a save's outcome is uncertain or conflicts with another edit, refresh and inspect the shared catalog before reopening the form.
 
 The last administrator cannot be deleted or demoted. Memberships and users referenced by saved ballots cannot be removed; clearing individual marks does not remove a ballot record.

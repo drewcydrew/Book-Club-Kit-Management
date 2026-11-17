@@ -185,6 +185,9 @@ export default function Schedule() {
       }} />)}</Actions>}
       {staff && toolsOpen && <>
         <Note>Preview uses current preferences and availability. Changes are checked by the server; loans include a {data.library.bufferDays}-day turnaround buffer.</Note>
+        {cycle.status === 'collecting' && cycleAssignments.length > 0 && <Note>
+          Existing assignments may be provisional. Generating a draft can replace unlocked assignments; locked assignments are retained and may need attention. Checked-out kits or reading history can prevent drafting or publication.
+        </Note>}
         <Actions>
           <Action title="Preview schedule" disabled={shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => {
             const result = draft(data, cycle);

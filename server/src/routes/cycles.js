@@ -55,20 +55,39 @@ router.post('/cycles', async (req, res) => {
   });
   res.status(201).json(result);
 });
+router.post('/cycles/:cycleId/reopen', async (req, res) => {
+  const b = object(req.body); const rev = expected(b.revision); const cycleId = id(req.params.cycleId);
+  if (b.acknowledge !== true) throw new HttpError(400, 'Confirm the effects of reopening this cycle.');
+  const result = await transaction(async (c) => {
+    const old = await one(c, 'SELECT status,revision FROM cycles WHERE id=$1 FOR UPDATE', [cycleId], 'Cycle');
+    stale(old.revision, rev);
+    if (!['drafted','published'].includes(old.status)) throw new HttpError(409, 'Only a drafted or published cycle can be reopened.');
+    await c.query("UPDATE cycles SET status='collecting',revision=revision+1 WHERE id=$1", [cycleId]);
+    return getCycle(c, cycleId);
+  });
+  res.json(result);
+});
 router.put('/cycles/:cycleId', async (req, res) => {
   const b = validate(req.body); const rev = expected(req.body.revision); const cycleId = id(req.params.cycleId);
   const result = await transaction(async (c) => {
     const old = await one(c, 'SELECT status,revision FROM cycles WHERE id=$1 FOR UPDATE', [cycleId], 'Cycle'); stale(old.revision,rev);
     if (['drafted','published'].includes(old.status) || ['drafted','published'].includes(b.status)) throw new HttpError(409, 'Use the schedule endpoint for draft or publication changes.');
     if (old.status === 'collecting' && b.status === 'open') throw new HttpError(409, 'An active voting cycle cannot be reopened as a new cycle.');
-    await c.query('UPDATE cycles SET name=$2,deadline=$3,starts_on=$4,ends_on=$5,status=$6,revision=revision+1 WHERE id=$1', [cycleId,b.name,b.deadline,b.startsOn,b.endsOn,b.status]);
-    const ids = b.slots.map((s) => s.id);
-    await c.query('DELETE FROM meeting_slots WHERE cycle_id=$1 AND NOT (id=ANY($2::text[]))', [cycleId,ids]);
+    const existing = (await c.query(`SELECT id,cycle_id AS "cycleId",club_id AS "clubId",month,to_char(meeting,'YYYY-MM-DD') AS meeting
+      FROM meeting_slots WHERE cycle_id=$1 OR id=ANY($2::text[])`, [cycleId,b.slots.map((s) => s.id)])).rows;
+    if (existing.some((s) => s.cycleId !== cycleId)) throw new HttpError(409, 'Slot belongs to another cycle.');
+    const previous = new Map(existing.map((s) => [s.id,s]));
+    const submitted = new Map(b.slots.map((s) => [s.id,s]));
+    const changed = (a,b) => a.clubId !== b.clubId || a.month !== b.month || a.meeting !== b.meeting;
+    const removedIds = existing.filter((s) => !submitted.has(s.id) || changed(s,submitted.get(s.id))).map((s) => s.id);
+    await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1 AND slot_id=ANY($2::text[])', [cycleId,removedIds]);
+    await c.query('DELETE FROM meeting_slots WHERE cycle_id=$1 AND id=ANY($2::text[])', [cycleId,removedIds]);
     for (const s of b.slots) {
-      const existing = await c.query('SELECT cycle_id FROM meeting_slots WHERE id=$1', [s.id]);
-      if (existing.rowCount && existing.rows[0].cycle_id !== cycleId) throw new HttpError(409, 'Slot belongs to another cycle.');
-      await c.query('INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET club_id=EXCLUDED.club_id,month=EXCLUDED.month,meeting=EXCLUDED.meeting', [s.id,cycleId,s.clubId,s.month,s.meeting]);
+      if (!previous.has(s.id) || changed(previous.get(s.id),s)) {
+        await c.query('INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES($1,$2,$3,$4,$5)', [s.id,cycleId,s.clubId,s.month,s.meeting]);
+      }
     }
+    await c.query('UPDATE cycles SET name=$2,deadline=$3,starts_on=$4,ends_on=$5,status=$6,revision=revision+1 WHERE id=$1', [cycleId,b.name,b.deadline,b.startsOn,b.endsOn,b.status]);
     return getCycle(c,cycleId);
   });
   res.json(result);
