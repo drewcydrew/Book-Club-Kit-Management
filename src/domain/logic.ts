@@ -112,9 +112,8 @@ export function satisfactionDebt(data: Data, clubId: string): number {
 
 type DraftResult = { assignments: Assignment[]; problems: string[] };
 
-// A scoped run only fills empty slots of one club, in the given months (all months when omitted).
-// Existing assignments are kept, and no other club's assignment is displaced.
-export type DraftScope = { clubId: string; months?: readonly string[] };
+// A scoped run only fills empty slots of one club. Existing assignments are kept, and no other club's assignment is displaced.
+export type DraftScope = { clubId: string };
 
 function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope): Generator<void, DraftResult, void> {
   const retained = scope ? [...data.assignments] : data.assignments.filter((a) => a.cycleId !== cycle.id || a.locked);
@@ -129,9 +128,7 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
   const debts = new Map(data.clubs.map((club) => [club.id, satisfactionDebt(data, club.id)]));
   const slots = [...cycle.slots].sort((a, b) => a.month.localeCompare(b.month) ||
     (debts.get(b.clubId) ?? 0) - (debts.get(a.clubId) ?? 0) || a.clubId.localeCompare(b.clubId) || a.id.localeCompare(b.id));
-  const targets = scope
-    ? slots.filter((slot) => slot.clubId === scope.clubId && (!scope.months || scope.months.includes(slot.month)))
-    : slots;
+  const targets = scope ? slots.filter((slot) => slot.clubId === scope.clubId) : slots;
   const slotById = new Map(slots.map((slot) => [slot.id, slot]));
   const choices = new Map<string, Kit[]>();
   const priorities = new Map<string, string[]>();

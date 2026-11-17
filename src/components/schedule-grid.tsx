@@ -21,7 +21,7 @@ interface ScheduleGridProps {
   selectedSlotId?: string | null;
   onSelectSlot?: (slotId: string) => void;
   onAddSlot?: (clubId: string, month: string) => void;
-  onGenerateClub?: (clubId: string, months: string[]) => void;
+  onGenerateClub?: (clubId: string) => void;
   clubResult?: { clubId: string; text: string; problems: string[] } | null;
   clubSummaryFor?: (clubId: string) => string;
   onHideClub?: (clubId: string) => void;
@@ -31,7 +31,6 @@ interface ScheduleGridProps {
 
 export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, onAddSlot, onGenerateClub, clubResult = null, clubSummaryFor, onHideClub, sharedLayout = false, highlightTitleId = null }: ScheduleGridProps) {
   const [containerWidth, setContainerWidth] = useState(0);
-  const [planning, setPlanning] = useState<{ clubId: string; months: string[] } | null>(null);
   const reduceMotion = useReduceMotion();
   const { cellWidth, gap } = scheduleGridSizing(containerWidth, wide);
   if (grid.rows.length === 0) return null;
@@ -54,36 +53,14 @@ export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId
     </View>}
     {onGenerateClub && <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
       <Action title="Generate assignments" accessibilityLabel={`Generate assignments for ${clubNameFor(row.clubId)}`}
-        onPress={() => setPlanning({ clubId: row.clubId, months: [...grid.months] })} />
+        onPress={() => onGenerateClub(row.clubId)} />
+    </View>}
+    {clubResult?.clubId === row.clubId && <View style={{ marginTop: 6 }}>
+      <Text style={{ color: '#111827' }}>{clubResult.text}</Text>
+      {clubResult.problems.map((problem, index) => <Text key={`${problem}-${index}`} style={{ color: CLASH }}>{problem}</Text>)}
     </View>}
   </View>;
   const detail = (row: ScheduleGridData['rows'][number]) => {
-    if (onGenerateClub && planning?.clubId === row.clubId) {
-      const toggle = (month: string) => setPlanning({ clubId: row.clubId,
-        months: planning.months.includes(month) ? planning.months.filter((item) => item !== month) : [...planning.months, month] });
-      return <View style={{ marginLeft: SCHEDULE_CLUB_WIDTH, marginBottom: 8 }}>
-        <Text style={{ fontWeight: '600', marginBottom: 4 }}>Generate assignments for {clubNameFor(row.clubId)}</Text>
-        <Text style={{ color: '#374151', marginBottom: 6 }}>Only empty meetings in the ticked months are filled. Existing assignments and other clubs are not changed.</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 6 }}>
-          {grid.months.map((month) => {
-            const checked = planning.months.includes(month);
-            return <Pressable key={month} accessibilityRole="checkbox" accessibilityState={{ checked }} accessibilityLabel={month}
-              onPress={() => toggle(month)} style={{ marginRight: 12, marginBottom: 6 }}>
-              <Text style={{ color: checked ? '#111827' : '#9ca3af', fontWeight: checked ? '600' : '400' }}>{checked ? '☑' : '☐'} {month}</Text>
-            </Pressable>;
-          })}
-        </View>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Action title="Generate" disabled={planning.months.length === 0}
-            onPress={() => { const months = grid.months.filter((month) => planning.months.includes(month)); onGenerateClub(row.clubId, months); }} />
-          <Action title="Close" onPress={() => setPlanning(null)} />
-        </View>
-        {clubResult?.clubId === row.clubId && <View style={{ marginTop: 8 }}>
-          <Text style={{ color: '#111827' }}>{clubResult.text}</Text>
-          {clubResult.problems.map((problem, index) => <Text key={`${problem}-${index}`} style={{ color: CLASH }}>{problem}</Text>)}
-        </View>}
-      </View>;
-    }
     const expandedCell = expandedCellFor(row);
     return !onSelectSlot && expandedCell?.assignment ? <View style={{ marginLeft: SCHEDULE_CLUB_WIDTH }}>{renderDetail(expandedCell.assignment)}</View> : null;
   };

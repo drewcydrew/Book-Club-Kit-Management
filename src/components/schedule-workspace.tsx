@@ -40,8 +40,7 @@ function slotDiffOf(workspace: Workspace) {
 }
 
 function unassignedInScope(cycle: Cycle, assignments: Assignment[], scope: DraftScope): number {
-  return cycle.slots.filter((slot) => slot.clubId === scope.clubId && (!scope.months || scope.months.includes(slot.month))
-    && !assignments.some((item) => item.slotId === slot.id)).length;
+  return cycle.slots.filter((slot) => slot.clubId === scope.clubId && !assignments.some((item) => item.slotId === slot.id)).length;
 }
 
 export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined) {
@@ -191,7 +190,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
         const before = unassignedInScope(source.cycle, source.assignments, scope);
         const after = unassignedInScope(source.cycle, generated, scope);
         const name = source.base.clubs.find((club) => club.id === scope.clubId)?.name ?? 'this club';
-        const text = before === 0 ? `No unassigned meetings in the selected months for ${name}.`
+        const text = before === 0 ? `No unassigned meetings for ${name}.`
           : `Assigned ${before - after} of ${before} unassigned meetings for ${name}.${after ? ' See the reasons below.' : ''}`;
         setMessage('');
         setClubResult({ clubId: scope.clubId, text, problems: result.problems.filter((problem) => problem.startsWith(`${name} in `)) });
@@ -210,9 +209,10 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     else void regenerate();
   }
 
-  // Keeps every existing assignment and only fills empty slots of the scoped club and months.
+  // Keeps every existing assignment and only fills empty slots of the scoped club.
   function requestGenerateClub(scope: DraftScope) {
-    if (busy || generatingRef.current || (stale && dirty)) return;
+    if (stale && dirty) { setMessage('The schedule changed elsewhere. Refresh, then discard local changes before generating.'); return; }
+    if (busy || generatingRef.current) return;
     const run = () => { void regenerate(scope); };
     if (hasPending) setPendingAction({ description: 'Generate assignments and discard unapplied selections?', confirmLabel: 'Confirm generate', run });
     else run();
