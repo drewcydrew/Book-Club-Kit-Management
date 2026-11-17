@@ -4,7 +4,9 @@ import { Action, Actions, Card, Label, Note, Page } from "../components/ui";
 import { PriorityGridView } from "../components/priority-grid";
 import { SCHEDULE_DESKTOP_WIDTH } from "../components/schedule-layout";
 import { RankingList } from "../components/ranking-list";
+import { TitleDetails } from "../components/title-details";
 import { TitleGallery } from "../components/title-gallery";
+import { votingStatus } from "../domain/voting";
 import {
   ballotKey,
   emptyBallot,
@@ -60,6 +62,8 @@ export default function Preferences() {
   const [clubOpen, setClubOpen] = useState(false);
   const [expandedClubs, setExpandedClubs] = useState<string[]>([]);
   const [lastDismissedId, setLastDismissedId] = useState<string | null>(null);
+  const [lastRemovedId, setLastRemovedId] = useState<string | null>(null);
+  const [detailTitleId, setDetailTitleId] = useState<string | null>(null);
   const [reviewClubIds, setReviewClubIds] = useState<string[] | null>(null);
   const sync = useBallotSync(
     saveBallot,
@@ -108,8 +112,8 @@ export default function Preferences() {
         membership.clubId === club?.id &&
         membership.leader,
     );
-  const editable =
-    !!cycle && cycle.status === "collecting" && today() <= cycle.deadline;
+  const voting = cycle ? votingStatus(cycle, today()) : null;
+  const editable = !!voting?.open;
   const serverBallot =
     cycle && club && person
       ? data.ballots.find(
@@ -129,6 +133,7 @@ export default function Preferences() {
   const clubRead = club
     ? data.titles.filter((title) => club.history.includes(title.id))
     : [];
+  const detailTitle = data.titles.find((title) => title.id === detailTitleId);
   const selectedCount = Object.values(ballot?.marks ?? {}).filter(
     (value) => value === "selected",
   ).length;
@@ -141,6 +146,7 @@ export default function Preferences() {
   function chooseClub(value: string) {
     setReview(null);
     setLastDismissedId(null);
+    setLastRemovedId(null);
     setClubId(value);
     setClubOpen(false);
   }
@@ -195,6 +201,11 @@ export default function Preferences() {
     changeBallot((current) => setMark(current, titleId, value));
   }
 
+  function removeSelection(titleId: string) {
+    mark(titleId, null);
+    setLastRemovedId(titleId);
+  }
+
   if (!person)
     return (
       <Page title="Preferences" wide={wide}>
@@ -217,10 +228,14 @@ export default function Preferences() {
     <Page title="Preferences" wide={wide}>
       <Card>
         <Label>{cycle.name}{club && !staff ? ` · ${club.name}` : ""}</Label>
-        <Note>
-          Status: {cycle.status} · Deadline: {cycle.deadline}. Voting is{" "}
-          {editable ? "open" : "closed"}.
-        </Note>
+        {voting && (
+          <Text
+            accessibilityRole="text"
+            style={[styles.votingStatus, voting.open ? styles.votingOpen : styles.votingClosed]}
+          >
+            {voting.label} · {voting.detail}
+          </Text>
+        )}
         {!staff && club && <Note>
           {syncRefreshError ? `Unable to refresh choices: ${syncRefreshError}` :
             sync.status.state === "error" ? sync.status.message :
@@ -237,6 +252,7 @@ export default function Preferences() {
             setCycleOpen(false);
             setReview(null);
             setLastDismissedId(null);
+            setLastRemovedId(null);
           }} />)}
         </Actions>}
         {!staff && availableClubs.length > 1 && (clubOpen || !club) && <>
@@ -267,6 +283,9 @@ export default function Preferences() {
       )}
       {!staff && club && (
         <>
+          {detailTitle && (
+            <TitleDetails title={detailTitle} onClose={() => setDetailTitleId(null)} />
+          )}
           <Card>
             <Pressable
               accessibilityRole="button"
@@ -299,6 +318,7 @@ export default function Preferences() {
                     disabled={!editable || !isMember}
                     lastDismissedId={lastDismissedId}
                     onMark={mark}
+                    onShowDetails={setDetailTitleId}
                   />
                 )}
                 {clubRead.length > 0 && (
@@ -337,9 +357,22 @@ export default function Preferences() {
             </Pressable>
             {rankingOpen && <>
             <Note>
-              Drag ⠿ to move a title, or use the arrows. Each ranking is shared
-              for this user, club and cycle.
+              Drag ⠿ to move a title, use the arrows, or Remove a title to
+              deselect it. Each ranking is shared for this user, club and cycle.
             </Note>
+            {lastRemovedId && ballot?.marks[lastRemovedId] === undefined && (
+              <Actions>
+                <Note>Removed “{data.titles.find((t) => t.id === lastRemovedId)?.name ?? "title"}”.</Note>
+                <Action
+                  title="Undo"
+                  disabled={!editable || !isMember}
+                  onPress={() => {
+                    setLastRemovedId(null);
+                    mark(lastRemovedId, "selected");
+                  }}
+                />
+              </Actions>
+            )}
             <RankingList
               items={(ballot?.ranking ?? []).map((titleId) => {
                 const title = data.titles.find((t) => t.id === titleId);
@@ -354,6 +387,8 @@ export default function Preferences() {
               onReorder={(from, to) =>
                 changeBallot((current) => moveInRanking(current, from, to))
               }
+              onRemove={removeSelection}
+              onShowDetails={setDetailTitleId}
             />
             {(ballot?.ranking.length ?? 0) === 0 && (
               <Note>No selected titles to rank.</Note>
@@ -572,4 +607,7 @@ export default function Preferences() {
 const styles = StyleSheet.create({
   panelHeader: { gap: 4 },
   filterHeader: { minHeight: 44, justifyContent: "center" },
+  votingStatus: { fontSize: 15, fontWeight: "700" },
+  votingOpen: { color: "#245e51" },
+  votingClosed: { color: "#7a4b00" },
 });

@@ -5,7 +5,7 @@ import { today, validDate } from '../domain/dates';
 import { clubPriorities, clubStatuses, groupSlotsByMonth, lastDayOfMonth, memberVotes, monthsInRange, shiftMonth, type ClubStatus } from '../domain/cycle-overview';
 import { id } from '../domain/logic';
 import type { Club, Cycle, Data, Slot } from '../domain/model';
-import { deleteCycle, reopenCycle, saveCycle } from '../state/api';
+import { deleteCycle, discardCycleSchedule, reopenCycle, saveCycle } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
 
@@ -25,10 +25,16 @@ export default function Cycles() {
   const [message, setMessage] = useState('');
   const [deleteId, setDeleteId] = useState('');
   const [reopenId, setReopenId] = useState('');
+  const [discardId, setDiscardId] = useState('');
   const [editingSlotId, setEditingSlotId] = useState('');
   const cycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
   const editable = cycle?.status === 'open' || cycle?.status === 'collecting';
   const [clubFilter, setClubFilter] = useState('');
+  const cycleAssignments = data.assignments.filter((assignment) => assignment.cycleId === cycle?.id);
+  const lockedCount = cycleAssignments.filter((assignment) => assignment.locked).length;
+  const heldKits = cycleAssignments
+    .map((assignment) => data.kits.find((kit) => kit.id === assignment.kitId))
+    .filter((kit) => kit?.status === 'out' || kit?.status === 'reserved');
 
   async function persist(value: Cycle, success: string): Promise<Cycle | undefined> {
     try {
@@ -86,7 +92,7 @@ export default function Cycles() {
     </Card>
     <Card><Label>Select a cycle</Label>
       {data.cycles.length === 0 && <Note>No shared cycles yet. Create one here or run the explicit server demo seed.</Note>}
-      <Actions>{data.cycles.map((c) => <Action key={c.id} selected={c.id === cycle?.id} disabled={shared.saving} title={`${c.name}${c.id === cycle?.id ? ' ✓' : ''}`} onPress={() => { setSelectedId(c.id); setMessage(''); setClubFilter(''); setReopenId(''); setDeleteId(''); setEditingSlotId(''); }} />)}</Actions>
+      <Actions>{data.cycles.map((c) => <Action key={c.id} selected={c.id === cycle?.id} disabled={shared.saving} title={`${c.name}${c.id === cycle?.id ? ' ✓' : ''}`} onPress={() => { setSelectedId(c.id); setMessage(''); setClubFilter(''); setReopenId(''); setDiscardId(''); setDeleteId(''); setEditingSlotId(''); }} />)}</Actions>
     </Card>
     {cycle && <>
       <Card><Label>{cycle.name} · {cycle.status}</Label><Text>Preference deadline: {cycle.deadline}</Text>
@@ -106,6 +112,18 @@ export default function Cycles() {
             <Action title="Cancel reopening" disabled={shared.saving} onPress={() => setReopenId('')} />
           </Actions>
         </> : <Action title="Reopen for editing" disabled={shared.saving} onPress={() => { setMessage(''); setReopenId(cycle.id); }} />)}
+        {(cycle.status === 'drafted' || cycle.status === 'published') && (discardId === cycle.id ? <>
+          <Note>Discard the schedule for {cycle.name}? This deletes {cycleAssignments.length} assignments ({lockedCount} locked) and returns the cycle to collecting. Slots, ballots and finalized rankings are kept.</Note>
+          {heldKits.length > 0 && <Note>Warning: {heldKits.length} kit{heldKits.length === 1 ? ' is' : 's are'} checked out or reserved under these assignments ({heldKits.map((kit) => kit?.barcode).join(', ')}). {heldKits.length === 1 ? 'It' : 'They'} will have no published assignment until rescheduled.</Note>}
+          <Actions>
+            <Action tone="danger" title="Confirm discard schedule" disabled={shared.saving} onPress={() => {
+              void shared.mutate(() => discardCycleSchedule(cycle.id, cycle.revision)).then(() => {
+                setDiscardId(''); setEditingSlotId(''); setMessage('Schedule discarded. Redraft and publish when ready.');
+              }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to discard schedule.'));
+            }} />
+            <Action title="Cancel discard" disabled={shared.saving} onPress={() => setDiscardId('')} />
+          </Actions>
+        </> : <Action title="Discard schedule" disabled={shared.saving} onPress={() => { setMessage(''); setDiscardId(cycle.id); }} />)}
         {message ? <Text>{message}</Text> : null}
       </Card>
       {editable

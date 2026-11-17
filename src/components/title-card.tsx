@@ -5,9 +5,9 @@ import { Action } from './ui';
 
 const markLabels: Record<Mark, string> = { selected: 'Selected', read: 'Already read', wont: 'Won’t read' };
 
-export function TitleCard({ title, mark, width, disabled, onToggleSelect, onDismiss, onRestore }: {
+export function TitleCard({ title, mark, width, disabled, onToggleSelect, onDismiss, onRestore, onShowDetails }: {
   title: Title; mark?: Mark; width: DimensionValue; disabled: boolean;
-  onToggleSelect: () => void; onDismiss: () => void; onRestore: () => void;
+  onToggleSelect: () => void; onDismiss: () => void; onRestore: () => void; onShowDetails: () => void;
 }) {
   const hidden = mark === 'wont' || mark === 'read';
   const selected = mark === 'selected';
@@ -29,6 +29,7 @@ export function TitleCard({ title, mark, width, disabled, onToggleSelect, onDism
       {hidden
         ? <Action title="Restore" disabled={disabled} onPress={onRestore} />
         : <Action title="Won’t read" disabled={disabled} onPress={onDismiss} />}
+      <Action title="Details" accessibilityLabel={`Show details for ${title.name}`} onPress={onShowDetails} />
     </View>
   </View>;
 }

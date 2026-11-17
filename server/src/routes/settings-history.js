@@ -12,7 +12,7 @@ router.put('/settings', async (req,res) => {
   const result = await transaction(async (c) => {
     const old = await one(c,'SELECT revision FROM lending_settings WHERE singleton=true FOR UPDATE',[],'Settings'); stale(old.revision,rev);
     if ((await c.query(`SELECT 1 FROM schedule_assignments a JOIN schedule_assignments b ON a.kit_id=b.kit_id AND a.id<b.id
-      WHERE a.ready <= b.due + $1::int AND b.ready <= a.due + $1::int LIMIT 1`,[buffer])).rowCount) throw new HttpError(409,'The new turnaround buffer conflicts with existing assignments.');
+      WHERE a.ready <= b.due + $1::int AND b.ready <= a.due + $1::int LIMIT 1`,[buffer])).rowCount) throw new HttpError(409,'The new turnaround buffer conflicts with existing assignments. Discard the schedules of the affected cycles on Cycles, then try again.');
     return (await c.query(`UPDATE lending_settings SET name=$1,branches=$2,loan_days=$3,buffer_days=$4,revision=revision+1 WHERE singleton=true RETURNING ${selection}`,[name,branches,loan,buffer])).rows[0];
   });
   res.json(result);

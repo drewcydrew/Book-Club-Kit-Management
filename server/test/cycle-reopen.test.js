@@ -144,3 +144,70 @@ test('reopening and editing cycles preserves unaffected shared records', { skip:
   assert.equal(saved.status, 200, JSON.stringify(saved.json));
   assert.equal((await snapshot()).assignments.length, 0);
 });
+
+test('discarding a published schedule clears all assignments and returns the cycle to collecting', { skip: !enabled, timeout: 30000 }, async (t) => {
+  const schema = `discard_${randomBytes(8).toString('hex')}`;
+  const admin = new Pool({ connectionString: url });
+  await admin.query(`CREATE SCHEMA "${schema}"`);
+  process.env.DATABASE_URL = url;
+  process.env.PGOPTIONS = `-c search_path=${schema}`;
+  const pool = require('../src/db').getPool();
+  let server;
+  t.after(async () => {
+    if (server) await new Promise((resolve) => server.close(resolve));
+    await pool.end();
+    await admin.query(`DROP SCHEMA "${schema}" CASCADE`);
+    await admin.end();
+  });
+  await require('../src/migrate').migrate(pool);
+  await require('../src/seed').seed(pool);
+  server = require('../src/app').listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const base = `http://127.0.0.1:${server.address().port}`;
+  async function req(path, method = 'GET', body) {
+    const response = await fetch(base + path, {
+      method, headers: body ? { 'Content-Type': 'application/json' } : {},
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    return { status: response.status, json: response.status === 204 ? null : await response.json() };
+  }
+  const snapshot = async () => (await req('/api/shared')).json;
+  const plus = (day, count) => new Date(Date.parse(`${day}T00:00:00Z`) + count * 86400000).toISOString().slice(0, 10);
+  const cycleUrl = '/api/cycles/cycle1';
+  const discard = (revision, acknowledge = true) => req(`${cycleUrl}/discard-schedule`, 'POST', { revision, acknowledge });
+
+  let state = await snapshot();
+  let cycle = state.cycles.find((item) => item.id === 'cycle1');
+  assert.equal((await discard(cycle.revision)).status, 409, 'collecting cycle has no schedule to discard');
+  const ranking = await req(`${cycleUrl}/clubs/c1/ranking`, 'PUT', { revision: cycle.revision, ranking: ['t1', 't2'] });
+  assert.equal(ranking.status, 200);
+  state = await snapshot();
+  cycle = state.cycles.find((item) => item.id === 'cycle1');
+  const kitBySlot = { s1: 'k1', s2: 'k4', s3: 'k3', s4: 'k5' };
+  const assignments = cycle.slots.map((slot) => {
+    const ready = plus(slot.meeting, -21);
+    return { id: `a-${slot.id}`, cycleId: cycle.id, slotId: slot.id, clubId: slot.clubId, kitId: kitBySlot[slot.id],
+      ready, meeting: slot.meeting, due: plus(ready, 28), locked: slot.id === 's1' };
+  });
+  const draft = await req(`${cycleUrl}/schedule`, 'PUT', { revision: cycle.revision, assignments, publish: false });
+  assert.equal(draft.status, 200, JSON.stringify(draft.json));
+  const publish = await req(`${cycleUrl}/schedule`, 'PUT', { revision: draft.json.revision, assignments, publish: true });
+  assert.equal(publish.status, 200, JSON.stringify(publish.json));
+  state = await snapshot();
+  cycle = state.cycles.find((item) => item.id === 'cycle1');
+  assert.equal(cycle.status, 'published');
+  assert.equal(state.assignments.length, assignments.length);
+
+  assert.equal((await discard(cycle.revision, false)).status, 400);
+  assert.equal((await discard(cycle.revision - 1)).status, 409, 'stale revision is rejected');
+  const discarded = await discard(cycle.revision);
+  assert.equal(discarded.status, 200, JSON.stringify(discarded.json));
+  const after = await snapshot();
+  const afterCycle = after.cycles.find((item) => item.id === 'cycle1');
+  assert.equal(afterCycle.status, 'collecting');
+  assert.equal(afterCycle.slots.length, cycle.slots.length);
+  assert.deepEqual(after.assignments, []);
+  assert.deepEqual(after.ballots, state.ballots);
+  assert.equal(after.kits.find((kit) => kit.id === 'k1').status, state.kits.find((kit) => kit.id === 'k1').status);
+  assert.equal((await discard(afterCycle.revision)).status, 409, 'collecting cycle cannot be discarded again');
+});

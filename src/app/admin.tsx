@@ -183,7 +183,7 @@ function SharedLibrarySettings({ library }: { library: Library }) {
       .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to save settings.'));
   }
   return <Card><Label>Shared library and lending settings</Label>
-    <Note>The server rejects turnaround buffers that conflict with existing assignments. Existing assignments keep their original loan dates.</Note>
+    <Note>The server rejects turnaround buffers that conflict with existing assignments. Discard the schedules of the affected cycles on Cycles to clear them. Existing assignments keep their original loan dates.</Note>
     <Field label="Library name" value={name} onChangeText={setName} />
     <Field label="Branches (comma separated)" value={branches} onChangeText={setBranches} />
     <Field label="Loan length in days" value={loan} onChangeText={setLoan} />

@@ -6,9 +6,10 @@ import { Action, Actions, Field, Note } from './ui';
 
 const PAGE_SIZE = 18;
 
-export function TitleGallery({ titles, marks, disabled, lastDismissedId, onMark }: {
+export function TitleGallery({ titles, marks, disabled, lastDismissedId, onMark, onShowDetails }: {
   titles: Title[]; marks: Record<string, Mark>; disabled: boolean;
   lastDismissedId: string | null; onMark: (titleId: string, value: Mark | null) => void;
+  onShowDetails: (titleId: string) => void;
 }) {
   const { width } = useWindowDimensions();
   const [showHidden, setShowHidden] = useState(false);
@@ -37,7 +38,8 @@ export function TitleGallery({ titles, marks, disabled, lastDismissedId, onMark 
         disabled={disabled}
         onToggleSelect={() => onMark(title.id, marks[title.id] === 'selected' ? null : 'selected')}
         onDismiss={() => onMark(title.id, 'wont')}
-        onRestore={() => onMark(title.id, null)} />)}
+        onRestore={() => onMark(title.id, null)}
+        onShowDetails={() => onShowDetails(title.id)} />)}
     </View>
     {visible.length > visibleLimit && <Action title={`Show more titles (${visible.length - visibleLimit} remaining)`} onPress={() => setVisibleLimit(visibleLimit + PAGE_SIZE)} />}
     {visible.length === 0 && <Note>{query ? 'No matching available titles.' : 'All available titles are dismissed. Show dismissed titles to restore them.'}</Note>}
@@ -52,7 +54,8 @@ export function TitleGallery({ titles, marks, disabled, lastDismissedId, onMark 
           disabled={disabled}
           onToggleSelect={() => undefined}
           onDismiss={() => undefined}
-          onRestore={() => onMark(title.id, null)} />)}
+          onRestore={() => onMark(title.id, null)}
+          onShowDetails={() => onShowDetails(title.id)} />)}
       </View>}
       {showHidden && hidden.length > hiddenLimit && <Action title={`Show more dismissed (${hidden.length - hiddenLimit} remaining)`} onPress={() => setHiddenLimit(hiddenLimit + PAGE_SIZE)} />}
     </>}

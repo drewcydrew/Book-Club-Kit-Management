@@ -6,9 +6,21 @@ import { assignmentProblem, assignmentProblems, circulate, draft, fairness, firs
 import { filterOptions, type PickerOption } from '../src/domain/search';
 import { seed } from '../src/domain/seed';
 import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
+import { votingStatus } from '../src/domain/voting';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
 import { clubPriorities, clubStatuses, groupSlotsByMonth, memberSchedule, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
+
+test('voting status explains whether member voting is open and why it is not', () => {
+  const collecting = { status: 'collecting' as const, deadline: '2026-11-20' };
+  assert.deepEqual(votingStatus({ status: 'open', deadline: '2026-11-20' }, '2026-11-18').open, false);
+  assert.equal(votingStatus({ status: 'open', deadline: '2026-11-20' }, '2026-11-18').label, 'Voting has not opened yet');
+  assert.equal(votingStatus(collecting, '2026-11-18').detail, 'Closes 2026-11-20 · 2 days left');
+  assert.equal(votingStatus(collecting, '2026-11-20').detail, 'Closes 2026-11-20 · closes today');
+  assert.equal(votingStatus(collecting, '2026-11-21').open, false);
+  assert.equal(votingStatus(collecting, '2026-11-21').detail, 'The deadline was 2026-11-20.');
+  assert.equal(votingStatus({ status: 'drafted', deadline: '2026-11-20' }, '2026-11-18').open, false);
+});
 
 test('meetings group by month in date order and filter by club', () => {
   const slots = [

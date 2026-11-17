@@ -67,6 +67,19 @@ router.post('/cycles/:cycleId/reopen', async (req, res) => {
   });
   res.json(result);
 });
+router.post('/cycles/:cycleId/discard-schedule', async (req, res) => {
+  const b = object(req.body); const rev = expected(b.revision); const cycleId = id(req.params.cycleId);
+  if (b.acknowledge !== true) throw new HttpError(400, 'Confirm discarding this schedule.');
+  const result = await transaction(async (c) => {
+    const old = await one(c, 'SELECT status,revision FROM cycles WHERE id=$1 FOR UPDATE', [cycleId], 'Cycle');
+    stale(old.revision, rev);
+    if (!['drafted','published'].includes(old.status)) throw new HttpError(409, 'Only a drafted or published cycle can have its schedule discarded.');
+    await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1', [cycleId]);
+    await c.query("UPDATE cycles SET status='collecting',revision=revision+1 WHERE id=$1", [cycleId]);
+    return getCycle(c, cycleId);
+  });
+  res.json(result);
+});
 router.put('/cycles/:cycleId', async (req, res) => {
   const b = validate(req.body); const rev = expected(req.body.revision); const cycleId = id(req.params.cycleId);
   const result = await transaction(async (c) => {

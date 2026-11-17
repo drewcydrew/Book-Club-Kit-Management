@@ -272,7 +272,7 @@ export default function Schedule() {
       {editor.dirty
         ? <Note>Changes are visible only on this device until saved. Saving creates a shared draft; publishing is separate.</Note>
         : (cycle.status === 'collecting' || cycle.status === 'drafted') && <Note>Select a meeting in Grid to edit it locally. Nothing changes for other users until you save a draft.</Note>}
-      {cycle.status === 'published' && <Note>Published schedules are read-only here. Reopen this cycle on Cycles before editing; reopening affects member visibility and circulation.</Note>}
+      {cycle.status === 'published' && <Note>Published schedules are read-only here. Reopen or discard the schedule for this cycle on Cycles before editing; reopening affects member visibility and circulation.</Note>}
       {cycle.status === 'open' && <Note>Start collecting preferences on Cycles before editing this schedule.</Note>}
       {editor.stale && editor.dirty && <Text style={{ color: '#a22525' }}>Shared data has changed. Refresh if needed, then discard these changes and start again before saving.</Text>}
       <Actions>

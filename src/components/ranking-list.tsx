@@ -7,10 +7,12 @@ const ROW_HEIGHT = 58;
 
 type Drag = { from: number; to: number; dy: number };
 
-export function RankingList({ items, disabled, onReorder }: {
+export function RankingList({ items, disabled, onReorder, onRemove, onShowDetails }: {
   items: { id: string; label: string; coverUrl: string | null; isbn: string }[];
   disabled: boolean;
   onReorder: (from: number, to: number) => void;
+  onRemove: (titleId: string) => void;
+  onShowDetails: (titleId: string) => void;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const { fontScale } = useWindowDimensions();
@@ -48,15 +50,17 @@ export function RankingList({ items, disabled, onReorder }: {
       }}
       onDragCancel={() => setDrag(null)}
       onMoveUp={() => onReorder(index, index - 1)}
-      onMoveDown={() => onReorder(index, index + 1)} />)}
+      onMoveDown={() => onReorder(index, index + 1)}
+      onRemove={() => onRemove(item.id)}
+      onShowDetails={() => onShowDetails(item.id)} />)}
   </View>;
 }
 
-function RankRow({ index, rowHeight, label, coverUrl, isbn, disabled, offset, active, canMoveUp, canMoveDown, onDragStart, onDragMove, onDragEnd, onDragCancel, onMoveUp, onMoveDown }: {
+function RankRow({ index, rowHeight, label, coverUrl, isbn, disabled, offset, active, canMoveUp, canMoveDown, onDragStart, onDragMove, onDragEnd, onDragCancel, onMoveUp, onMoveDown, onRemove, onShowDetails }: {
   index: number; rowHeight: number; label: string; coverUrl: string | null; isbn: string; disabled: boolean; offset: number; active: boolean;
   canMoveUp: boolean; canMoveDown: boolean;
   onDragStart: () => void; onDragMove: (dy: number) => void; onDragEnd: (dy: number) => void; onDragCancel: () => void;
-  onMoveUp: () => void; onMoveDown: () => void;
+  onMoveUp: () => void; onMoveDown: () => void; onRemove: () => void; onShowDetails: () => void;
 }) {
   const handle = PanResponder.create({
     onStartShouldSetPanResponder: () => !disabled,
@@ -103,8 +107,10 @@ function RankRow({ index, rowHeight, label, coverUrl, isbn, disabled, offset, ac
     <Text style={styles.rank}>{index + 1}.</Text>
     <TitleCover coverUrl={coverUrl} isbn={isbn} style={styles.thumb} />
     <Text numberOfLines={2} style={styles.label}>{label}</Text>
+    <Action title="Details" accessibilityLabel={`Show details for ${label}`} onPress={onShowDetails} />
     <Action title="↑" accessibilityLabel={`Move ${label} up`} disabled={disabled || !canMoveUp} onPress={onMoveUp} />
     <Action title="↓" accessibilityLabel={`Move ${label} down`} disabled={disabled || !canMoveDown} onPress={onMoveDown} />
+    <Action title="Remove" tone="danger" accessibilityLabel={`Remove ${label} from selections`} disabled={disabled} onPress={onRemove} />
   </View>;
 }
 
