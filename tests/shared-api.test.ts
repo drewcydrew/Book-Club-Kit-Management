@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { seed } from '../src/domain/seed';
 import {
-  ApiError, deleteCycle, deleteUser, finalizeRanking, loadShared, saveBallot, saveCycle, saveEvent,
+  ApiError, deleteCycle, deleteUser, finalizeRanking, loadShared, reopenCycle, saveBallot, saveCycle, saveEvent,
   saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser,
 } from '../src/state/api';
 
@@ -103,6 +103,28 @@ test('stale server responses expose actionable API conflict errors', async () =>
     await assert.rejects(loadShared(), /Revision conflict/);
     const error = new ApiError('Revision conflict', 409);
     assert.equal(error.status, 409);
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL;
+    else process.env.EXPO_PUBLIC_API_URL = oldUrl;
+  }
+});
+
+test('reopening a cycle sends an acknowledged revision and validates the response', async () => {
+  const oldUrl = process.env.EXPO_PUBLIC_API_URL;
+  const oldFetch = globalThis.fetch;
+  process.env.EXPO_PUBLIC_API_URL = 'https://demo.example';
+  let captured: { path: string; method: string | undefined; body: unknown } | undefined;
+  globalThis.fetch = async (input, init) => {
+    captured = { path: new URL(String(input)).pathname, method: init?.method, body: JSON.parse(String(init?.body)) };
+    return new Response(JSON.stringify({ ...demo.cycles[0], status: 'collecting', revision: 5 }), { status: 200 });
+  };
+  try {
+    const result = await reopenCycle('cycle1', 4);
+    assert.equal(result.revision, 5);
+    assert.deepEqual(captured, { path: '/api/cycles/cycle1/reopen', method: 'POST', body: { revision: 4, acknowledge: true } });
+    globalThis.fetch = async () => new Response(JSON.stringify({ revision: 5 }), { status: 200 });
+    await assert.rejects(reopenCycle('cycle1', 4), /invalid cycle/);
   } finally {
     globalThis.fetch = oldFetch;
     if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL;

@@ -265,6 +265,12 @@ export async function saveCycle(cycle: Omit<Cycle, 'revision'> & Partial<Pick<Cy
   return value;
 }
 
+export async function reopenCycle(id: string, revision: number): Promise<Cycle> {
+  const value = await request(`/api/cycles/${encodeURIComponent(id)}/reopen`, 'POST', { revision, acknowledge: true });
+  if (!isCycle(value)) throw new Error('Server returned an invalid cycle; refresh before retrying.');
+  return value;
+}
+
 export async function deleteCycle(id: string, revision: number): Promise<void> {
   await request(`/api/cycles/${encodeURIComponent(id)}`, 'DELETE', undefined, revision);
 }
