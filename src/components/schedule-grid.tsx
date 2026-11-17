@@ -20,11 +20,10 @@ interface ScheduleGridProps {
   selectedSlotId?: string | null;
   onSelectSlot?: (slotId: string) => void;
   clubSummaryFor?: (clubId: string) => string;
-  renderSlotDetail?: (slotId: string) => React.ReactNode;
   onHideClub?: (clubId: string) => void;
 }
 
-export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, clubSummaryFor, renderSlotDetail, onHideClub }: ScheduleGridProps) {
+export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, clubSummaryFor, onHideClub }: ScheduleGridProps) {
   const [containerWidth, setContainerWidth] = useState(0);
   const { cellWidth, gap } = scheduleGridSizing(containerWidth, wide);
   if (grid.rows.length === 0) return null;
@@ -49,7 +48,6 @@ export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId
             </View>
           </ScrollView>
         </View>
-        {expandedCell?.slot && onSelectSlot && renderSlotDetail && <View style={wide ? { width: '100%', maxWidth: 1050 } : undefined}>{renderSlotDetail(expandedCell.slot.id)}</View>}
         {!onSelectSlot && expandedCell?.assignment && <View style={{ marginLeft: SCHEDULE_CLUB_WIDTH }}>{renderDetail(expandedCell.assignment)}</View>}
       </View>;
     })}
