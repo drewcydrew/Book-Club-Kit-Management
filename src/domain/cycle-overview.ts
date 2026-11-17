@@ -194,6 +194,34 @@ export function memberSchedule(data: Data, clubIds: string[], day: string, perio
       || a.clubId.localeCompare(b.clubId) || a.cycleId.localeCompare(b.cycleId) || a.id.localeCompare(b.id));
 }
 
+export function scheduleByKit(data: Data, cycleId: string, clubIds: string[]): { kitId: string; assignments: Assignment[] }[] {
+  const clubs = new Set(clubIds);
+  const groups = new Map<string, Assignment[]>();
+  for (const assignment of data.assignments) {
+    if (assignment.cycleId !== cycleId || !clubs.has(assignment.clubId)) continue;
+    const group = groups.get(assignment.kitId) ?? [];
+    group.push(assignment);
+    groups.set(assignment.kitId, group);
+  }
+  const kits = new Map(data.kits.map((kit) => [kit.id, kit]));
+  const titles = new Map(data.titles.map((title) => [title.id, title]));
+  return [...groups].map(([kitId, assignments]) => ({
+    kitId,
+    assignments: assignments.sort((a, b) => a.meeting.localeCompare(b.meeting) || a.clubId.localeCompare(b.clubId) || a.id.localeCompare(b.id)),
+  })).sort((a, b) => {
+    const kitA = kits.get(a.kitId);
+    const kitB = kits.get(b.kitId);
+    return (titles.get(kitA?.titleId ?? '')?.name ?? 'Unavailable title').localeCompare(titles.get(kitB?.titleId ?? '')?.name ?? 'Unavailable title')
+      || (kitA?.barcode ?? '').localeCompare(kitB?.barcode ?? '') || a.kitId.localeCompare(b.kitId);
+  });
+}
+
+export function scheduleHasChanges(initial: Assignment[], current: Assignment[], unlockIds: string[]): boolean {
+  const snapshot = (assignments: Assignment[]) => JSON.stringify([...assignments].sort((a, b) => a.id.localeCompare(b.id)).map((a) =>
+    [a.id, a.cycleId, a.slotId, a.clubId, a.kitId, a.ready, a.meeting, a.due, a.locked]));
+  return unlockIds.length > 0 || snapshot(initial) !== snapshot(current);
+}
+
 export function scheduleGrid(data: Data, cycle: Cycle, clubIds: string[], assignments: Assignment[]): ScheduleGrid {
   const months = [...new Set([...monthsInRange(cycle.startsOn, cycle.endsOn), ...cycle.slots.map((slot) => slot.month)])].sort();
   const cycleAssignments = assignments.filter((assignment) => assignment.cycleId === cycle.id);

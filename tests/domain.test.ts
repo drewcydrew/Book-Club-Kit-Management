@@ -8,7 +8,7 @@ import { seed } from '../src/domain/seed';
 import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
-import { clubPriorities, clubStatuses, groupSlotsByMonth, memberSchedule, memberVotes, monthsInRange, priorityMatrix, scheduleGrid, titleDemand } from '../src/domain/cycle-overview';
+import { clubPriorities, clubStatuses, groupSlotsByMonth, memberSchedule, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, titleDemand } from '../src/domain/cycle-overview';
 
 test('meetings group by month in date order and filter by club', () => {
   const slots = [
@@ -190,6 +190,38 @@ test('member schedule filters published enrolled assignments and orders upcoming
   assert.deepEqual(memberSchedule(data, ['c1', 'c2'], '2026-02-01', 'upcoming').map((a) => a.id), ['today', 'tie', 'future']);
   assert.deepEqual(memberSchedule(data, ['c1'], '2026-02-01', 'past').map((a) => a.id), ['past']);
   assert.deepEqual(memberSchedule(data, [], '2026-02-01', 'upcoming'), []);
+});
+
+test('staff kits group selected cycle assignments by physical kit in meeting order', () => {
+  const assignment = (id: string, kitId: string, clubId: string, meeting: string, cycleId = 'cy'): Assignment =>
+    ({ id, kitId, clubId, meeting, cycleId, slotId: id, ready: meeting, due: meeting, locked: false });
+  const data = {
+    titles: [{ id: 't', name: 'Same title' }],
+    kits: [{ id: 'k1', titleId: 't', barcode: 'A' }, { id: 'k2', titleId: 't', barcode: 'B' }],
+    assignments: [
+      assignment('later', 'k1', 'c1', '2026-03-01'),
+      assignment('other-kit', 'k2', 'c1', '2026-02-01'),
+      assignment('earlier', 'k1', 'c2', '2026-01-01'),
+      assignment('missing', 'missing-kit', 'c2', '2026-04-01'),
+      assignment('other-cycle', 'k1', 'c1', '2026-01-01', 'other'),
+    ],
+  } as unknown as Data;
+  const groups = scheduleByKit(data, 'cy', ['c1', 'c2']);
+  assert.deepEqual(groups.map((group) => [group.kitId, group.assignments.map((item) => item.id)]), [
+    ['k1', ['earlier', 'later']], ['k2', ['other-kit']], ['missing-kit', ['missing']],
+  ]);
+  assert.deepEqual(scheduleByKit(data, 'cy', ['c1']).map((group) => group.assignments.map((item) => item.id)), [['later'], ['other-kit']]);
+  assert.deepEqual(scheduleByKit(data, 'cy', []), []);
+});
+
+test('local schedule changes include edits and unlocks but not assignment ordering', () => {
+  const first: Assignment = { id: 'a', cycleId: 'cy', slotId: 's1', clubId: 'c1', kitId: 'k1', ready: '2026-01-01', meeting: '2026-01-10', due: '2026-01-20', locked: true };
+  const second: Assignment = { ...first, id: 'b', slotId: 's2', clubId: 'c2', locked: false };
+  assert.equal(scheduleHasChanges([first, second], [second, first], []), false);
+  assert.equal(scheduleHasChanges([first, second], [{ ...first, kitId: 'k2' }, second], []), true);
+  assert.equal(scheduleHasChanges([first, second], [first], []), true);
+  assert.equal(scheduleHasChanges([first, second], [first, second], ['a']), true);
+  assert.equal(scheduleHasChanges([first], [{ ...first, locked: false }], []), true);
 });
 
 test('monthsInRange lists every month inclusively, across year boundaries', () => {
