@@ -170,6 +170,33 @@ export function priorityMatrix(data: Data, cycle: Cycle, clubIds: string[], assi
   return { clubIds, rows };
 }
 
+export type PrioritySort = { id: string; direction: 'ascending' | 'descending' };
+
+export function sortPriorityMatrix(matrix: PriorityMatrix, clubSort: PrioritySort | null, titleSort: PrioritySort | null): PriorityMatrix {
+  const rankOrder = (a: number | null, b: number | null, direction: PrioritySort['direction']) =>
+    a === null ? (b === null ? 0 : 1) : b === null ? -1 : direction === 'ascending' ? a - b : b - a;
+  const targetRow = matrix.rows.find((row) => row.titleId === titleSort?.id);
+  const targetRanks = new Map(targetRow?.cells.map((cell) => [cell.clubId, cell.rank]));
+  const clubIds = targetRow && titleSort
+    ? [...matrix.clubIds].sort((a, b) => rankOrder(targetRanks.get(a) ?? null, targetRanks.get(b) ?? null, titleSort.direction))
+    : matrix.clubIds;
+  const rows = clubSort && matrix.clubIds.includes(clubSort.id)
+    ? [...matrix.rows].sort((a, b) => rankOrder(
+      a.cells.find((cell) => cell.clubId === clubSort.id)?.rank ?? null,
+      b.cells.find((cell) => cell.clubId === clubSort.id)?.rank ?? null,
+      clubSort.direction,
+    ))
+    : matrix.rows;
+  const positions = new Map(clubIds.map((id, index) => [id, index]));
+  return {
+    clubIds,
+    rows: rows.map((row) => ({
+      ...row,
+      cells: [...row.cells].sort((a, b) => (positions.get(a.clubId) ?? clubIds.length) - (positions.get(b.clubId) ?? clubIds.length)),
+    })),
+  };
+}
+
 export function titleDemand(data: Data, cycleId: string, clubIds: string[]): Map<string, number> {
   const selectedClubs = new Set(clubIds);
   const clubsByTitle = new Map<string, Set<string>>();

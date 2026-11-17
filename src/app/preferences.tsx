@@ -513,12 +513,13 @@ export default function Preferences() {
               Club rankings use the finalized order where available, otherwise
               the combined member rankings. Previously read titles are excluded. Contested counts include shown clubs that rank the title.
             </Note>
-            {shownClubIds.length === 0 ? <Note>Select clubs to see preferences.</Note> : <PriorityGridView
+            {shownClubIds.length === 0 && <Note>Select clubs to see preferences.</Note>}
+            <PriorityGridView key={cycle.id}
               matrix={priorityMatrix(data, cycle, shownClubIds, data.assignments)}
               clubNameFor={(id) => data.clubs.find((value) => value.id === id)?.name ?? "Unknown club"}
               titleFor={(id) => data.titles.find((value) => value.id === id)}
               onHideClub={(id) => setReviewClubIds(shownClubIds.filter((clubId) => clubId !== id))}
-            />}
+            />
           </Card>
           <Card>
             <Pressable accessibilityRole="button" accessibilityState={{ expanded: summariesOpen }}

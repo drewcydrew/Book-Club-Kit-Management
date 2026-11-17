@@ -8,7 +8,7 @@ import { seed } from '../src/domain/seed';
 import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
-import { clubPriorities, clubStatuses, groupSlotsByMonth, memberSchedule, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, titleDemand } from '../src/domain/cycle-overview';
+import { clubPriorities, clubStatuses, groupSlotsByMonth, memberSchedule, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
 
 test('meetings group by month in date order and filter by club', () => {
   const slots = [
@@ -132,6 +132,65 @@ test('priority matrix ranks selected titles per club, flags contested titles and
   assert.equal(filtered.rows.find((row) => row.titleId === 't1')?.rankedClubCount, 1);
   assert.equal(filtered.rows.find((row) => row.titleId === 't1')?.contested, false);
   assert.deepEqual(priorityMatrix(data, cycle, [], [assignment]).rows, []);
+});
+
+test('priority comparison sorts each axis by rank without losing cells or changing the default order', () => {
+  const assignment = { id: 'a', cycleId: 'cy', slotId: 's', clubId: 'c1', kitId: 'k' } as Assignment;
+  const matrix = {
+    clubIds: ['c1', 'c2', 'c3'],
+    rows: [
+      { titleId: 'a', rankedClubCount: 2, contested: true, cells: [
+        { clubId: 'c1', rank: 2, month: '2027-01', assignment },
+        { clubId: 'c2', rank: 1, month: null },
+        { clubId: 'c3', rank: null, month: null },
+      ] },
+      { titleId: 'b', rankedClubCount: 1, contested: false, cells: [
+        { clubId: 'c1', rank: 1, month: null },
+        { clubId: 'c2', rank: null, month: null },
+        { clubId: 'c3', rank: null, month: null },
+      ] },
+      { titleId: 'c', rankedClubCount: 0, contested: false, cells: [
+        { clubId: 'c1', rank: null, month: null },
+        { clubId: 'c2', rank: null, month: null },
+        { clubId: 'c3', rank: null, month: null },
+      ] },
+    ],
+  };
+  const sorted = sortPriorityMatrix(matrix, { id: 'c1', direction: 'ascending' }, { id: 'a', direction: 'ascending' });
+  assert.deepEqual(sorted.rows.map((row) => row.titleId), ['b', 'a', 'c']);
+  assert.deepEqual(sorted.clubIds, ['c2', 'c1', 'c3']);
+  assert.deepEqual(sorted.rows.map((row) => row.cells.map((cell) => cell.clubId)), [
+    ['c2', 'c1', 'c3'], ['c2', 'c1', 'c3'], ['c2', 'c1', 'c3'],
+  ]);
+  assert.equal(sorted.rows[1].cells[1].assignment, assignment);
+  assert.equal(sorted.rows[1].contested, true);
+  assert.deepEqual(sortPriorityMatrix(matrix, null, null), matrix);
+  assert.deepEqual(sortPriorityMatrix(matrix, { id: 'missing', direction: 'ascending' }, { id: 'missing', direction: 'descending' }), matrix);
+  const reversed = sortPriorityMatrix(matrix, { id: 'c1', direction: 'descending' }, { id: 'a', direction: 'descending' });
+  assert.deepEqual(reversed.rows.map((row) => row.titleId), ['a', 'b', 'c']);
+  assert.deepEqual(reversed.clubIds, ['c1', 'c2', 'c3']);
+  assert.deepEqual(reversed.rows.map((row) => row.cells.map((cell) => cell.clubId)), [
+    ['c1', 'c2', 'c3'], ['c1', 'c2', 'c3'], ['c1', 'c2', 'c3'],
+  ]);
+  const titleOnly = sortPriorityMatrix(matrix, null, { id: 'a', direction: 'descending' });
+  assert.deepEqual(titleOnly.rows.map((row) => row.titleId), ['a', 'b', 'c']);
+  assert.deepEqual(titleOnly.clubIds, ['c1', 'c2', 'c3']);
+  const tied = {
+    ...matrix,
+    rows: [
+      { ...matrix.rows[0], cells: matrix.rows[0].cells.map((cell) => cell.clubId === 'c1' ? { ...cell, rank: 1 } : cell) },
+      matrix.rows[1],
+      { ...matrix.rows[2], cells: matrix.rows[2].cells.map((cell) => cell.clubId === 'c1' ? { ...cell, assignment } : cell) },
+    ],
+  };
+  const tiesDescending = sortPriorityMatrix(tied, { id: 'c1', direction: 'descending' }, { id: 'a', direction: 'descending' });
+  assert.deepEqual(tiesDescending.rows.map((row) => row.titleId), ['a', 'b', 'c']);
+  assert.deepEqual(tiesDescending.clubIds, ['c1', 'c2', 'c3']);
+  assert.equal(tiesDescending.rows[2].cells[0].assignment, assignment);
+  const filtered = { ...matrix, clubIds: ['c2', 'c3'], rows: matrix.rows.map((row) => ({ ...row, cells: row.cells.filter((cell) => cell.clubId !== 'c1') })) };
+  assert.deepEqual(sortPriorityMatrix(filtered, { id: 'c1', direction: 'descending' }, { id: 'a', direction: 'ascending' }).rows.map((row) => row.titleId), ['a', 'b', 'c']);
+  assert.deepEqual(matrix.rows.map((row) => row.titleId), ['a', 'b', 'c']);
+  assert.deepEqual(matrix.clubIds, ['c1', 'c2', 'c3']);
 });
 
 test('schedule preview checks conflicts against proposed assignments, not replaced saved assignments', () => {
