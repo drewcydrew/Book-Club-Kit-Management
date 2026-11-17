@@ -2,7 +2,7 @@ import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
 import { assignmentProblems, draftAsync, id, meetingFor, windowFor, type DraftScope } from '../domain/logic';
-import { scheduleHasChanges } from '../domain/cycle-overview';
+import { scheduleHasChanges, slotChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
 import { scheduleSelectionPending } from '../domain/schedule-pending';
 import type { Assignment, Cycle, Data, Title } from '../domain/model';
@@ -35,6 +35,15 @@ function snapshot(data: Data): string {
   return JSON.stringify([data.library, data.cycles, data.ballots, data.assignments, data.kits, data.titles, data.clubs]);
 }
 
+function slotDiffOf(workspace: Workspace) {
+  return slotChanges(workspace.base.cycles.find((item) => item.id === workspace.cycle.id)?.slots ?? [], workspace.cycle.slots);
+}
+
+function unassignedInScope(cycle: Cycle, assignments: Assignment[], scope: DraftScope): number {
+  return cycle.slots.filter((slot) => slot.clubId === scope.clubId && (!scope.months || scope.months.includes(slot.month))
+    && !assignments.some((item) => item.slotId === slot.id)).length;
+}
+
 export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined) {
   const shared = useShared();
   const navigationGuard = useNavigationGuard();
@@ -54,7 +63,9 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   const [pendingAction, setPendingAction] = useState<{ description: string; confirmLabel: string; run: () => void } | null>(null);
   const [reconciliationRequired, setReconciliationRequired] = useState(false);
   const busy = generating || checking || shared.saving || !!pendingAction;
-  const dirty = !!workspace && scheduleHasChanges(workspace.base.assignments.filter((a) => a.cycleId === workspace.cycle.id), workspace.assignments, workspace.unlockIds);
+  const slotDiff = workspace ? slotDiffOf(workspace) : null;
+  const slotsChanged = !!slotDiff && (slotDiff.newSlots.length > 0 || slotDiff.removedSlotIds.length > 0);
+  const dirty = !!workspace && (slotsChanged || scheduleHasChanges(workspace.base.assignments.filter((a) => a.cycleId === workspace.cycle.id), workspace.assignments, workspace.unlockIds));
   const selectedAssignment = workspace?.assignments.find((item) => item.slotId === selectedSlotId);
   const pending = selectedSlotId ? scheduleSelectionPending(selectedAssignment, initialMeeting, kitId, meeting, swapId) : { selection: false, swap: false };
   const hasPending = pending.selection || pending.swap;
@@ -172,8 +183,16 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     setGenerating(true); setMessage(scope ? 'Generating assignments...' : 'Generating schedule...');
     try {
       const result = await draftAsync({ ...source.base, assignments: allAssignments }, source.cycle, true, scope);
-      setWorkspace({ ...source, assignments: result.assignments.filter((a) => a.cycleId === source.cycle.id), generationProblems: result.problems });
-      setValidation(null); setMessage(''); closeSlot();
+      const generated = result.assignments.filter((a) => a.cycleId === source.cycle.id);
+      setWorkspace({ ...source, assignments: generated, generationProblems: result.problems });
+      setValidation(null); closeSlot();
+      if (scope) {
+        const before = unassignedInScope(source.cycle, source.assignments, scope);
+        const after = unassignedInScope(source.cycle, generated, scope);
+        const name = source.base.clubs.find((club) => club.id === scope.clubId)?.name ?? 'this club';
+        setMessage(before === 0 ? `No unassigned meetings in the selected months for ${name}.`
+          : `Assigned ${before - after} of ${before} unassigned meetings for ${name}.${after ? ' See the problems list for the rest.' : ''}`);
+      } else setMessage('');
     } catch (error: unknown) {
       setMessage(error instanceof Error ? `Unable to generate schedule: ${error.message}` : 'Unable to generate schedule.');
     } finally {
@@ -196,10 +215,25 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     else run();
   }
 
+  // Adds or removes a meeting slot locally; the server only sees it on Save.
+  function toggleSlot(clubId: string, month: string) {
+    if (busy || generatingRef.current || !currentCycle) return;
+    if (hasPending) { setMessage('Apply or discard the open selection before changing meetings.'); return; }
+    if (stale && dirty) { setMessage('Shared data changed. Discard local changes and start again from refreshed data before saving.'); return; }
+    const source = workspace && (dirty || !stale) ? workspace : createWorkspace(currentCycle);
+    if (source.cycle.status !== 'collecting' && source.cycle.status !== 'drafted') { setMessage('Meetings can only change before publication.'); return; }
+    const existing = source.cycle.slots.find((slot) => slot.clubId === clubId && slot.month === month);
+    if (existing && source.assignments.some((item) => item.slotId === existing.id)) { setMessage('Clear the assignment before removing this meeting.'); return; }
+    const slots = existing ? source.cycle.slots.filter((slot) => slot.id !== existing.id) : [...source.cycle.slots, { id: id(), clubId, month, meeting: null }];
+    setWorkspace({ ...source, cycle: { ...source.cycle, slots }, generationProblems: [] });
+    if (existing && selectedSlotId === existing.id) closeSlot();
+    setValidation(null); setMessage('');
+  }
+
   async function save(token: string) {
     if (!workspace) return;
     try {
-      await shared.mutate(() => saveValidatedSchedule(workspace.cycle.id, workspace.assignments, workspace.cycle.revision, false, workspace.unlockIds, token, workspace.basis));
+      await shared.mutate(() => saveValidatedSchedule(workspace.cycle.id, workspace.assignments, workspace.cycle.revision, false, workspace.unlockIds, token, workspace.basis, slotDiffOf(workspace)));
       reset();
       setMessage('Shared schedule draft saved.');
     } catch (error: unknown) {
@@ -214,7 +248,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     if (stale) { setMessage('Shared data changed. Discard local changes and start again from refreshed data before saving.'); return; }
     setChecking(true); setMessage('');
     try {
-      const result = await validateSchedule(workspace.cycle.id, workspace.assignments, workspace.cycle.revision, false, workspace.unlockIds, workspace.basis);
+      const result = await validateSchedule(workspace.cycle.id, workspace.assignments, workspace.cycle.revision, false, workspace.unlockIds, workspace.basis, slotDiffOf(workspace));
       if (result.warnings.length) setValidation(result);
       else await save(result.token);
     } catch (error: unknown) {
@@ -279,7 +313,10 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
           if (hasPending) setPendingAction({ description: 'Discard the unapplied selection and clear this assignment locally?', confirmLabel: 'Clear assignment', run: clear });
           else clear();
         }} />
-      </View> : <Note>No title assigned.</Note>}
+      </View> : <View style={{ gap: 8 }}>
+        <Note>No title assigned.</Note>
+        <Action title="Remove meeting" disabled={busy || hasPending} onPress={() => toggleSlot(slot.clubId, slot.month)} />
+      </View>}
       {selected && assignmentProblems(base, selected, allAssignments).map((problem) => <Text key={problem} style={{ color: '#a22525' }}>{problem}</Text>)}
       {selected?.locked && <Action title="Unlock locally" disabled={busy} onPress={() => {
         const unlockIds = base.assignments.some((item) => item.id === selected.id && item.locked) && !workspace.unlockIds.includes(selected.id)
@@ -321,7 +358,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
 
   return {
     workspace, proposalData, dirty, stale, busy, message, validation, selectedSlotId, pendingAction, activePicker, hasPending,
-    selectSlot, closeSlot, requestCloseSlot, requestDiscard, requestCycleChange, requestGenerate, requestGenerateClub, validate, confirmSave, renderSelectedSlot,
+    selectSlot, closeSlot, requestCloseSlot, requestDiscard, requestCycleChange, requestGenerate, requestGenerateClub, toggleSlot, validate, confirmSave, renderSelectedSlot,
     cancelValidation: () => setValidation(null),
     confirmAction: () => { const action = pendingAction; setPendingAction(null); action?.run(); },
     cancelAction: () => setPendingAction(null),

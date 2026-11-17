@@ -250,6 +250,16 @@ export function scheduleHasChanges(initial: Assignment[], current: Assignment[],
   return unlockIds.length > 0 || snapshot(initial) !== snapshot(current);
 }
 
+// Local-only meeting slots are sent as creations; slots missing locally are sent as removals.
+export function slotChanges(initial: Slot[], current: Slot[]): { newSlots: { id: string; clubId: string; month: string }[]; removedSlotIds: string[] } {
+  const initialIds = new Set(initial.map((slot) => slot.id));
+  const currentIds = new Set(current.map((slot) => slot.id));
+  return {
+    newSlots: current.filter((slot) => !initialIds.has(slot.id)).map(({ id, clubId, month }) => ({ id, clubId, month })),
+    removedSlotIds: initial.filter((slot) => !currentIds.has(slot.id)).map((slot) => slot.id),
+  };
+}
+
 export function scheduleGrid(data: Data, cycle: Cycle, clubIds: string[], assignments: Assignment[]): ScheduleGrid {
   const months = [...new Set([...monthsInRange(cycle.startsOn, cycle.endsOn), ...cycle.slots.map((slot) => slot.month)])].sort();
   const cycleAssignments = assignments.filter((assignment) => assignment.cycleId === cycle.id);

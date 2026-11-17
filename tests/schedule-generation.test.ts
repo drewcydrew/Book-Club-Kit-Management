@@ -133,6 +133,17 @@ test('scoped generation fills only the chosen club and months and keeps existing
   assert.ok(!result.problems.some((message) => message.includes('2027-01') || message.includes('2027-03')));
 });
 
+test('scoped generation fills a locally added slot that has no meeting date yet', () => {
+  const data = scenario([['t1', 't2'], ['t1', 't2']]);
+  const cycle = data.cycles[0];
+  cycle.slots = [
+    { id: 'local', clubId: 'c1', month: '2027-02', meeting: null },
+  ];
+  data.assignments = [];
+  const result = draft(data, cycle, false, { clubId: 'c1', months: ['2027-02'] });
+  assert.deepEqual(result.assignments.filter((item) => item.cycleId === cycle.id).map((item) => item.slotId), ['local']);
+});
+
 test('treats the exact turnaround-buffer boundary as a cross-cycle conflict', () => {
   const data = scenario([['t1', 't2']]);
   const cycle = data.cycles[0];

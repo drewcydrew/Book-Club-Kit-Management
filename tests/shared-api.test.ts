@@ -160,8 +160,8 @@ test('schedule validation binds acknowledged saves to revision, unlocks and snap
     assert.equal(validation.warnings[0].slotId, 's1');
     await saveValidatedSchedule('cycle1', [], 2, false, ['a1'], validation.token, basis);
     assert.deepEqual(requests[0], { path: '/api/cycles/cycle1/schedule/validate', method: 'POST',
-      body: { assignments: [], revision: 2, publish: false, unlockIds: ['a1'], basis } });
-    assert.deepEqual(requests[1].body, { assignments: [], revision: 2, publish: false, unlockIds: ['a1'], validationToken: 'token', acknowledge: true, basis });
+      body: { assignments: [], revision: 2, publish: false, unlockIds: ['a1'], newSlots: [], removedSlotIds: [], basis } });
+    assert.deepEqual(requests[1].body, { assignments: [], revision: 2, publish: false, unlockIds: ['a1'], newSlots: [], removedSlotIds: [], validationToken: 'token', acknowledge: true, basis });
     globalThis.fetch = async () => new Response(JSON.stringify({ token: 'token', warnings: [{ slotId: 1 }] }), { status: 200 });
     await assert.rejects(validateSchedule('cycle1', [], 2, false, []), /invalid schedule validation/);
   } finally {

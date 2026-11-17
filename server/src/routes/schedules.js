@@ -19,11 +19,20 @@ async function schedule(req, res, validateOnly) {
     return item;
   });
   unique(assignments.map((a) => a.id),'assignments'); unique(assignments.map((a) => a.slotId),'slots');
+  const newSlots = list(b.newSlots ?? [],'newSlots',MAX_ASSIGNMENTS).map((s) => {
+    object(s);
+    const month = s.month;
+    if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new HttpError(400,'month is invalid.');
+    return { id:id(s.id), clubId:id(s.clubId,'clubId'), month };
+  });
+  const removedSlotIds = unique(list(b.removedSlotIds ?? [],'removedSlotIds',MAX_ASSIGNMENTS).map((value) => id(value,'removedSlotIds')),'removedSlotIds').sort();
+  unique(newSlots.map((s) => s.id),'newSlots'); unique(newSlots.map((s) => `${s.clubId}\0${s.month}`),'newSlots');
   const result = await transaction(async (c) => {
-    const cycle = await one(c,`SELECT revision,status,to_char(deadline,'YYYY-MM-DD') AS deadline FROM cycles WHERE id=$1 FOR UPDATE`,[cycleId],'Cycle'); stale(cycle.revision,rev);
+    const cycle = await one(c,`SELECT revision,status,to_char(deadline,'YYYY-MM-DD') AS deadline,to_char(starts_on,'YYYY-MM') AS "startMonth",to_char(ends_on,'YYYY-MM') AS "endMonth" FROM cycles WHERE id=$1 FOR UPDATE`,[cycleId],'Cycle'); stale(cycle.revision,rev);
     if (!['collecting','drafted','published'].includes(cycle.status)) throw new HttpError(409,'Cycle must be collecting before drafting.');
     if (publish && cycle.status === 'collecting') throw new HttpError(409,'Save a draft before publishing.');
     if (cycle.status === 'published' && !publish) throw new HttpError(409,'A published schedule cannot be reverted to a draft.');
+    if (cycle.status === 'published' && (newSlots.length || removedSlotIds.length)) throw new HttpError(409,'Meetings can only change before publication.');
     const settings = await one(c,'SELECT loan_days,buffer_days FROM lending_settings WHERE singleton=true',[],'Settings');
     if (basis) {
       const sortIds = (rows) => rows.sort((a,b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -48,21 +57,33 @@ async function schedule(req, res, validateOnly) {
     const allOther = (await c.query(`SELECT a.id,a.cycle_id AS "cycleId",a.slot_id AS "slotId",a.club_id AS "clubId",a.kit_id AS "kitId",
       to_char(a.ready,'YYYY-MM-DD') AS ready,to_char(a.due,'YYYY-MM-DD') AS due,k.title_id AS "titleId",cy.status
       FROM schedule_assignments a JOIN kits k ON k.id=a.kit_id JOIN cycles cy ON cy.id=a.cycle_id WHERE a.cycle_id<>$1 ORDER BY a.id`,[cycleId])).rows;
-    const slotIds = assignments.map((a) => a.slotId);
     const kitIds = [...new Set(assignments.map((a) => a.kitId))];
     const clubIds = [...new Set(assignments.map((a) => a.clubId))];
-    const slots = (await c.query(`SELECT id,club_id AS "clubId",month,to_char(meeting,'YYYY-MM-DD') AS meeting FROM meeting_slots WHERE cycle_id=$1 AND id=ANY($2) ORDER BY id`,[cycleId,slotIds])).rows;
+    const cycleSlots = (await c.query(`SELECT id,club_id AS "clubId",month,to_char(meeting,'YYYY-MM-DD') AS meeting FROM meeting_slots WHERE cycle_id=$1 ORDER BY id`,[cycleId])).rows;
     const kits = (await c.query('SELECT id,title_id AS "titleId",status FROM kits WHERE id=ANY($1) ORDER BY id FOR SHARE',[kitIds])).rows;
     const history = (await c.query('SELECT club_id,title_id FROM club_history WHERE club_id=ANY($1) ORDER BY club_id,title_id',[clubIds])).rows;
-    const existing = (await c.query(`SELECT id,club_id AS "clubId",kit_id AS "kitId",to_char(ready,'YYYY-MM-DD') AS ready,to_char(meeting,'YYYY-MM-DD') AS meeting,
+    const existing = (await c.query(`SELECT id,slot_id AS "slotId",club_id AS "clubId",kit_id AS "kitId",to_char(ready,'YYYY-MM-DD') AS ready,to_char(meeting,'YYYY-MM-DD') AS meeting,
       to_char(due,'YYYY-MM-DD') AS due FROM schedule_assignments WHERE cycle_id=$1 ORDER BY id`,[cycleId])).rows;
     const active = (await c.query(`SELECT DISTINCT ON (a.kit_id) a.kit_id AS "kitId",a.id,to_char(a.ready,'YYYY-MM-DD') AS ready,to_char(a.due,'YYYY-MM-DD') AS due
       FROM schedule_assignments a JOIN cycles cy ON cy.id=a.cycle_id WHERE a.kit_id=ANY($1) AND cy.status='published' AND a.ready <= CURRENT_DATE ORDER BY a.kit_id,a.ready DESC,a.id`,[kitIds])).rows;
     const dbToday = (await c.query("SELECT to_char(CURRENT_DATE,'YYYY-MM-DD') AS today")).rows[0].today;
-    const slotById = new Map(slots.map((r) => [r.id,r]));
     const kitById = new Map(kits.map((r) => [r.id,r]));
     const readTitles = new Set(history.map((r) => `${r.club_id}|${r.title_id}`));
     const existingById = new Map(existing.map((r) => [r.id,r]));
+    const cycleSlotIds = new Set(cycleSlots.map((s) => s.id));
+    const removedSet = new Set(removedSlotIds);
+    for (const slotId of removedSlotIds) {
+      if (!cycleSlotIds.has(slotId)) throw new HttpError(409,'A meeting to remove is no longer available. Refresh and retry.');
+      if (existing.some((e) => e.slotId === slotId) || assignments.some((a) => a.slotId === slotId)) throw new HttpError(409,'Clear the assignment before removing its meeting.');
+    }
+    const kept = cycleSlots.filter((s) => !removedSet.has(s.id));
+    for (const s of newSlots) {
+      if (cycleSlotIds.has(s.id)) throw new HttpError(409,'A new meeting reuses an existing id. Refresh and retry.');
+      if (s.month < cycle.startMonth || s.month > cycle.endMonth) throw new HttpError(400,'The month must fall within the cycle range.');
+      if (kept.some((k) => k.clubId === s.clubId && k.month === s.month)) throw new HttpError(409,'This club already has a meeting in that month.');
+    }
+    const slots = [...kept, ...newSlots.map((s) => ({ id:s.id, clubId:s.clubId, month:s.month, meeting:null }))];
+    const slotById = new Map(slots.map((r) => [r.id,r]));
     const activeByKit = new Map(active.map((r) => [r.kitId,r]));
     const enriched = [];
     const dateless = [];
@@ -103,10 +124,9 @@ async function schedule(req, res, validateOnly) {
       enriched.push(candidate);
     }
     if (publish) {
-      const count = await c.query('SELECT count(*)::int AS count FROM meeting_slots WHERE cycle_id=$1',[cycleId]);
-      if (!count.rows[0].count || count.rows[0].count !== assignments.length) throw new HttpError(409,'Every meeting needs an assignment before publication.');
+      if (!slots.length || slots.length !== assignments.length) throw new HttpError(409,'Every meeting needs an assignment before publication.');
     }
-    const token = createHash('sha256').update(JSON.stringify({ cycleId,cycle,settings,assignments,unlockIds,publish,basis,slots,kits,history,existing,locked,active,allOther,dbToday,warnings })).digest('hex');
+    const token = createHash('sha256').update(JSON.stringify({ cycleId,cycle,settings,assignments,unlockIds,publish,basis,slots,newSlots,removedSlotIds,kits,history,existing,locked,active,allOther,dbToday,warnings })).digest('hex');
     if (validateOnly) return { warnings, token };
     if (b.validationToken === undefined) {
       if (unlockIds.length) throw new HttpError(409,'Validate and confirm unlocked assignments before saving.');
@@ -114,6 +134,8 @@ async function schedule(req, res, validateOnly) {
     } else if (typeof b.validationToken !== 'string' || b.validationToken !== token || (warnings.length && b.acknowledge !== true)) {
       throw new HttpError(409,'Schedule validation changed or warnings were not acknowledged. Review and validate again.');
     }
+    if (removedSlotIds.length) await c.query('DELETE FROM meeting_slots WHERE cycle_id=$1 AND id=ANY($2)',[cycleId,removedSlotIds]);
+    for (const s of newSlots) await c.query('INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES($1,$2,$3,$4,NULL)',[s.id,cycleId,s.clubId,s.month]);
     for (const d of dateless) await c.query('UPDATE meeting_slots SET meeting=$3 WHERE cycle_id=$1 AND id=$2',[cycleId,d.slotId,d.meeting]);
     await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1',[cycleId]);
     const column = (key) => assignments.map((a) => a[key]);
