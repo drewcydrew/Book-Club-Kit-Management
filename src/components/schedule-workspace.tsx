@@ -1,7 +1,7 @@
 import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { assignmentProblems, draft, id, meetingFor, windowFor } from '../domain/logic';
+import { assignmentProblems, draftAsync, id, meetingFor, windowFor } from '../domain/logic';
 import { scheduleHasChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
 import { scheduleSelectionPending } from '../domain/schedule-pending';
@@ -49,9 +49,11 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   const [message, setMessage] = useState('');
   const [validation, setValidation] = useState<ScheduleValidation | null>(null);
   const [checking, setChecking] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const generatingRef = useRef(false);
   const [pendingAction, setPendingAction] = useState<{ description: string; confirmLabel: string; run: () => void } | null>(null);
   const [reconciliationRequired, setReconciliationRequired] = useState(false);
-  const busy = checking || shared.saving || !!pendingAction;
+  const busy = generating || checking || shared.saving || !!pendingAction;
   const dirty = !!workspace && scheduleHasChanges(workspace.base.assignments.filter((a) => a.cycleId === workspace.cycle.id), workspace.assignments, workspace.unlockIds);
   const selectedAssignment = workspace?.assignments.find((item) => item.slotId === selectedSlotId);
   const pending = selectedSlotId ? scheduleSelectionPending(selectedAssignment, initialMeeting, kitId, meeting, swapId) : { selection: false, swap: false };
@@ -162,19 +164,28 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     else changeCycle();
   }
 
-  function regenerate() {
-    if (!currentCycle || (stale && dirty)) return;
+  async function regenerate() {
+    if (!currentCycle || (stale && dirty) || generatingRef.current) return;
     const source = workspace && (dirty || !stale) ? workspace : createWorkspace(currentCycle);
     const allAssignments = [...source.base.assignments.filter((a) => a.cycleId !== source.cycle.id), ...source.assignments];
-    const result = draft({ ...source.base, assignments: allAssignments }, source.cycle, true);
-    setWorkspace({ ...source, assignments: result.assignments.filter((a) => a.cycleId === source.cycle.id), generationProblems: result.problems });
-    setValidation(null); setMessage(''); closeSlot();
+    generatingRef.current = true;
+    setGenerating(true); setMessage('Generating schedule...');
+    try {
+      const result = await draftAsync({ ...source.base, assignments: allAssignments }, source.cycle, true);
+      setWorkspace({ ...source, assignments: result.assignments.filter((a) => a.cycleId === source.cycle.id), generationProblems: result.problems });
+      setValidation(null); setMessage(''); closeSlot();
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? `Unable to generate schedule: ${error.message}` : 'Unable to generate schedule.');
+    } finally {
+      generatingRef.current = false;
+      setGenerating(false);
+    }
   }
 
   function requestGenerate() {
-    if (busy || (stale && dirty)) return;
-    if (dirty || hasPending) setPendingAction({ description: 'Regenerate and replace unlocked local assignments and unapplied selections?', confirmLabel: 'Confirm regenerate', run: regenerate });
-    else regenerate();
+    if (busy || generatingRef.current || (stale && dirty)) return;
+    if (dirty || hasPending) setPendingAction({ description: 'Regenerate and replace unlocked local assignments and unapplied selections?', confirmLabel: 'Confirm regenerate', run: () => { void regenerate(); } });
+    else void regenerate();
   }
 
   async function save(token: string) {
