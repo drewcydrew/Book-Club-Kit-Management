@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
 import { ScheduleGridView } from '../components/schedule-grid';
+import { ScheduleInstructions } from '../components/schedule-instructions';
 import { useScheduleWorkspace } from '../components/schedule-workspace';
 import { TitleCover } from '../components/title-cover';
 import { memberSchedule, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
@@ -96,7 +97,7 @@ export default function Schedule() {
     <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={editor.requestDiscard} />
   </Card>;
   if (!person) return <Page title="Schedule">{pendingConfirmation}{discardUnavailableProposal}<Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
-  if (!cycle) return <Page title="Schedule">{pendingConfirmation}{discardUnavailableProposal}<Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
+  if (!cycle) return <Page title="Schedule">{pendingConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = viewData.assignments.filter((assignment) => assignment.cycleId === cycle.id);
   const assignedSlotIds = new Set(assignments.map((assignment) => assignment.slotId));
   const unassignedSlots = staff && clubId ? cycle.slots.filter((slot) => slot.clubId === clubId && !assignedSlotIds.has(slot.id)) : [];
@@ -169,6 +170,7 @@ export default function Schedule() {
       <Actions>
         {staff && data.cycles.length > 1 && <Action title={cycleOpen ? 'Close cycles' : 'Change cycle'} onPress={() => setCycleOpen(!cycleOpen)} />}
         {staff && <Action title={toolsOpen ? 'Hide schedule actions' : 'Schedule actions'} onPress={() => setToolsOpen(!toolsOpen)} />}
+        {staff && <ScheduleInstructions />}
       </Actions>
       {staff && cycleOpen && <Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} disabled={editor.busy || validating} title={value.name} onPress={() => {
         if (value.id !== cycle.id) {
