@@ -124,6 +124,52 @@ export function clubPriorities(data: Data, cycle: Cycle, clubId: string): TitleP
     .sort((a, b) => b.score - a.score || a.titleId.localeCompare(b.titleId));
 }
 
+export interface PriorityCell {
+  clubId: string;
+  rank: number | null;
+  month: string | null;
+  assignment?: Assignment;
+}
+
+export interface PriorityRow {
+  titleId: string;
+  contested: boolean;
+  cells: PriorityCell[];
+}
+
+export interface PriorityMatrix {
+  clubIds: string[];
+  rows: PriorityRow[];
+}
+
+export function priorityMatrix(data: Data, cycle: Cycle, clubIds: string[], assignments: Assignment[]): PriorityMatrix {
+  const cycleAssignments = assignments.filter((assignment) => assignment.cycleId === cycle.id && clubIds.includes(assignment.clubId));
+  const ranks = new Map<string, Map<string, number>>();
+  for (const clubId of clubIds) {
+    const ballot = data.ballots.find((item) => item.cycleId === cycle.id && item.clubId === clubId);
+    const selected = (ballot?.ranking ?? []).filter((titleId) => ballot?.marks[titleId] === 'selected');
+    ranks.set(clubId, new Map(selected.map((titleId, index) => [titleId, index + 1] as const)));
+  }
+  const titleIds = new Set<string>();
+  for (const clubRanks of ranks.values()) for (const titleId of clubRanks.keys()) titleIds.add(titleId);
+  for (const assignment of cycleAssignments) {
+    const titleId = data.kits.find((kit) => kit.id === assignment.kitId)?.titleId;
+    if (titleId) titleIds.add(titleId);
+  }
+  const rows = [...titleIds].map((titleId): PriorityRow => ({
+    titleId,
+    contested: clubIds.filter((clubId) => ranks.get(clubId)?.has(titleId)).length > 1,
+    cells: clubIds.map((clubId) => {
+      const assignment = cycleAssignments.find((item) => item.clubId === clubId && data.kits.find((kit) => kit.id === item.kitId)?.titleId === titleId);
+      const slot = assignment ? cycle.slots.find((item) => item.id === assignment.slotId) : undefined;
+      return { clubId, rank: ranks.get(clubId)?.get(titleId) ?? null, month: slot?.month ?? null, assignment };
+    }),
+  }));
+  rows.sort((a, b) => b.cells.filter((cell) => cell.rank !== null).length - a.cells.filter((cell) => cell.rank !== null).length
+    || a.titleId.localeCompare(b.titleId));
+  return { clubIds, rows };
+}
+
 export function scheduleGrid(data: Data, cycle: Cycle, clubIds: string[], assignments: Assignment[]): ScheduleGrid {
   const months = [...new Set([...monthsInRange(cycle.startsOn, cycle.endsOn), ...cycle.slots.map((slot) => slot.month)])].sort();
   const assignmentBySlot = new Map(assignments.filter((assignment) => assignment.cycleId === cycle.id).map((assignment) => [assignment.slotId, assignment] as const));

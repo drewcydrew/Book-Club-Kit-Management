@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
+import { PriorityGridView } from '../components/priority-grid';
 import { ScheduleGridView } from '../components/schedule-grid';
 import { TitleCover } from '../components/title-cover';
-import { scheduleGrid } from '../domain/cycle-overview';
+import { priorityMatrix, scheduleGrid } from '../domain/cycle-overview';
 import { assignmentProblem, draft } from '../domain/logic';
 import type { Assignment } from '../domain/model';
 import { saveSchedule } from '../state/api';
@@ -34,7 +35,8 @@ export default function Schedule() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
   const [selectedClubId, setSelectedClubId] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'priorities'>('grid');
+  const [preview, setPreview] = useState<{ assignments: Assignment[]; problems: string[] } | null>(null);
   const [gridClubIds, setGridClubIds] = useState<string[] | null>(null);
   const staff = person?.role === 'staff' || person?.role === 'admin';
   const personId = person?.id;
@@ -59,6 +61,10 @@ export default function Schedule() {
   const gridClubKey = gridClubs.map((club) => club.id).join('|');
   const grid = useMemo(() => gridCycle ? scheduleGrid(data, gridCycle, gridClubKey ? gridClubKey.split('|') : [], data.assignments.filter((a) => a.cycleId === gridCycle.id)) : null,
     [data, gridCycle, gridClubKey]);
+  const matrix = useMemo(() => cycle && staff ? priorityMatrix(data, cycle, gridClubKey ? gridClubKey.split('|') : [], data.assignments.filter((a) => a.cycleId === cycle.id)) : null,
+    [data, cycle, gridClubKey, staff]);
+  const previewGrid = useMemo(() => preview && cycle ? scheduleGrid(data, cycle, gridClubKey ? gridClubKey.split('|') : [], preview.assignments) : null,
+    [data, cycle, gridClubKey, preview]);
   if (!person) return <Page title="Schedule"><Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
   if (!cycle) return <Page title="Schedule"><Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = data.assignments.filter((assignment) => assignment.cycleId === cycle.id);
@@ -157,13 +163,14 @@ export default function Schedule() {
 
   return <Page title="Schedule">
     {staff && <Card><Label>Choose a cycle</Label><Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} title={`${value.name}${value.id === cycle.id ? ' ✓' : ''}`} onPress={() => {
-      setSelectedId(value.id); setMessages([]); setReplacement(null); setSwap(null); setExpandedId(null); setShowAllMessages(false);
+      setSelectedId(value.id); setMessages([]); setPreview(null); setReplacement(null); setSwap(null); setExpandedId(null); setShowAllMessages(false);
     }} />)}</Actions></Card>}
     <Card><Label>View</Label><Actions>
       <Action selected={viewMode === 'grid'} title="Grid" onPress={() => setViewMode('grid')} />
       <Action selected={viewMode === 'list'} title="List by club" onPress={() => setViewMode('list')} />
+      {staff && <Action selected={viewMode === 'priorities'} title="Priorities" onPress={() => setViewMode('priorities')} />}
     </Actions></Card>
-    {viewMode === 'grid' ? <Card><Label>{staff ? 'Clubs shown' : 'Your clubs'}</Label>
+    {viewMode !== 'list' ? <Card><Label>{staff ? 'Clubs shown' : 'Your clubs'}</Label>
       {clubChoices.length === 0
         ? <Note>{staff ? 'No clubs exist yet.' : 'You are not enrolled in any clubs. Enrol in a club on the My clubs tab.'}</Note>
         : <>
@@ -185,6 +192,36 @@ export default function Schedule() {
           setSelectedClubId(value.id); setExpandedId(null);
         }} />)}</Actions>}
     </Card>}
+    {viewMode === 'priorities' && staff && cycle && matrix && <>
+      <Card><Label>{cycle.name} · {cycle.status}</Label>
+        <Note>Each cell shows the club&apos;s rank for a title (1 is its top choice). Contested titles are selected by more than one club in view.</Note>
+        <Actions>
+          <Action title="Preview schedule" disabled={shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => {
+            const result = draft(data, cycle);
+            setPreview({ assignments: result.assignments, problems: result.problems });
+            setMessages([]); setMessage('');
+          }} />
+          {preview && <>
+            <Action tone="primary" title="Confirm and save draft" disabled={shared.saving || preview.problems.some((problem) => problem.startsWith('Locked assignment'))} onPress={() => {
+              persist(preview.assignments, false, 'Shared schedule draft saved.', preview.problems);
+              setPreview(null);
+            }} />
+            <Action title="Discard preview" onPress={() => setPreview(null)} />
+          </>}
+        </Actions>
+        {preview && <Note>This is a preview. Nothing is saved until you confirm.</Note>}
+        {preview?.problems.map((problem, index) => <Text key={`${problem}-${index}`} style={{ color: '#a22525' }}>{problem}</Text>)}
+        {message ? <Text>{message}</Text> : null}
+      </Card>
+      <PriorityGridView matrix={matrix} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
+        titleFor={(titleId) => titleById.get(titleId)} />
+      {preview && previewGrid && <>
+        <Label>Proposed schedule</Label>
+        <ScheduleGridView grid={previewGrid} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
+          titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
+          expandedId={null} showProblems onToggle={() => undefined} renderDetail={() => null} />
+      </>}
+    </>}
     {viewMode === 'grid' && (grid
       ? (grid.rows.length === 0
         ? <Note>Select at least one club to show the grid.</Note>
