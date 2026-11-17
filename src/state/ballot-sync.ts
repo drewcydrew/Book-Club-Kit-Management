@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ballotKey } from '../domain/ballot-draft';
 import type { Ballot } from '../domain/model';
 
-export type SyncStatus = { state: 'idle' | 'saving' | 'saved' | 'error'; message: string | null };
+export type SyncStatus = { state: 'idle' | 'saving' | 'saved' | 'error'; message: string | null; key?: string };
 
 export class BallotSync {
   private pending = new Map<string, Ballot>();
@@ -50,7 +50,7 @@ export class BallotSync {
       } catch (reason: unknown) {
         this.failure = reason instanceof Error ? reason : new Error('Unable to save choices.');
         if (!this.pending.has(key)) this.pending.set(key, ballot);
-        this.report({ state: 'error', message: `${this.failure.message} Refresh before retrying.` });
+        this.report({ state: 'error', message: `${this.failure.message} Refresh before retrying.`, key });
         throw this.failure;
       } finally {
         this.inFlight.delete(key);

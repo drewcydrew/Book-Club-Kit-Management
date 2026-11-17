@@ -10,11 +10,11 @@ import {
   moveInRanking,
   setMark,
 } from "../domain/ballot-draft";
-import { priorityMatrix } from "../domain/cycle-overview";
+import { priorityMatrix, titleDemand } from "../domain/cycle-overview";
 import { today } from "../domain/dates";
 import { finalizeRanking, saveBallot } from "../state/api";
 import { useBallotSync } from "../state/ballot-sync";
-import { rankings } from "../domain/logic";
+import { preferences as clubPreferences, rankings } from "../domain/logic";
 import type { Ballot, Mark } from "../domain/model";
 import { useShared } from "../state/shared";
 import { useStore } from "../state/store";
@@ -43,16 +43,43 @@ export default function Preferences() {
     key: string;
     ranking: string[];
   } | null>(null);
-  const [draft, setDraft] = useState<{ key: string; ballot: Ballot } | null>(
-    null,
-  );
-  const draftRef = useRef<{ key: string; ballot: Ballot } | null>(null);
-  const [titlesOpen, setTitlesOpen] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, Ballot>>({});
+  const draftRef = useRef<Record<string, Ballot>>({});
+  const [syncRefreshing, setSyncRefreshing] = useState(false);
+  const [syncRefreshError, setSyncRefreshError] = useState<string | null>(null);
+  const refreshCount = useRef(0);
+  const [titlesOpen, setTitlesOpen] = useState(true);
+  const [rankingOpen, setRankingOpen] = useState(true);
+  const [leaderOpen, setLeaderOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [matrixOpen, setMatrixOpen] = useState(false);
+  const [demandOpen, setDemandOpen] = useState(false);
+  const [cycleOpen, setCycleOpen] = useState(false);
+  const [clubOpen, setClubOpen] = useState(false);
+  const [expandedClubs, setExpandedClubs] = useState<string[]>([]);
   const [lastDismissedId, setLastDismissedId] = useState<string | null>(null);
   const [reviewClubIds, setReviewClubIds] = useState<string[] | null>(null);
   const sync = useBallotSync(
     saveBallot,
-    () => void shared.refresh().catch(() => undefined),
+    () => {
+      const saved = draftRef.current;
+      refreshCount.current += 1;
+      setSyncRefreshing(true);
+      void shared.refresh().then(() => {
+        setSyncRefreshError(null);
+        const remaining = { ...draftRef.current };
+        for (const [key, value] of Object.entries(saved)) {
+          if (remaining[key] === value) delete remaining[key];
+        }
+        draftRef.current = remaining;
+        setDrafts(remaining);
+      }).catch((error: unknown) => {
+        setSyncRefreshError(error instanceof Error ? error.message : "Unable to refresh saved choices.");
+      }).finally(() => {
+        refreshCount.current -= 1;
+        if (refreshCount.current === 0) setSyncRefreshing(false);
+      });
+    },
   );
   const cycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
   const membershipClubs = person
@@ -66,7 +93,8 @@ export default function Preferences() {
       : person
         ? data.clubs
         : [];
-  const club = availableClubs.find((value) => value.id === clubId);
+  const club = availableClubs.find((value) => value.id === clubId) ??
+    (availableClubs.length === 1 ? availableClubs[0] : undefined);
   const staff = person?.role === "staff" || person?.role === "admin";
   const isMember = !!person && !!club && membershipClubs.includes(club.id);
   const isLeader =
@@ -92,7 +120,7 @@ export default function Preferences() {
     cycle && club && person
       ? ballotKey({ cycleId: cycle.id, clubId: club.id, personId: person.id })
       : "";
-  const ballot = draft?.key === currentKey ? draft.ballot : serverBallot;
+  const ballot = drafts[currentKey] ?? serverBallot;
   const reviewKey = `${cycle?.id ?? ""}:${club?.id ?? ""}:${person?.id ?? ""}`;
   const reviewRanking = review?.key === reviewKey ? review.ranking : null;
   const clubRead = club
@@ -102,12 +130,16 @@ export default function Preferences() {
     (value) => value === "selected",
   ).length;
 
-  const shownClubIds = reviewClubIds ?? availableClubs.map((value) => value.id);
+  const shownClubIds = availableClubs
+    .filter((value) => reviewClubIds === null || reviewClubIds.includes(value.id))
+    .map((value) => value.id);
+  const demand = titleDemand(data, cycle?.id ?? "", shownClubIds);
 
   function chooseClub(value: string) {
     setReview(null);
     setLastDismissedId(null);
     setClubId(value);
+    setClubOpen(false);
   }
 
   // Revisions come from the server's copy when it is newer than the draft's, so retries are not rejected as conflicts.
@@ -120,22 +152,39 @@ export default function Preferences() {
 
   function changeBallot(fn: (current: Ballot) => Ballot) {
     if (!club || !cycle || !person || !editable || !isMember) return;
-    const latest =
-      draftRef.current?.key === currentKey ? draftRef.current.ballot : ballot;
+    const latest = draftRef.current[currentKey] ?? ballot;
     const current = latest ?? emptyBallot(cycle.id, club.id, person.id);
     const next = fn(current);
-    draftRef.current = { key: currentKey, ballot: next };
-    setDraft(draftRef.current);
+    draftRef.current = { ...draftRef.current, [currentKey]: next };
+    setDrafts(draftRef.current);
     setReview(null);
 
     sync.enqueue(withFreshRevision(next));
   }
 
   function saveChoices() {
-    if (sync.status.state === "error" && draft?.key === currentKey) {
-      sync.enqueue(withFreshRevision(draft.ballot));
+    const failedKey = sync.status.key;
+    if (sync.status.state === "error" && failedKey && drafts[failedKey]) {
+      const failedDraft = drafts[failedKey];
+      const latest = data.ballots.find((item) => ballotKey(item) === failedKey);
+      sync.enqueue({ ...failedDraft, revision: Math.max(failedDraft.revision, latest?.revision ?? 0) });
     }
     sync.flush().catch(() => undefined);
+  }
+
+  function refreshChoices() {
+    const saved = sync.status.state === "saved" ? draftRef.current : null;
+    void shared.refresh().then(() => {
+      setSyncRefreshError(null);
+      if (saved) {
+        const remaining = { ...draftRef.current };
+        for (const [key, value] of Object.entries(saved)) {
+          if (remaining[key] === value) delete remaining[key];
+        }
+        draftRef.current = remaining;
+        setDrafts(remaining);
+      }
+    }).catch((error: unknown) => setSyncRefreshError(error instanceof Error ? error.message : "Unable to refresh choices."));
   }
 
   function mark(titleId: string, value: Mark | null) {
@@ -164,50 +213,43 @@ export default function Preferences() {
   return (
     <Page title="Preferences">
       <Card>
-        <Label>Choose a cycle</Label>
-        <Actions>
-          {data.cycles.map((value) => (
-            <Action
-              key={value.id}
-              selected={value.id === cycle.id}
-              title={`${value.name}${value.id === cycle.id ? " ✓" : ""}`}
-              onPress={() => {
-                setSelectedId(value.id);
-                setReview(null);
-                setLastDismissedId(null);
-              }}
-            />
-          ))}
-        </Actions>
-      </Card>
-      <Card>
-        <Label>{cycle.name}</Label>
+        <Label>{cycle.name}{club && !staff ? ` · ${club.name}` : ""}</Label>
         <Note>
           Status: {cycle.status} · Deadline: {cycle.deadline}. Voting is{" "}
           {editable ? "open" : "closed"}.
         </Note>
-        {cycle.status !== "collecting" && (
-          <Note>Voting is not open for this cycle.</Note>
-        )}
-        {cycle.status === "collecting" && today() > cycle.deadline && (
-          <Note>The preference deadline has passed.</Note>
-        )}
-      </Card>
-      {!staff && availableClubs.length > 0 && (
-        <Card>
+        {!staff && club && <Note>
+          {syncRefreshError ? `Unable to refresh choices: ${syncRefreshError}` :
+            sync.status.state === "error" ? sync.status.message :
+            sync.status.state === "saving" ? syncMessages.saving :
+              sync.status.state === "saved" ? syncMessages.saved : syncMessages.idle}
+        </Note>}
+        <Actions>
+          {data.cycles.length > 1 && <Action title={cycleOpen ? "Close cycles" : "Change cycle"} onPress={() => setCycleOpen(!cycleOpen)} />}
+          {!staff && availableClubs.length > 1 && <Action title={clubOpen ? "Close clubs" : club ? "Change club" : "Choose club"} onPress={() => setClubOpen(!clubOpen)} />}
+        </Actions>
+        {cycleOpen && <Actions>
+          {data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} title={value.name} onPress={() => {
+            setSelectedId(value.id);
+            setCycleOpen(false);
+            setReview(null);
+            setLastDismissedId(null);
+          }} />)}
+        </Actions>}
+        {!staff && availableClubs.length > 1 && (clubOpen || !club) && <>
           <Label>Choose a club</Label>
           <Actions>
             {availableClubs.map((value) => (
               <Action
                 key={value.id}
-                selected={value.id === clubId}
-                title={`${value.name}${value.id === clubId ? " ✓" : ""}`}
+                selected={value.id === club?.id}
+                title={value.name}
                 onPress={() => chooseClub(value.id)}
               />
             ))}
           </Actions>
-        </Card>
-      )}
+        </>}
+      </Card>
       {person.role === "member" && availableClubs.length === 0 && (
         <Note>
           This user has no club memberships. Staff can add memberships on the
@@ -287,7 +329,10 @@ export default function Preferences() {
             )}
           </Card>
           <Card>
-            <Label>2. Rank selected titles</Label>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: rankingOpen }} onPress={() => setRankingOpen(!rankingOpen)} style={styles.panelHeader}>
+              <Label>{rankingOpen ? "▾" : "▸"} 2. Rank selected titles · {selectedCount}</Label>
+            </Pressable>
+            {rankingOpen && <>
             <Note>
               Drag ⠿ to move a title, or use the arrows. Each ranking is shared
               for this user, club and cycle.
@@ -310,11 +355,13 @@ export default function Preferences() {
             {(ballot?.ranking.length ?? 0) === 0 && (
               <Note>No selected titles to rank.</Note>
             )}
+            </>}
           </Card>
           <Card>
-            <Label>3. Save choices</Label>
+            <Label>Saving choices · all clubs and cycles</Label>
             <Note>
-              {sync.status.state === "error"
+              {syncRefreshError ? `Unable to refresh choices: ${syncRefreshError}` :
+              sync.status.state === "error"
                 ? sync.status.message
                 : sync.status.state === "saving"
                   ? syncMessages.saving
@@ -325,23 +372,29 @@ export default function Preferences() {
             <Actions>
               <Action
                 tone="primary"
-                title="Save choices"
+                title={sync.status.state === "error" ? "Retry saving" : "Save choices now"}
                 disabled={
-                  !editable || !isMember || sync.status.state === "saving"
+                  sync.status.state === "saving" ||
+                  (sync.status.state !== "error" && (!editable || !isMember))
                 }
                 onPress={saveChoices}
               />
-              {sync.status.state === "error" && (
+              {(sync.status.state === "error" || syncRefreshError) && (
                 <Action
                   title="Refresh"
-                  onPress={() => void shared.refresh().catch(() => undefined)}
+                  disabled={syncRefreshing}
+                  onPress={refreshChoices}
                 />
               )}
             </Actions>
           </Card>
           {isLeader && (
             <Card>
-              <Label>Leader review · {club.name}</Label>
+              <Pressable accessibilityRole="button" accessibilityState={{ expanded: leaderOpen }} onPress={() => setLeaderOpen(!leaderOpen)} style={styles.panelHeader}>
+                <Label>{leaderOpen ? "▾" : "▸"} Leader review · {club.name}</Label>
+                <Note>{Object.prototype.hasOwnProperty.call(cycle.finalized, club.id) ? "Finalized" : "Not finalized"}</Note>
+              </Pressable>
+              {leaderOpen && <>
               <Note>
                 Member rankings are combined using points for each ranked
                 position. Ties are resolved by title ID. Finalizing saves a
@@ -360,6 +413,7 @@ export default function Preferences() {
                   </Text>
                   <Action
                     title="↑"
+                    accessibilityLabel={`Move ${data.titles.find((t) => t.id === titleId)?.name ?? "unavailable title"} up`}
                     disabled={!editable || shared.saving || index === 0}
                     onPress={() =>
                       setReview({
@@ -370,6 +424,7 @@ export default function Preferences() {
                   />
                   <Action
                     title="↓"
+                    accessibilityLabel={`Move ${data.titles.find((t) => t.id === titleId)?.name ?? "unavailable title"} down`}
                     disabled={
                       !editable || shared.saving || index === list.length - 1
                     }
@@ -385,7 +440,7 @@ export default function Preferences() {
               <Action
                 tone="primary"
                 title="Finalize club ranking"
-                disabled={!editable || shared.saving}
+                disabled={!editable || shared.saving || syncRefreshing || !!syncRefreshError || sync.status.state === "saving" || sync.status.state === "error" || !!shared.error}
                 onPress={() => {
                   const order =
                     reviewRanking ??
@@ -404,6 +459,10 @@ export default function Preferences() {
                   Leader review is available only while voting is open.
                 </Note>
               )}
+              {editable && (syncRefreshing || syncRefreshError || sync.status.state === "saving" || sync.status.state === "error") && (
+                <Note>Save all choices and refresh successfully before finalizing.</Note>
+              )}
+              </>}
             </Card>
           )}
         </>
@@ -411,10 +470,12 @@ export default function Preferences() {
       {staff && (
         <>
           <Card>
-            <Label>Clubs shown</Label>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: filtersOpen }} onPress={() => setFiltersOpen(!filtersOpen)} style={styles.panelHeader}>
+              <Label>{filtersOpen ? "▾" : "▸"} Clubs shown · {shownClubIds.length} of {data.clubs.length}</Label>
+            </Pressable>
             {data.clubs.length === 0 ? (
               <Note>No clubs exist yet.</Note>
-            ) : (
+            ) : filtersOpen ? (
               <>
                 <Actions>
                   <Action
@@ -449,15 +510,30 @@ export default function Preferences() {
                   ))}
                 </Actions>
               </>
-            )}
+            ) : null}
           </Card>
           <Card>
             <Label>Preferences · {cycle.name}</Label>
             <Note>
-              Selected titles and ranks for the clubs shown. Covers mark titles
-              already assigned in this cycle.
+              Club rankings use the finalized order where available, otherwise
+              the combined member rankings. Previously read titles are excluded.
             </Note>
-            <PriorityGridView
+            {shownClubIds.length === 0 ? <Note>Select clubs to see preferences.</Note> : shownClubIds.map((id) => {
+              const value = data.clubs.find((item) => item.id === id);
+              const validOrder = clubPreferences(data, cycle, id);
+              const expanded = expandedClubs.includes(id);
+              return <Actions key={id}>
+                <Text>
+                  {value?.name ?? "Unknown club"} · {Object.prototype.hasOwnProperty.call(cycle.finalized, id) ? "Finalized" : "Combined"}:{" "}
+                  {validOrder.length ? (expanded ? validOrder : validOrder.slice(0, 3)).map((titleId, index) =>
+                    `${index + 1}. ${data.titles.find((title) => title.id === titleId)?.name ?? "Unavailable title"}`).join(" · ") : "No ranked titles"}
+                </Text>
+                {validOrder.length > 3 && <Action title={expanded ? "Show fewer" : `Show all ${validOrder.length} ranks`} onPress={() =>
+                  setExpandedClubs(expanded ? expandedClubs.filter((clubId) => clubId !== id) : [...expandedClubs, id])} />}
+              </Actions>;
+            })}
+            <Action title={matrixOpen ? "Hide comparison grid" : "Compare clubs and assignments"} onPress={() => setMatrixOpen(!matrixOpen)} />
+            {matrixOpen && <PriorityGridView
               matrix={priorityMatrix(
                 data,
                 cycle,
@@ -471,23 +547,22 @@ export default function Preferences() {
               titleFor={(titleId) =>
                 data.titles.find((value) => value.id === titleId)
               }
-            />
+            />}
           </Card>
         </>
       )}
       {staff && (
         <Card>
-          <Label>Title demand</Label>
-          <Note>Interested clubs are counted once per title.</Note>
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: demandOpen }} onPress={() => setDemandOpen(!demandOpen)} style={styles.panelHeader}>
+            <Label>{demandOpen ? "▾" : "▸"} Title demand · {shownClubIds.length} clubs</Label>
+          </Pressable>
+          {demandOpen && <>
+          <Note>Interested clubs shown are counted once per title, regardless of finalization.</Note>
+          {shownClubIds.length === 0 && <Note>Select clubs to see title demand.</Note>}
+          {shownClubIds.length > 0 && demand.size === 0 && <Note>No selected titles for these clubs yet.</Note>}
           {data.titles.map((title) => {
-            const interested = new Set(
-              data.ballots
-                .filter(
-                  (b) =>
-                    b.cycleId === cycle.id && b.marks[title.id] === "selected",
-                )
-                .map((b) => b.clubId),
-            ).size;
+            const interested = demand.get(title.id) ?? 0;
+            if (!interested) return null;
             return (
               <Text key={title.id}>
                 {title.name}: {interested} clubs ·{" "}
@@ -495,6 +570,7 @@ export default function Preferences() {
               </Text>
             );
           })}
+          </>}
         </Card>
       )}
     </Page>

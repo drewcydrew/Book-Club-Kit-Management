@@ -74,6 +74,10 @@ For a physical device, use a server address reachable from the device, not `loca
 
 Choose a demo person on the User tab; switching to an admin exposes the Admin tab with user management and lending settings. The demo roles are only interface controls: anyone can switch users or call the API directly. Create users and manage their club memberships on the Admin tab; members enrol in clubs on the My clubs tab, then choose one of their clubs in Preferences to set cycle preferences. Open or refresh the relevant screens on a second device to see changes. Conflicting edits require a refresh before retrying. Deletion of referenced records is restricted. Resetting local selections does not delete shared database records.
 
+Preferences shows the selected cycle, voting deadline and club. Members can search and select titles, rank them, and see background saving status; club leaders can expand the review to finalize the club ranking. Staff and admins can filter clubs, compare their finalized or combined rankings and assignments, and view demand counted once per selected club.
+
+Schedule opens with upcoming published meetings across a member's clubs, with past meetings and club list or cycle-specific grid views also available. Staff and admins can filter the overview, expand assignment details, and use Schedule actions to preview, generate or publish a schedule. A preview is not saved until confirmed and must be regenerated if its cycle revision changes.
+
 In Catalog & kits, staff and admins can use **Add title** or **Add kit**, or an existing record's edit button, to open a dialog. Canceling a changed form asks before discarding it. If a save's outcome is uncertain or conflicts with another edit, refresh and inspect the shared catalog before reopening the form.
 
 The last administrator cannot be deleted or demoted. Memberships and users referenced by saved ballots cannot be removed; clearing individual marks does not remove a ballot record.
