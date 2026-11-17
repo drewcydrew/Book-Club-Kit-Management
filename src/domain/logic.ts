@@ -112,10 +112,14 @@ export function satisfactionDebt(data: Data, clubId: string): number {
 
 type DraftResult = { assignments: Assignment[]; problems: string[] };
 
-function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false): Generator<void, DraftResult, void> {
-  const retained = data.assignments.filter((a) => a.cycleId !== cycle.id || a.locked);
+// A scoped run only fills empty slots of one club, in the given months (all months when omitted).
+// Existing assignments are kept, and no other club's assignment is displaced.
+export type DraftScope = { clubId: string; months?: readonly string[] };
+
+function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope): Generator<void, DraftResult, void> {
+  const retained = scope ? [...data.assignments] : data.assignments.filter((a) => a.cycleId !== cycle.id || a.locked);
   const problems: string[] = [];
-  for (const locked of retained.filter((a) => a.cycleId === cycle.id)) {
+  for (const locked of retained.filter((a) => a.cycleId === cycle.id && a.locked && (!scope || a.clubId === scope.clubId))) {
     const problem = assignmentProblem(data, locked, retained);
     if (problem) problems.push(`Locked assignment ${locked.slotId}: ${problem}`);
   }
@@ -125,6 +129,9 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false)
   const debts = new Map(data.clubs.map((club) => [club.id, satisfactionDebt(data, club.id)]));
   const slots = [...cycle.slots].sort((a, b) => a.month.localeCompare(b.month) ||
     (debts.get(b.clubId) ?? 0) - (debts.get(a.clubId) ?? 0) || a.clubId.localeCompare(b.clubId) || a.id.localeCompare(b.id));
+  const targets = scope
+    ? slots.filter((slot) => slot.clubId === scope.clubId && (!scope.months || scope.months.includes(slot.month)))
+    : slots;
   const slotById = new Map(slots.map((slot) => [slot.id, slot]));
   const choices = new Map<string, Kit[]>();
   const priorities = new Map<string, string[]>();
@@ -194,7 +201,7 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false)
   for (const assignment of retained) insert(assignment);
 
   // Keep the original greedy solution as the lower bound on coverage.
-  for (const slot of slots) {
+  for (const slot of targets) {
     if (current.has(slot.id) || !windows.has(slot.id)) continue;
     for (const kit of choices.get(slot.clubId) ?? []) {
       yield;
@@ -203,7 +210,7 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false)
     }
   }
 
-  const maxDisplacements = 3;
+  const maxDisplacements = scope ? 0 : 3;
   type Budget = { remaining: number; limited: boolean };
   // A branch succeeds only after every displaced slot has been reassigned.
   function* search(pending: Slot[], protectedSlots: Set<string>, displaced: number, budget: Budget,
@@ -223,7 +230,10 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false)
           (value.ready <= addDays(other.due, data.library.bufferDays) &&
             other.ready <= addDays(value.due, data.library.bufferDays)))));
       if (blockers.some((other) => other.cycleId !== cycle.id || other.locked || protectedSlots.has(other.slotId))) continue;
-      if (displaced + blockers.length > maxDisplacements) { budget.limited = true; continue; }
+      if (displaced + blockers.length > maxDisplacements) {
+        if (maxDisplacements > 0) budget.limited = true;
+        continue;
+      }
       for (const blocker of blockers) remove(blocker);
       const valid = !assignmentProblems(data, value, related(value), kits).length;
       if (valid) {
@@ -245,7 +255,7 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false)
     let repaired = true;
     while (repaired && repairBudget.remaining > 0) {
       repaired = false;
-      for (const slot of slots) {
+      for (const slot of targets) {
         if (current.has(slot.id) || !windows.has(slot.id)) continue;
         const attempt: Budget = { remaining: Math.min(512, repairBudget.remaining), limited: false };
         const initialBudget = attempt.remaining;
@@ -288,7 +298,7 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false)
     }
     return false;
   }
-  const qualityBudget: Budget = { remaining: 5000, limited: false };
+  const qualityBudget: Budget = { remaining: scope ? 0 : 5000, limited: false };
   let improved = true;
   let qualityChanged = false;
   while (improved && qualityBudget.remaining > 0) {
@@ -325,26 +335,26 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false)
   }
   const assignments = [...retained.filter((item) => item.cycleId !== cycle.id || !slotById.has(item.slotId)),
     ...slots.map((slot) => current.get(slot.id)).filter((item): item is Assignment => !!item)];
-  for (const slot of slots) {
+  for (const slot of targets) {
     if (current.has(slot.id)) continue;
     problems.push(slotErrors.get(slot.id) ?? `${clubs.get(slot.clubId)?.name ?? slot.clubId} in ${slot.month}: no feasible preferred kit found.`);
   }
-  if ((repairBudget.limited || repairBudget.remaining <= 0) && slots.some((slot) => !current.has(slot.id) && windows.has(slot.id))) {
+  if ((repairBudget.limited || repairBudget.remaining <= 0) && targets.some((slot) => !current.has(slot.id) && windows.has(slot.id))) {
     problems.push('Schedule search was limited; further rearrangements may fill additional slots.');
   }
-  if (qualityBudget.limited || qualityBudget.remaining <= 0) problems.push('Fairness improvement was limited; further improvements may be possible.');
+  if (!scope && (qualityBudget.limited || qualityBudget.remaining <= 0)) problems.push('Fairness improvement was limited; further improvements may be possible.');
   return { assignments, problems };
 }
 
-export function draft(data: Data, cycle: Cycle, continueWithInvalidLocks = false): DraftResult {
-  const steps = draftSteps(data, cycle, continueWithInvalidLocks);
+export function draft(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope): DraftResult {
+  const steps = draftSteps(data, cycle, continueWithInvalidLocks, scope);
   let step = steps.next();
   while (!step.done) step = steps.next();
   return step.value;
 }
 
-export async function draftAsync(data: Data, cycle: Cycle, continueWithInvalidLocks = false): Promise<DraftResult> {
-  const steps = draftSteps(data, cycle, continueWithInvalidLocks);
+export async function draftAsync(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope): Promise<DraftResult> {
+  const steps = draftSteps(data, cycle, continueWithInvalidLocks, scope);
   for (;;) {
     for (let i = 0; i < 128; i++) {
       const step = steps.next();

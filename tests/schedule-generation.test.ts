@@ -115,6 +115,24 @@ test('preserves an invalid lock and avoids its kit when continuing', () => {
   assert.ok(result.problems.some((message) => message.startsWith('Locked assignment s1')));
 });
 
+test('scoped generation fills only the chosen club and months and keeps existing assignments', () => {
+  const data = scenario([['t1', 't2'], ['t1', 't2']]);
+  const cycle = data.cycles[0];
+  cycle.slots = [
+    { id: 'jan', clubId: 'c1', month: '2027-01', meeting: '2027-01-04' },
+    { id: 'feb', clubId: 'c1', month: '2027-02', meeting: '2027-02-01' },
+    { id: 'mar', clubId: 'c1', month: '2027-03', meeting: '2027-03-01' },
+    { id: 'other', clubId: 'c2', month: '2027-01', meeting: '2027-01-04' },
+  ];
+  const existing = { id: 'existing', cycleId: cycle.id, slotId: 'other', clubId: 'c2', kitId: 'k1',
+    ready: '2026-12-14', meeting: '2027-01-04', due: '2027-01-11', locked: false };
+  data.assignments = [existing];
+  const result = draft(data, cycle, false, { clubId: 'c1', months: ['2027-02'] });
+  assert.deepEqual(result.assignments.find((item) => item.id === existing.id), existing);
+  assert.deepEqual(result.assignments.filter((item) => item.cycleId === cycle.id && item.id !== existing.id).map((item) => item.slotId), ['feb']);
+  assert.ok(!result.problems.some((message) => message.includes('2027-01') || message.includes('2027-03')));
+});
+
 test('treats the exact turnaround-buffer boundary as a cross-cycle conflict', () => {
   const data = scenario([['t1', 't2']]);
   const cycle = data.cycles[0];

@@ -1,7 +1,7 @@
 import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { assignmentProblems, draftAsync, id, meetingFor, windowFor } from '../domain/logic';
+import { assignmentProblems, draftAsync, id, meetingFor, windowFor, type DraftScope } from '../domain/logic';
 import { scheduleHasChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
 import { scheduleSelectionPending } from '../domain/schedule-pending';
@@ -164,14 +164,14 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     else changeCycle();
   }
 
-  async function regenerate() {
+  async function regenerate(scope?: DraftScope) {
     if (!currentCycle || (stale && dirty) || generatingRef.current) return;
     const source = workspace && (dirty || !stale) ? workspace : createWorkspace(currentCycle);
     const allAssignments = [...source.base.assignments.filter((a) => a.cycleId !== source.cycle.id), ...source.assignments];
     generatingRef.current = true;
-    setGenerating(true); setMessage('Generating schedule...');
+    setGenerating(true); setMessage(scope ? 'Generating assignments...' : 'Generating schedule...');
     try {
-      const result = await draftAsync({ ...source.base, assignments: allAssignments }, source.cycle, true);
+      const result = await draftAsync({ ...source.base, assignments: allAssignments }, source.cycle, true, scope);
       setWorkspace({ ...source, assignments: result.assignments.filter((a) => a.cycleId === source.cycle.id), generationProblems: result.problems });
       setValidation(null); setMessage(''); closeSlot();
     } catch (error: unknown) {
@@ -186,6 +186,14 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     if (busy || generatingRef.current || (stale && dirty)) return;
     if (dirty || hasPending) setPendingAction({ description: 'Regenerate and replace unlocked local assignments and unapplied selections?', confirmLabel: 'Confirm regenerate', run: () => { void regenerate(); } });
     else void regenerate();
+  }
+
+  // Keeps every existing assignment and only fills empty slots of the scoped club and months.
+  function requestGenerateClub(scope: DraftScope) {
+    if (busy || generatingRef.current || (stale && dirty)) return;
+    const run = () => { void regenerate(scope); };
+    if (hasPending) setPendingAction({ description: 'Generate assignments and discard unapplied selections?', confirmLabel: 'Confirm generate', run });
+    else run();
   }
 
   async function save(token: string) {
@@ -313,7 +321,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
 
   return {
     workspace, proposalData, dirty, stale, busy, message, validation, selectedSlotId, pendingAction, activePicker, hasPending,
-    selectSlot, closeSlot, requestCloseSlot, requestDiscard, requestCycleChange, requestGenerate, validate, confirmSave, renderSelectedSlot,
+    selectSlot, closeSlot, requestCloseSlot, requestDiscard, requestCycleChange, requestGenerate, requestGenerateClub, validate, confirmSave, renderSelectedSlot,
     cancelValidation: () => setValidation(null),
     confirmAction: () => { const action = pendingAction; setPendingAction(null); action?.run(); },
     cancelAction: () => setPendingAction(null),
