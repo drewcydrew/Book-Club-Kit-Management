@@ -8,7 +8,7 @@ import { seed } from '../src/domain/seed';
 import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
-import { clubPriorities, clubStatuses, groupSlotsByMonth, memberVotes, monthsInRange, priorityMatrix, scheduleGrid } from '../src/domain/cycle-overview';
+import { clubPriorities, clubStatuses, groupSlotsByMonth, memberSchedule, memberVotes, monthsInRange, priorityMatrix, scheduleGrid, titleDemand } from '../src/domain/cycle-overview';
 
 test('meetings group by month in date order and filter by club', () => {
   const slots = [
@@ -106,6 +106,8 @@ test('schedule grid covers every cycle month per club and flags clashes on assig
 
 test('priority matrix ranks selected titles per club, flags contested titles and shows assigned months', () => {
   const data = {
+    clubs: [{ id: 'c1', history: [] }, { id: 'c2', history: [] }],
+    titles: [{ id: 't1' }, { id: 't2' }, { id: 't3' }],
     kits: [{ id: 'k1', titleId: 't1' }, { id: 'k2', titleId: 't2' }],
     ballots: [
       { cycleId: 'cy', clubId: 'c1', personId: 'p1', marks: { t1: 'selected', t2: 'selected', t3: 'wont' }, ranking: ['t2', 't1'], revision: 1 },
@@ -124,6 +126,70 @@ test('priority matrix ranks selected titles per club, flags contested titles and
   assert.deepEqual(t2.cells.map((cell) => [cell.rank, cell.month]), [[1, '2026-02'], [null, null]]);
   assert.equal(t2.cells[0].assignment?.id, 'a1');
   assert.equal(t1.cells[0].assignment, undefined);
+});
+
+test('schedule preview checks conflicts against proposed assignments, not replaced saved assignments', () => {
+  const cycle = { id: 'cy', startsOn: '2026-01-01', endsOn: '2026-01-31', status: 'drafted',
+    slots: [{ id: 's1', clubId: 'c1', month: '2026-01', meeting: '2026-01-10' }] } as Cycle;
+  const saved = { id: 'old', cycleId: 'cy', slotId: 's1', clubId: 'c1', kitId: 'k1',
+    ready: '2026-01-05', meeting: '2026-01-10', due: '2026-01-20', locked: false };
+  const proposed = { ...saved, id: 'new', kitId: 'k2' };
+  const data = { library: { bufferDays: 0 }, cycles: [cycle], clubs: [{ id: 'c1', history: [] }],
+    kits: [{ id: 'k1', titleId: 't1', status: 'available' }, { id: 'k2', titleId: 't2', status: 'available' }],
+    assignments: [saved] } as unknown as Data;
+  assert.equal(scheduleGrid(data, cycle, ['c1'], [proposed]).rows[0].cells[0].problem, null);
+});
+
+test('priority matrix combines member votes and respects finalized rankings and history', () => {
+  const data = {
+    clubs: [{ id: 'c1', history: ['old'] }, { id: 'c2', history: [] }],
+    titles: [{ id: 'a' }, { id: 'b' }, { id: 'old' }],
+    kits: [],
+    ballots: [
+      { cycleId: 'cy', clubId: 'c1', personId: 'p1', marks: { a: 'selected', b: 'selected', old: 'selected' }, ranking: ['a', 'b', 'old'] },
+      { cycleId: 'cy', clubId: 'c1', personId: 'p2', marks: { b: 'selected' }, ranking: ['b'] },
+      { cycleId: 'cy', clubId: 'c2', personId: 'p3', marks: { a: 'selected' }, ranking: ['a'] },
+    ],
+  } as unknown as Data;
+  const cycle = { id: 'cy', slots: [], finalized: {} } as unknown as Cycle;
+  const combined = priorityMatrix(data, cycle, ['c1', 'c2'], []);
+  assert.equal(combined.rows.find((row) => row.titleId === 'a')?.cells[0].rank, 1);
+  assert.equal(combined.rows.find((row) => row.titleId === 'b')?.cells[0].rank, 2);
+  assert.equal(combined.rows.some((row) => row.titleId === 'old'), false);
+  cycle.finalized = { c1: ['b', 'old', 'missing', 'a'], c2: [] };
+  const finalized = priorityMatrix(data, cycle, ['c1', 'c2'], []);
+  assert.equal(finalized.rows.find((row) => row.titleId === 'b')?.cells[0].rank, 1);
+  assert.equal(finalized.rows.find((row) => row.titleId === 'a')?.cells[1].rank, null);
+  assert.equal(finalized.rows.some((row) => row.titleId === 'missing'), false);
+});
+
+test('title demand counts each selected club once regardless of finalization', () => {
+  const data = { ballots: [
+    { cycleId: 'cy', clubId: 'c1', marks: { a: 'selected' } },
+    { cycleId: 'cy', clubId: 'c1', marks: { a: 'selected', b: 'read' } },
+    { cycleId: 'cy', clubId: 'c2', marks: { a: 'selected', b: 'selected' } },
+    { cycleId: 'other', clubId: 'c2', marks: { b: 'selected' } },
+  ] } as unknown as Data;
+  assert.deepEqual([...titleDemand(data, 'cy', ['c1'])], [['a', 1]]);
+  assert.deepEqual([...titleDemand(data, 'cy', ['c1', 'c2'])], [['a', 2], ['b', 1]]);
+  assert.equal(titleDemand(data, 'cy', []).size, 0);
+});
+
+test('member schedule filters published enrolled assignments and orders upcoming and past', () => {
+  const data = {
+    cycles: [{ id: 'cy1', status: 'published' }, { id: 'cy2', status: 'published' }, { id: 'draft', status: 'drafted' }],
+    assignments: [
+      { id: 'future', cycleId: 'cy2', clubId: 'c2', meeting: '2026-03-01' },
+      { id: 'today', cycleId: 'cy1', clubId: 'c1', meeting: '2026-02-01' },
+      { id: 'tie', cycleId: 'cy2', clubId: 'c1', meeting: '2026-02-01' },
+      { id: 'past', cycleId: 'cy1', clubId: 'c1', meeting: '2026-01-01' },
+      { id: 'private', cycleId: 'draft', clubId: 'c1', meeting: '2026-03-01' },
+      { id: 'other', cycleId: 'cy1', clubId: 'c3', meeting: '2026-03-01' },
+    ],
+  } as unknown as Data;
+  assert.deepEqual(memberSchedule(data, ['c1', 'c2'], '2026-02-01', 'upcoming').map((a) => a.id), ['today', 'tie', 'future']);
+  assert.deepEqual(memberSchedule(data, ['c1'], '2026-02-01', 'past').map((a) => a.id), ['past']);
+  assert.deepEqual(memberSchedule(data, [], '2026-02-01', 'upcoming'), []);
 });
 
 test('monthsInRange lists every month inclusively, across year boundaries', () => {
@@ -163,7 +229,8 @@ test('background ballot sync sends the latest draft with the latest server revis
 
 test('a failed ballot sync keeps the draft so a later flush retries it', async () => {
   let attempts = 0;
-  const sync = new BallotSync(() => undefined);
+  const statuses: SyncStatus[] = [];
+  const sync = new BallotSync((status) => statuses.push(status));
   sync.configure(async (ballot) => {
     attempts += 1;
     if (attempts === 1) throw new Error('Conflict');
@@ -171,8 +238,27 @@ test('a failed ballot sync keeps the draft so a later flush retries it', async (
   }, () => undefined);
   sync.enqueue(emptyBallot('cycle', 'club', 'person'));
   await assert.rejects(sync.flush(), /Conflict/);
+  assert.equal(statuses.at(-1)?.key, 'cycle:club:person');
   await sync.flush();
   assert.equal(attempts, 2);
+});
+
+test('ballot sync identifies a failed club and retains drafts for other clubs', async () => {
+  const statuses: SyncStatus[] = [];
+  const sent: string[] = [];
+  let first = true;
+  const sync = new BallotSync((status) => statuses.push(status));
+  sync.configure(async (ballot) => {
+    sent.push(ballot.clubId);
+    if (first) { first = false; throw new Error('Conflict'); }
+    return { ...ballot, revision: ballot.revision + 1 };
+  }, () => undefined);
+  sync.enqueue(emptyBallot('cycle', 'c1', 'person'));
+  sync.enqueue(emptyBallot('cycle', 'c2', 'person'));
+  await assert.rejects(sync.flush(), /Conflict/);
+  assert.equal(statuses.at(-1)?.key, 'cycle:c1:person');
+  await sync.flush();
+  assert.deepEqual(sent, ['c1', 'c2', 'c1']);
 });
 
 test('aggregates ballots and excludes club history', () => {

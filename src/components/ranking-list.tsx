@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { PanResponder, Platform, StyleSheet, Text, View } from 'react-native';
+import { PanResponder, Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Action } from './ui';
 import { TitleCover } from './title-cover';
 
@@ -13,21 +13,24 @@ export function RankingList({ items, disabled, onReorder }: {
   onReorder: (from: number, to: number) => void;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
+  const { fontScale } = useWindowDimensions();
+  const rowHeight = Math.max(ROW_HEIGHT, Math.ceil(ROW_HEIGHT * fontScale));
   const last = items.length - 1;
-  const targetFor = (index: number, dy: number) => Math.min(last, Math.max(0, index + Math.round(dy / ROW_HEIGHT)));
+  const targetFor = (index: number, dy: number) => Math.min(last, Math.max(0, index + Math.round(dy / rowHeight)));
 
   function offsetFor(index: number): number {
     if (!drag) return 0;
     if (index === drag.from) return drag.dy;
-    if (drag.from < drag.to && index > drag.from && index <= drag.to) return -ROW_HEIGHT;
-    if (drag.to < drag.from && index >= drag.to && index < drag.from) return ROW_HEIGHT;
+    if (drag.from < drag.to && index > drag.from && index <= drag.to) return -rowHeight;
+    if (drag.to < drag.from && index >= drag.to && index < drag.from) return rowHeight;
     return 0;
   }
 
-  return <View style={{ height: items.length * ROW_HEIGHT }}>
+  return <View style={{ height: items.length * rowHeight }}>
     {items.map((item, index) => <RankRow
       key={item.id}
       index={index}
+      rowHeight={rowHeight}
       label={item.label}
       coverUrl={item.coverUrl}
       isbn={item.isbn}
@@ -49,8 +52,8 @@ export function RankingList({ items, disabled, onReorder }: {
   </View>;
 }
 
-function RankRow({ index, label, coverUrl, isbn, disabled, offset, active, canMoveUp, canMoveDown, onDragStart, onDragMove, onDragEnd, onDragCancel, onMoveUp, onMoveDown }: {
-  index: number; label: string; coverUrl: string | null; isbn: string; disabled: boolean; offset: number; active: boolean;
+function RankRow({ index, rowHeight, label, coverUrl, isbn, disabled, offset, active, canMoveUp, canMoveDown, onDragStart, onDragMove, onDragEnd, onDragCancel, onMoveUp, onMoveDown }: {
+  index: number; rowHeight: number; label: string; coverUrl: string | null; isbn: string; disabled: boolean; offset: number; active: boolean;
   canMoveUp: boolean; canMoveDown: boolean;
   onDragStart: () => void; onDragMove: (dy: number) => void; onDragEnd: (dy: number) => void; onDragCancel: () => void;
   onMoveUp: () => void; onMoveDown: () => void;
@@ -93,21 +96,21 @@ function RankRow({ index, label, coverUrl, isbn, disabled, offset, active, canMo
   };
   const handleProps = Platform.OS === 'web' ? webHandle : handle.panHandlers;
   return <View
-    style={[styles.row, { top: index * ROW_HEIGHT, transform: [{ translateY: offset }] }, active && styles.activeRow]}>
+    style={[styles.row, { top: index * rowHeight, height: rowHeight, transform: [{ translateY: offset }] }, active && styles.activeRow]}>
     <View {...handleProps} accessibilityLabel={`Drag ${label} to reorder`} style={[styles.handle, disabled && styles.handleDisabled, Platform.OS === 'web' && styles.webHandle]}>
       <Text style={styles.handleText}>⠿</Text>
     </View>
     <Text style={styles.rank}>{index + 1}.</Text>
     <TitleCover coverUrl={coverUrl} isbn={isbn} style={styles.thumb} />
-    <Text numberOfLines={1} style={styles.label}>{label}</Text>
-    <Action title="↑" disabled={disabled || !canMoveUp} onPress={onMoveUp} />
-    <Action title="↓" disabled={disabled || !canMoveDown} onPress={onMoveDown} />
+    <Text numberOfLines={2} style={styles.label}>{label}</Text>
+    <Action title="↑" accessibilityLabel={`Move ${label} up`} disabled={disabled || !canMoveUp} onPress={onMoveUp} />
+    <Action title="↓" accessibilityLabel={`Move ${label} down`} disabled={disabled || !canMoveDown} onPress={onMoveDown} />
   </View>;
 }
 
 const styles = StyleSheet.create({
   row: {
-    position: 'absolute', left: 0, right: 0, height: ROW_HEIGHT, flexDirection: 'row',
+    position: 'absolute', left: 0, right: 0, flexDirection: 'row',
     alignItems: 'center', gap: 8, paddingHorizontal: 4, backgroundColor: '#fffefa',
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#d6ddd9',
   },

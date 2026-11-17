@@ -1,11 +1,10 @@
 import React from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { TitleCover } from './title-cover';
 import type { PriorityCell, PriorityMatrix } from '../domain/cycle-overview';
 import type { Title } from '../domain/model';
 
 const CELL_WIDTH = 96;
-const COVER_HEIGHT = 144;
+const CELL_HEIGHT = 44;
 const TITLE_WIDTH = 150;
 const CONTESTED = '#b45309';
 
@@ -44,10 +43,10 @@ export function PriorityGridView({ matrix, clubNameFor, titleFor }: PriorityGrid
 function PriorityCellView({ cell, title, clubName }: { cell: PriorityCell; title: Title | undefined; clubName: string }) {
   const cellStyle = { width: CELL_WIDTH, marginRight: 8 };
   const rankLabel = cell.rank === null ? 'not ranked' : `rank ${cell.rank}`;
-  const label = `${clubName}, ${title?.name ?? 'title'}, ${rankLabel}${cell.month ? `, scheduled ${cell.month}` : ''}`;
+  const label = `${clubName}, ${title?.name ?? 'title'}, ${rankLabel}${cell.assignment ? ', assigned' : ''}${cell.month ? `, scheduled ${cell.month}` : ''}`;
   if (cell.rank === null && !cell.assignment) {
     return <View style={cellStyle} accessibilityLabel={label}>
-      <View style={{ height: COVER_HEIGHT, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ minHeight: CELL_HEIGHT, alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ color: '#9ca3af', fontSize: 12 }}>—</Text>
       </View>
     </View>;
@@ -59,10 +58,6 @@ function PriorityCellView({ cell, title, clubName }: { cell: PriorityCell; title
       </View>}
       {cell.month && <Text style={{ fontSize: 11, color: '#374151', marginLeft: 6 }}>{cell.month}</Text>}
     </View>
-    {cell.assignment && title
-      ? <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ width: CELL_WIDTH - 4, height: COVER_HEIGHT, marginRight: 0, marginBottom: 0 }} />
-      : <View style={{ height: COVER_HEIGHT, borderRadius: 6, borderWidth: 1, borderStyle: 'dashed', borderColor: '#9ca3af', alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#6b7280', fontSize: 12 }}>Ranked</Text>
-      </View>}
+    <Text style={{ color: '#465c56', fontSize: 12 }}>{cell.assignment ? 'Assigned' : 'Ranked'}</Text>
   </View>;
 }

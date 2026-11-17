@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
 import { ScheduleGridView } from '../components/schedule-grid';
 import { TitleCover } from '../components/title-cover';
-import { scheduleGrid } from '../domain/cycle-overview';
+import { memberSchedule, scheduleGrid } from '../domain/cycle-overview';
+import { today } from '../domain/dates';
 import { assignmentProblem, draft } from '../domain/logic';
 import type { Assignment } from '../domain/model';
 import { saveSchedule } from '../state/api';
@@ -34,34 +35,44 @@ export default function Schedule() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
   const [selectedClubId, setSelectedClubId] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [preview, setPreview] = useState<{ assignments: Assignment[]; problems: string[] } | null>(null);
+  const [viewMode, setViewMode] = useState<'overview' | 'upcoming' | 'past' | 'grid' | 'list'>(person?.role === 'member' ? 'upcoming' : 'overview');
+  const [preview, setPreview] = useState<{ cycleId: string; revision: number; assignments: Assignment[]; problems: string[] } | null>(null);
   const [gridClubIds, setGridClubIds] = useState<string[] | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [cycleOpen, setCycleOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [expandedClubs, setExpandedClubs] = useState<string[]>([]);
   const staff = person?.role === 'staff' || person?.role === 'admin';
+  const mode = staff ? (viewMode === 'upcoming' || viewMode === 'past' ? 'overview' : viewMode) : (viewMode === 'overview' ? 'upcoming' : viewMode);
   const personId = person?.id;
-  const enrolledClubIds = useMemo(() => data.memberships.filter((membership) => membership.personId === personId).map((membership) => membership.clubId), [data.memberships, personId]);
+  const enrolledClubIds = data.memberships.filter((membership) => membership.personId === personId).map((membership) => membership.clubId);
   const cycleId = cycle?.id;
-  const clubChoices = useMemo(() => staff ? data.clubs : data.clubs.filter((club) => enrolledClubIds.includes(club.id)), [data.clubs, enrolledClubIds, staff]);
+  const clubChoices = staff ? data.clubs : data.clubs.filter((club) => enrolledClubIds.includes(club.id));
   const clubId = clubChoices.find((club) => club.id === selectedClubId)?.id ?? clubChoices[0]?.id;
-  const visibleAssignments = useMemo(() => data.assignments.filter((a) => staff
+  const visibleAssignments = data.assignments.filter((a) => staff
     ? a.cycleId === cycleId
-    : enrolledClubIds.includes(a.clubId) && data.cycles.some((c) => c.id === a.cycleId && c.status === 'published')),
-  [data.assignments, data.cycles, cycleId, enrolledClubIds, staff]);
-  const assignments = useMemo(() => visibleAssignments
+    : enrolledClubIds.includes(a.clubId) && data.cycles.some((c) => c.id === a.cycleId && c.status === 'published'));
+  const assignments = visibleAssignments
     .filter((a) => a.clubId === clubId)
-    .sort((a, b) => a.meeting.localeCompare(b.meeting) || a.cycleId.localeCompare(b.cycleId) || a.id.localeCompare(b.id)),
-  [visibleAssignments, clubId]);
-  const problems = useMemo(() => new Map(assignments.map((a) => [a.id, assignmentProblem(data, a, data.assignments) ?? null] as const)), [assignments, data]);
-  const kitById = useMemo(() => new Map(data.kits.map((kit) => [kit.id, kit] as const)), [data.kits]);
-  const titleById = useMemo(() => new Map(data.titles.map((title) => [title.id, title] as const)), [data.titles]);
-  const clubById = useMemo(() => new Map(data.clubs.map((club) => [club.id, club] as const)), [data.clubs]);
-  const gridCycle = staff ? cycle : data.cycles.find((c) => c.status === 'published' && data.assignments.some((a) => a.cycleId === c.id && enrolledClubIds.includes(a.clubId)));
+    .sort((a, b) => a.meeting.localeCompare(b.meeting) || a.cycleId.localeCompare(b.cycleId) || a.id.localeCompare(b.id));
+  const kitById = new Map(data.kits.map((kit) => [kit.id, kit] as const));
+  const titleById = new Map(data.titles.map((title) => [title.id, title] as const));
+  const clubById = new Map(data.clubs.map((club) => [club.id, club] as const));
+  const publishedCycles = data.cycles.filter((c) => c.status === 'published' &&
+    (c.slots.some((slot) => enrolledClubIds.includes(slot.clubId)) ||
+      data.assignments.some((a) => a.cycleId === c.id && enrolledClubIds.includes(a.clubId))));
+  const gridCycle = staff ? cycle : publishedCycles.find((c) => c.id === selectedId) ?? publishedCycles[0];
   const gridClubs = gridClubIds ? clubChoices.filter((club) => gridClubIds.includes(club.id)) : clubChoices;
+  const problemClubs = new Set(mode === 'list' ? [clubId] : gridClubs.map((club) => club.id));
+  const problems = new Map((staff ? visibleAssignments.filter((assignment) => problemClubs.has(assignment.clubId)) : [])
+    .map((assignment) => [assignment.id, assignmentProblem(data, assignment, data.assignments) ?? null] as const));
   const gridClubKey = gridClubs.map((club) => club.id).join('|');
-  const grid = useMemo(() => gridCycle ? scheduleGrid(data, gridCycle, gridClubKey ? gridClubKey.split('|') : [], data.assignments.filter((a) => a.cycleId === gridCycle.id)) : null,
-    [data, gridCycle, gridClubKey]);
-  const previewGrid = useMemo(() => preview && cycle ? scheduleGrid(data, cycle, gridClubKey ? gridClubKey.split('|') : [], preview.assignments) : null,
-    [data, cycle, gridClubKey, preview]);
+  const grid = mode === 'grid' && gridCycle
+    ? scheduleGrid(data, gridCycle, gridClubKey ? gridClubKey.split('|') : [], data.assignments.filter((a) => a.cycleId === gridCycle.id))
+    : null;
+  const previewGrid = preview && cycle && staff ? scheduleGrid(data, cycle, gridClubKey ? gridClubKey.split('|') : [], preview.assignments) : null;
+  const memberMeetings = !staff && (mode === 'upcoming' || mode === 'past')
+    ? memberSchedule(data, gridClubKey ? gridClubKey.split('|') : [], today(), mode) : [];
   if (!person) return <Page title="Schedule"><Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
   if (!cycle) return <Page title="Schedule"><Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = data.assignments.filter((assignment) => assignment.cycleId === cycle.id);
@@ -132,11 +143,11 @@ export default function Schedule() {
     </View>;
   }
 
-  function persist(assignmentsToSave: Assignment[], publish: boolean, success: string, problems: string[] = []) {
+  function persist(assignmentsToSave: Assignment[], publish: boolean, success: string, problems: string[] = []): Promise<boolean> {
     setMessage('');
-    void shared.mutate(() => saveSchedule(cycle.id, assignmentsToSave.filter((a) => a.cycleId === cycle.id), cycle.revision, publish))
-      .then(() => { setMessages(problems); setMessage(success); })
-      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to save schedule.'));
+    return shared.mutate(() => saveSchedule(cycle.id, assignmentsToSave.filter((a) => a.cycleId === cycle.id), cycle.revision, publish))
+      .then(() => { setMessages(problems); setMessage(success); return true; })
+      .catch((error: unknown) => { setMessage(error instanceof Error ? error.message : 'Unable to save schedule.'); return false; });
   }
 
   function generate() {
@@ -159,17 +170,61 @@ export default function Schedule() {
   }
 
   return <Page title="Schedule">
-    {staff && <Card><Label>Choose a cycle</Label><Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} title={`${value.name}${value.id === cycle.id ? ' ✓' : ''}`} onPress={() => {
-      setSelectedId(value.id); setMessages([]); setPreview(null); setReplacement(null); setSwap(null); setExpandedId(null); setShowAllMessages(false);
-    }} />)}</Actions></Card>}
-    <Card><Label>View</Label><Actions>
-      <Action selected={viewMode === 'grid'} title="Grid" onPress={() => setViewMode('grid')} />
-      <Action selected={viewMode === 'list'} title="List by club" onPress={() => setViewMode('list')} />
-    </Actions></Card>
-    {viewMode !== 'list' ? <Card><Label>{staff ? 'Clubs shown' : 'Your clubs'}</Label>
+    <Card>
+      <Label>{staff ? `${cycle.name} · ${cycle.status}` : 'Your published schedule'}</Label>
+      <Actions>
+        {staff && data.cycles.length > 1 && <Action title={cycleOpen ? 'Close cycles' : 'Change cycle'} onPress={() => setCycleOpen(!cycleOpen)} />}
+        {staff && <Action title={toolsOpen ? 'Hide schedule actions' : 'Schedule actions'} onPress={() => setToolsOpen(!toolsOpen)} />}
+      </Actions>
+      {staff && cycleOpen && <Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} disabled={shared.saving} title={value.name} onPress={() => {
+        if (value.id !== cycle.id) {
+          setSelectedId(value.id); setMessages([]); setMessage(preview ? 'Preview discarded after changing cycle.' : '');
+          setPreview(null); setReplacement(null); setSwap(null); setExpandedId(null); setShowAllMessages(false);
+        }
+        setCycleOpen(false);
+      }} />)}</Actions>}
+      {staff && toolsOpen && <>
+        <Note>Preview uses current preferences and availability. Changes are checked by the server; loans include a {data.library.bufferDays}-day turnaround buffer.</Note>
+        <Actions>
+          <Action title="Preview schedule" disabled={shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => {
+            const result = draft(data, cycle);
+            setPreview({ cycleId: cycle.id, revision: cycle.revision, assignments: result.assignments, problems: result.problems });
+            setMessages([]); setMessage('');
+          }} />
+          <Action title="Generate / re-run shared draft" disabled={!!preview || shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={generate} />
+          <Action tone="primary" title="Publish schedule" disabled={!!preview || shared.saving || cycle.status !== 'drafted'} onPress={publish} />
+          <Action title="Refresh shared schedule" disabled={shared.saving} onPress={() => { void shared.refresh().catch((error: unknown) => setMessages([error instanceof Error ? error.message : 'Unable to refresh.'])); }} />
+        </Actions>
+      </>}
+      {staff && preview && <>
+        <Note>{preview.revision !== cycle.revision || preview.cycleId !== cycle.id ? 'This preview is out of date. Discard it and preview again.' : 'Preview only: nothing is saved until you confirm.'}</Note>
+        <Actions>
+          <Action tone="primary" title="Confirm and save draft" disabled={shared.saving || preview.revision !== cycle.revision || preview.cycleId !== cycle.id || preview.problems.some((problem) => problem.startsWith('Locked assignment'))} onPress={() => {
+            void persist(preview.assignments, false, 'Shared schedule draft saved.', preview.problems).then((saved) => { if (saved) setPreview(null); });
+          }} />
+          <Action title="Discard preview" disabled={shared.saving} onPress={() => setPreview(null)} />
+        </Actions>
+        {preview.problems.map((problem, index) => <Text key={`${problem}-${index}`} style={{ color: '#a22525' }}>{problem}</Text>)}
+      </>}
+      {staff && (showAllMessages ? messages : messages.slice(0, 5)).map((item, index) => <Text key={`${item}-${index}`} style={{ color: '#a22525' }}>{item}</Text>)}
+      {staff && messages.length > 5 && <Action title={showAllMessages ? 'Show fewer messages' : `Show all messages (${messages.length})`} onPress={() => setShowAllMessages(!showAllMessages)} />}
+      {staff && message ? <Text>{message}</Text> : null}
+      <Actions>
+        {staff ? <Action selected={mode === 'overview'} title="Overview" onPress={() => setViewMode('overview')} /> : <>
+          <Action selected={mode === 'upcoming'} title="Upcoming" onPress={() => setViewMode('upcoming')} />
+          <Action selected={mode === 'past'} title="Past" onPress={() => setViewMode('past')} />
+        </>}
+        <Action selected={mode === 'grid'} title="Grid" onPress={() => setViewMode('grid')} />
+        <Action selected={mode === 'list'} title="List by club" onPress={() => setViewMode('list')} />
+      </Actions>
+    </Card>
+    {mode !== 'list' ? <Card>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: filtersOpen }} onPress={() => setFiltersOpen(!filtersOpen)}>
+        <Label>{filtersOpen ? '▾' : '▸'} {staff ? 'Clubs shown' : 'Your clubs'} · {gridClubs.length} of {clubChoices.length}</Label>
+      </Pressable>
       {clubChoices.length === 0
         ? <Note>{staff ? 'No clubs exist yet.' : 'You are not enrolled in any clubs. Enrol in a club on the My clubs tab.'}</Note>
-        : <>
+        : filtersOpen && <>
           <Actions>
             <Action title={gridClubs.length === clubChoices.length ? 'Hide all' : 'Show all'} onPress={() => {
               setGridClubIds(gridClubs.length === clubChoices.length ? [] : clubChoices.map((club) => club.id));
@@ -180,7 +235,6 @@ export default function Schedule() {
             setGridClubIds(current.includes(value.id) ? current.filter((id) => id !== value.id) : [...current, value.id]);
           }} />)}</Actions>
         </>}
-      {staff && <Note>Tap a cover to see its details. Clashes are marked with a red &quot;!&quot;. Expanded details include the same lock, replacement and swap controls as the list view.</Note>}
     </Card> : <Card><Label>Choose a club</Label>
       {clubChoices.length === 0
         ? <Note>{staff ? 'No clubs exist yet.' : 'You are not enrolled in any clubs. Enrol in a club on the My clubs tab.'}</Note>
@@ -188,35 +242,64 @@ export default function Schedule() {
           setSelectedClubId(value.id); setExpandedId(null);
         }} />)}</Actions>}
     </Card>}
-    {viewMode === 'grid' && staff && <>
-      <Card><Label>{cycle.name} · {cycle.status}</Label>
-        <Note>Preview a proposed schedule from current preferences. Nothing is saved until you confirm.</Note>
-        <Actions>
-          <Action title="Preview schedule" disabled={shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => {
-            const result = draft(data, cycle);
-            setPreview({ assignments: result.assignments, problems: result.problems });
-            setMessages([]); setMessage('');
-          }} />
-          {preview && <>
-            <Action tone="primary" title="Confirm and save draft" disabled={shared.saving || preview.problems.some((problem) => problem.startsWith('Locked assignment'))} onPress={() => {
-              persist(preview.assignments, false, 'Shared schedule draft saved.', preview.problems);
-              setPreview(null);
-            }} />
-            <Action title="Discard preview" onPress={() => setPreview(null)} />
-          </>}
-        </Actions>
-        {preview && <Note>This is a preview. Nothing is saved until you confirm.</Note>}
-        {preview?.problems.map((problem, index) => <Text key={`${problem}-${index}`} style={{ color: '#a22525' }}>{problem}</Text>)}
-        {message ? <Text>{message}</Text> : null}
-      </Card>
-      {preview && previewGrid && <>
+    {staff && preview && previewGrid && <>
         <Label>Proposed schedule</Label>
         <ScheduleGridView grid={previewGrid} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
           titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
           expandedId={null} showProblems onToggle={() => undefined} renderDetail={() => null} />
-      </>}
     </>}
-    {viewMode === 'grid' && (grid
+    {!staff && (mode === 'upcoming' || mode === 'past') && <Card>
+      <Label>{mode === 'upcoming' ? 'Upcoming meetings' : 'Past meetings'}</Label>
+      {clubChoices.length > 0 && gridClubs.length === 0 ? <Note>Select clubs to see meetings.</Note>
+        : clubChoices.length > 0 && publishedCycles.length === 0 ? <Note>No published schedules are available for your clubs yet.</Note>
+          : clubChoices.length > 0 && memberMeetings.length === 0 ? <Note>No {mode} meetings for the selected clubs.</Note> : null}
+      {memberMeetings.map((assignment) => {
+        const kit = kitById.get(assignment.kitId);
+        const title = titleById.get(kit?.titleId ?? '');
+        const expanded = expandedId === assignment.id;
+        return <View key={assignment.id}>
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpandedId(expanded ? null : assignment.id)} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d6ddd9' }}>
+            <Text style={{ fontWeight: '700', color: '#183a36' }}>{assignment.meeting} · {title?.name ?? 'Unavailable title'}</Text>
+            <Text>{clubById.get(assignment.clubId)?.name ?? 'Unavailable club'} · Ready {assignment.ready} · Due {assignment.due}</Text>
+          </Pressable>
+          {expanded && renderDetail(assignment)}
+        </View>;
+      })}
+    </Card>}
+    {staff && mode === 'overview' && <Card>
+      <Label>Schedule overview</Label>
+      {gridClubs.length === 0 && <Note>Select clubs to see the schedule.</Note>}
+      {gridClubs.map((club) => {
+        const clubAssignments = cycleAssignments.filter((a) => a.clubId === club.id).sort((a, b) => a.meeting.localeCompare(b.meeting) || a.id.localeCompare(b.id));
+        const assigned = new Set(clubAssignments.map((a) => a.slotId));
+        const missing = cycle.slots.filter((slot) => slot.clubId === club.id && !assigned.has(slot.id));
+        const expanded = expandedClubs.includes(club.id);
+        const needsReview = clubAssignments.filter((assignment) => problems.get(assignment.id)).length;
+        const visible = expanded ? clubAssignments : clubAssignments.slice(0, 3);
+        return <View key={club.id} style={{ gap: 4 }}>
+          <Text style={{ fontWeight: '700', color: '#183a36' }}>{club.name} · {clubAssignments.length} assigned{missing.length ? ` · ${missing.length} unassigned` : ''}{needsReview ? ` · ${needsReview} need review` : ''}</Text>
+          {visible.map((assignment) => {
+            const kit = kitById.get(assignment.kitId);
+            const expanded = expandedId === assignment.id;
+            return <View key={assignment.id}>
+              <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpandedId(expanded ? null : assignment.id)} style={{ paddingVertical: 8 }}>
+                <Text>{assignment.meeting} · {titleById.get(kit?.titleId ?? '')?.name ?? 'Unavailable title'}{problems.get(assignment.id) ? ' · Needs review' : ''}</Text>
+              </Pressable>
+              {expanded && renderDetail(assignment)}
+            </View>;
+          })}
+          {(expanded ? missing : missing.slice(0, Math.max(0, 3 - visible.length))).map((slot) => <Text key={slot.id}>{slot.meeting ?? slot.month} · Not assigned</Text>)}
+          {clubAssignments.length + missing.length > 3 && <Action title={expanded ? `Show fewer meetings for ${club.name}` : `Show all meetings for ${club.name}`} onPress={() =>
+            setExpandedClubs(expanded ? expandedClubs.filter((id) => id !== club.id) : [...expandedClubs, club.id])} />}
+          {!clubAssignments.length && !missing.length && <Note>No meetings for this club in this cycle.</Note>}
+        </View>;
+      })}
+    </Card>}
+    {!staff && mode === 'grid' && gridCycle && <Card>
+      <Label>Published cycle · {gridCycle.name}</Label>
+      {publishedCycles.length > 1 && <Actions>{publishedCycles.map((value) => <Action key={value.id} selected={value.id === gridCycle.id} title={value.name} onPress={() => { setSelectedId(value.id); setExpandedId(null); }} />)}</Actions>}
+    </Card>}
+    {mode === 'grid' && (grid
       ? (grid.rows.length === 0
         ? <Note>Select at least one club to show the grid.</Note>
         : <ScheduleGridView grid={grid} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
@@ -224,19 +307,7 @@ export default function Schedule() {
           expandedId={expandedId} showProblems={staff} onToggle={(assignmentId) => setExpandedId(expandedId === assignmentId ? null : assignmentId)}
           renderDetail={renderDetail} />)
       : <Note>No published schedule is available for your clubs yet.</Note>)}
-    {viewMode === 'list' && <>
-    {staff && <Card><Label>{cycle.name} · {cycle.status}</Label>
-      <Note>Schedule proposals use shared preferences, reading history, kit availability and lending settings. Drafts and publication are checked again by the server; revisions reject stale writes. Loans include a {data.library.bufferDays}-day turnaround buffer.</Note>
-      <Note>Assignments are grouped by month. Months with no kit yet show a placeholder, and slots without a meeting date use the first Monday of the month for loan timing.</Note>
-      {staff && <Actions>
-        <Action title="Generate / re-run shared draft" disabled={shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={generate} />
-        <Action tone="primary" title="Publish schedule" disabled={shared.saving || cycle.status !== 'drafted'} onPress={publish} />
-        <Action title="Refresh shared schedule" disabled={shared.saving} onPress={() => { void shared.refresh().catch((error: unknown) => setMessages([error instanceof Error ? error.message : 'Unable to refresh.'])); }} />
-      </Actions>}
-      {(showAllMessages ? messages : messages.slice(0, 5)).map((message, index) => <Text key={`${message}-${index}`} style={{ color: '#a22525' }}>{message}</Text>)}
-      {messages.length > 5 && <Actions><Action title={showAllMessages ? 'Show fewer messages' : `Show all messages (${messages.length})`} onPress={() => setShowAllMessages(!showAllMessages)} /></Actions>}
-      {message ? <Text>{message}</Text> : null}
-    </Card>}
+    {mode === 'list' && <>
     {clubId && assignments.length === 0 && unassignedSlots.length === 0 && <Note>{staff ? 'No assignments for this club in this cycle yet.' : 'No published assignments for this club yet.'}</Note>}
     {monthKeys.map((month) => <View key={month} style={{ marginTop: 8 }}>
       <Label>{month}</Label>
