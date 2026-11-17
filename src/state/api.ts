@@ -316,6 +316,12 @@ export async function discardCycleSchedule(id: string, revision: number): Promis
   return value;
 }
 
+export async function addCycleSlot(id: string, revision: number, clubId: string, month: string): Promise<Cycle> {
+  const value = await request(`/api/cycles/${encodeURIComponent(id)}/slots`, 'POST', { revision, clubId, month });
+  if (!isCycle(value)) throw new Error('Server returned an invalid cycle; refresh before retrying.');
+  return value;
+}
+
 export async function deleteCycle(id: string, revision: number): Promise<void> {
   await request(`/api/cycles/${encodeURIComponent(id)}`, 'DELETE', undefined, revision);
 }

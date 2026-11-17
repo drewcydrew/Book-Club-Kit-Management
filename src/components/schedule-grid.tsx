@@ -20,13 +20,14 @@ interface ScheduleGridProps {
   renderDetail: (assignment: Assignment) => React.ReactNode;
   selectedSlotId?: string | null;
   onSelectSlot?: (slotId: string) => void;
+  onAddSlot?: (clubId: string, month: string) => void;
   clubSummaryFor?: (clubId: string) => string;
   onHideClub?: (clubId: string) => void;
   sharedLayout?: boolean;
   highlightTitleId?: string | null;
 }
 
-export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, clubSummaryFor, onHideClub, sharedLayout = false, highlightTitleId = null }: ScheduleGridProps) {
+export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, onAddSlot, clubSummaryFor, onHideClub, sharedLayout = false, highlightTitleId = null }: ScheduleGridProps) {
   const [containerWidth, setContainerWidth] = useState(0);
   const reduceMotion = useReduceMotion();
   const { cellWidth, gap } = scheduleGridSizing(containerWidth, wide);
@@ -39,7 +40,8 @@ export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId
     style={{ width: cellWidth, marginRight: wide && cell === row.cells[row.cells.length - 1] ? 0 : gap }}>
     <GridCellView cell={cell} title={cell.assignment ? titleFor(cell.assignment) : undefined} cellWidth={cellWidth}
       expanded={onSelectSlot ? cell.slot?.id === selectedSlotId : !!cell.assignment && cell.assignment.id === expandedId}
-      showProblems={showProblems} onToggle={onToggle} onSelectSlot={onSelectSlot} clubName={clubNameFor(row.clubId)} />
+      showProblems={showProblems} onToggle={onToggle} onSelectSlot={onSelectSlot}
+      onAddSlot={onAddSlot ? () => onAddSlot(row.clubId, cell.month) : undefined} clubName={clubNameFor(row.clubId)} />
   </FadeCell>);
   const clubColumn = (row: ScheduleGridData['rows'][number]) => <View style={{ width: SCHEDULE_CLUB_WIDTH, paddingRight: 8 }}>
     <Text numberOfLines={3} style={{ fontWeight: '600' }}>{clubNameFor(row.clubId)}</Text>
@@ -100,7 +102,7 @@ export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId
   </View>;
 }
 
-function GridCellView({ cell, title, cellWidth, expanded, showProblems, onToggle, onSelectSlot, clubName }: {
+function GridCellView({ cell, title, cellWidth, expanded, showProblems, onToggle, onSelectSlot, onAddSlot, clubName }: {
   cell: GridCell;
   title: Title | undefined;
   cellWidth: number;
@@ -108,24 +110,28 @@ function GridCellView({ cell, title, cellWidth, expanded, showProblems, onToggle
   showProblems: boolean;
   onToggle: (assignmentId: string) => void;
   onSelectSlot?: (slotId: string) => void;
+  onAddSlot?: () => void;
   clubName: string;
 }) {
   const cellStyle = { width: cellWidth };
   const coverHeight = scheduleCoverHeight(cellWidth);
   if (!cell.slot) {
-    return <View style={cellStyle} accessibilityLabel={`${cell.month}, no meeting in this month`}>
+    const body = <>
       <Text style={{ fontSize: 11, color: '#374151', marginBottom: 4 }}>{cell.month}</Text>
       <View style={{ height: coverHeight, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#9ca3af', fontSize: 12 }}>—</Text>
+        <Text style={{ color: '#9ca3af', fontSize: 12, textAlign: 'center' }}>{onAddSlot ? 'No meeting · tap to add' : '—'}</Text>
       </View>
-    </View>;
+    </>;
+    return onAddSlot
+      ? <Pressable style={cellStyle} accessibilityRole="button" accessibilityLabel={`${clubName}, ${cell.month}, no meeting. Add a meeting`} onPress={onAddSlot}>{body}</Pressable>
+      : <View style={cellStyle} accessibilityLabel={`${cell.month}, no meeting in this month`}>{body}</View>;
   }
   if (!cell.assignment || !title) {
     const unavailable = !!cell.assignment;
     const content = <>
       <Text style={{ fontSize: 11, color: '#374151', marginBottom: 4 }}>{cell.month}</Text>
       <View style={{ height: coverHeight, borderRadius: 6, borderWidth: expanded ? 2 : 1, borderStyle: 'dashed', borderColor: expanded ? '#2563eb' : '#9ca3af', alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 12 }}>{unavailable ? 'Unavailable title' : 'Not assigned'}</Text>
+        <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 12 }}>{unavailable ? 'Unavailable title' : onSelectSlot ? 'Not assigned · tap to choose a title' : 'Not assigned'}</Text>
       </View>
     </>;
     return onSelectSlot

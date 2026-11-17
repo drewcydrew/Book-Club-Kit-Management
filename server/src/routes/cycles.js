@@ -80,6 +80,22 @@ router.post('/cycles/:cycleId/discard-schedule', async (req, res) => {
   });
   res.json(result);
 });
+router.post('/cycles/:cycleId/slots', async (req, res) => {
+  const b = object(req.body); const rev = expected(b.revision); const cycleId = id(req.params.cycleId);
+  const clubId = id(b.clubId, 'clubId'); const month = yearMonth(b.month, 'month');
+  const result = await transaction(async (c) => {
+    const old = await one(c, `SELECT status,revision,to_char(starts_on,'YYYY-MM') AS "startMonth",to_char(ends_on,'YYYY-MM') AS "endMonth" FROM cycles WHERE id=$1 FOR UPDATE`, [cycleId], 'Cycle');
+    stale(old.revision, rev);
+    if (!['collecting','drafted'].includes(old.status)) throw new HttpError(409, 'Meetings can only be added to a collecting or drafted cycle.');
+    if (month < old.startMonth || month > old.endMonth) throw new HttpError(400, 'The month must fall within the cycle range.');
+    const existing = await c.query('SELECT 1 FROM meeting_slots WHERE cycle_id=$1 AND club_id=$2 AND month=$3', [cycleId, clubId, month]);
+    if (existing.rowCount > 0) throw new HttpError(409, 'This club already has a meeting in that month.');
+    await c.query('INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES($1,$2,$3,$4,NULL)', [randomUUID(), cycleId, clubId, month]);
+    await c.query('UPDATE cycles SET revision=revision+1 WHERE id=$1', [cycleId]);
+    return getCycle(c, cycleId);
+  });
+  res.status(201).json(result);
+});
 router.put('/cycles/:cycleId', async (req, res) => {
   const b = validate(req.body); const rev = expected(req.body.revision); const cycleId = id(req.params.cycleId);
   const result = await transaction(async (c) => {

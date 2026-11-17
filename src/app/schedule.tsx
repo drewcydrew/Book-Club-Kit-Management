@@ -12,7 +12,7 @@ import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
 import { assignmentProblem, fairness } from '../domain/logic';
 import type { Assignment } from '../domain/model';
-import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
+import { addCycleSlot, saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
 
@@ -108,6 +108,17 @@ export default function Schedule() {
   const countTitleClubs = (titleId: string | null | undefined) => new Set(grid?.rows.filter((row) => row.cells.some((cell) => cell.assignment && kitById.get(cell.assignment.kitId)?.titleId === titleId)).map((row) => row.clubId)).size;
   const highlightCount = countTitleClubs(highlightTitleId);
   const modalTitleCount = countTitleClubs(modalTitleId);
+  async function addSlot(clubId: string, month: string) {
+    if (!selectedCycle) return;
+    if (editor.dirty) { setMessages(['Save or discard local schedule changes before adding a meeting.']); return; }
+    setMessages([]);
+    try {
+      await shared.mutate(() => addCycleSlot(selectedCycle.id, selectedCycle.revision, clubId, month));
+    } catch (error: unknown) {
+      setMessages([error instanceof Error ? error.message : 'Unable to add meeting.']);
+    }
+  }
+
   function setHighlight(titleId: string | null) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setHighlightTitleId(titleId);
@@ -396,6 +407,7 @@ export default function Schedule() {
           renderDetail={renderDetail}
           selectedSlotId={staff ? editor.selectedSlotId : undefined}
           onSelectSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.selectSlot : undefined}
+          onAddSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? addSlot : undefined}
           clubSummaryFor={staff ? (clubId) => { const result = fairness(viewData, cycle, clubId, cycleAssignments); return `Fairness ${result.score === null ? 'N/A' : `${Math.round(result.score)}%`} · ${result.assigned}/${result.slots} assigned`; } : undefined}
           onHideClub={staff ? (clubId) => updateStaffClubs(gridClubs.filter((club) => club.id !== clubId).map((club) => club.id)) : undefined} />)
       : <Note>No published schedule is available for your clubs yet.</Note>)}

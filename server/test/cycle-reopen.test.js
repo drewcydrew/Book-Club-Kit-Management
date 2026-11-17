@@ -223,4 +223,11 @@ test('discarding a published schedule clears all assignments and returns the cyc
   assert.equal(discardReopened.status, 200, JSON.stringify(discardReopened.json));
   assert.deepEqual((await snapshot()).assignments, []);
   assert.equal((await snapshot()).cycles.find((item) => item.id === 'cycle1').status, 'collecting');
+
+  const addSlot = (revision, clubId, month) => req(`${cycleUrl}/slots`, 'POST', { revision, clubId, month });
+  const current = (await snapshot()).cycles.find((item) => item.id === 'cycle1');
+  const existing = current.slots[0];
+  assert.equal((await addSlot(current.revision, existing.clubId, existing.month)).status, 409, 'club already has a slot that month');
+  assert.equal((await addSlot(current.revision, existing.clubId, '2000-01')).status, 400, 'month must be inside the cycle');
+  assert.equal((await addSlot(current.revision - 1, existing.clubId, existing.month)).status, 409, 'stale revision is rejected');
 });
