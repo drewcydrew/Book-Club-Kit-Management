@@ -7,8 +7,8 @@ import { filterOptions, type PickerOption } from '../src/domain/search';
 import { seed } from '../src/domain/seed';
 import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
-import type { Ballot, Cycle, Data } from '../src/domain/model';
-import { clubPriorities, clubStatuses, groupSlotsByMonth, memberVotes, monthsInRange, scheduleGrid } from '../src/domain/cycle-overview';
+import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
+import { clubPriorities, clubStatuses, groupSlotsByMonth, memberVotes, monthsInRange, priorityMatrix, scheduleGrid } from '../src/domain/cycle-overview';
 
 test('meetings group by month in date order and filter by club', () => {
   const slots = [
@@ -102,6 +102,28 @@ test('schedule grid covers every cycle month per club and flags clashes on assig
   assert.equal(row.cells[2].slot?.id, 's2');
   assert.equal(row.cells[2].assignment, undefined);
   assert.equal(row.cells[2].problem, null);
+});
+
+test('priority matrix ranks selected titles per club, flags contested titles and shows assigned months', () => {
+  const data = {
+    kits: [{ id: 'k1', titleId: 't1' }, { id: 'k2', titleId: 't2' }],
+    ballots: [
+      { cycleId: 'cy', clubId: 'c1', personId: 'p1', marks: { t1: 'selected', t2: 'selected', t3: 'wont' }, ranking: ['t2', 't1'], revision: 1 },
+      { cycleId: 'cy', clubId: 'c2', personId: 'p2', marks: { t1: 'selected' }, ranking: ['t1'], revision: 1 },
+    ],
+  } as unknown as Data;
+  const slots = [{ id: 's1', clubId: 'c1', month: '2026-02', meeting: null }];
+  const cycle = { id: 'cy', name: '', deadline: '', startsOn: '2026-01-01', endsOn: '2026-12-31', status: 'collecting', slots, finalized: {}, revision: 1 } as unknown as Cycle;
+  const assignment = { id: 'a1', cycleId: 'cy', slotId: 's1', clubId: 'c1', kitId: 'k2', ready: '', meeting: '', due: '', locked: false } as Assignment;
+  const matrix = priorityMatrix(data, cycle, ['c1', 'c2'], [assignment]);
+  assert.deepEqual(matrix.rows.map((row) => row.titleId), ['t1', 't2']);
+  const [t1, t2] = matrix.rows;
+  assert.equal(t1.contested, true);
+  assert.deepEqual(t1.cells.map((cell) => cell.rank), [2, 1]);
+  assert.equal(t2.contested, false);
+  assert.deepEqual(t2.cells.map((cell) => [cell.rank, cell.month]), [[1, '2026-02'], [null, null]]);
+  assert.equal(t2.cells[0].assignment?.id, 'a1');
+  assert.equal(t1.cells[0].assignment, undefined);
 });
 
 test('monthsInRange lists every month inclusively, across year boundaries', () => {
