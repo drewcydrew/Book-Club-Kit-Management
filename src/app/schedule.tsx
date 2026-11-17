@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
 import { ScheduleGridView } from '../components/schedule-grid';
 import { SCHEDULE_DESKTOP_WIDTH } from '../components/schedule-layout';
@@ -27,7 +28,8 @@ function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
 }
 
 export default function Schedule() {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const wide = Platform.OS === 'web' && width >= SCHEDULE_DESKTOP_WIDTH;
   const { data } = useStore();
   const shared = useShared();
@@ -37,6 +39,7 @@ export default function Schedule() {
   const [message, setMessage] = useState('');
   const selectedCycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
   const editor = useScheduleWorkspace(data, selectedCycle);
+  const hadModalConfirmation = useRef(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
   const [selectedClubId, setSelectedClubId] = useState('');
@@ -53,7 +56,7 @@ export default function Schedule() {
   const [expandedClubs, setExpandedClubs] = useState<string[]>([]);
   const staff = person?.role === 'staff' || person?.role === 'admin';
   const viewData = staff && editor.proposalData ? editor.proposalData : data;
-  const cycle = staff && editor.dirty && editor.workspace ? editor.workspace.cycle : selectedCycle;
+  const cycle = staff && editor.workspace && (editor.dirty || editor.selectedSlotId) ? editor.workspace.cycle : selectedCycle;
   const [previousStaff, setPreviousStaff] = useState(staff);
   if (staff !== previousStaff) {
     setPreviousStaff(staff);
@@ -95,6 +98,23 @@ export default function Schedule() {
     <Actions><Action tone="danger" title={editor.pendingAction.confirmLabel} onPress={editor.confirmAction} />
       <Action title="Keep editing" onPress={editor.cancelAction} /></Actions>
   </Card>;
+  const modalOpen = staff && !!editor.selectedSlotId;
+  const modalSlot = editor.workspace?.cycle.slots.find((slot) => slot.id === editor.selectedSlotId);
+  const modalClub = editor.workspace?.base.clubs.find((club) => club.id === modalSlot?.clubId);
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (modalOpen && editor.pendingAction) {
+      hadModalConfirmation.current = true;
+      const buttons = document.querySelectorAll<HTMLElement>('[role="dialog"] [role="button"]');
+      [...buttons].find((button) => button.textContent === editor.pendingAction?.confirmLabel)?.focus();
+    } else if (hadModalConfirmation.current) {
+      hadModalConfirmation.current = false;
+      if (modalOpen) {
+        const selector = editor.activePicker ? '[role="dialog"] input' : '[aria-label="Close editor"]';
+        document.querySelector<HTMLElement>(selector)?.focus();
+      }
+    }
+  }, [modalOpen, editor.pendingAction, editor.activePicker]);
   const discardUnavailableProposal = editor.dirty && <Card>
     <Note>Unsaved staff schedule changes are held on this device.</Note>
     <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={editor.requestDiscard} />
@@ -218,7 +238,21 @@ export default function Schedule() {
         </>}
       </Actions>
     </Card>
-    {pendingConfirmation}
+    {!modalOpen && pendingConfirmation}
+    {modalOpen && <Modal transparent visible onRequestClose={editor.requestCloseSlot} accessibilityLabel={`Edit ${modalClub?.name ?? 'club'} meeting, ${modalSlot?.month ?? ''}`}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined} style={scheduleStyles.modalBackdrop}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close meeting editor" onPress={editor.requestCloseSlot} style={StyleSheet.absoluteFill} />
+        <View accessibilityViewIsModal style={[scheduleStyles.modalDialog, { maxHeight: Math.max(100, height - insets.top - insets.bottom - 32) }]}>
+          <View style={scheduleStyles.modalHeader}>
+            <Label>Edit meeting · {modalClub?.name ?? 'Unavailable club'} · {modalSlot?.month}</Label>
+            <Action title="Close" accessibilityLabel="Close editor" onPress={editor.requestCloseSlot} />
+          </View>
+          {editor.pendingAction ? pendingConfirmation : editor.activePicker
+            ? editor.renderSelectedSlot()
+            : <ScrollView keyboardShouldPersistTaps="handled" style={scheduleStyles.modalScroll}>{editor.renderSelectedSlot()}</ScrollView>}
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>}
     {staff && <Card>
       <Label>{editor.dirty ? 'Unsaved local schedule' : 'Shared schedule'}</Label>
       {editor.dirty
@@ -342,7 +376,6 @@ export default function Schedule() {
           renderDetail={renderDetail}
           selectedSlotId={staff ? editor.selectedSlotId : undefined}
           onSelectSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.selectSlot : undefined}
-          renderSlotDetail={staff ? editor.renderSelectedSlot : undefined}
           clubSummaryFor={staff ? (clubId) => { const result = fairness(viewData, cycle, clubId, cycleAssignments); return `Fairness ${result.score === null ? 'N/A' : `${Math.round(result.score)}%`} · ${result.assigned}/${result.slots} assigned`; } : undefined}
           onHideClub={staff ? (clubId) => updateStaffClubs(gridClubs.filter((club) => club.id !== clubId).map((club) => club.id)) : undefined} />)
       : <Note>No published schedule is available for your clubs yet.</Note>)}
@@ -400,6 +433,10 @@ export default function Schedule() {
 }
 
 const scheduleStyles = StyleSheet.create({
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 16 },
+  modalDialog: { width: '100%', maxWidth: 650, flexShrink: 1, backgroundColor: '#fffefa', padding: 16, gap: 12 },
+  modalHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  modalScroll: { flexShrink: 1 },
   columns: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' },
   column: { width: '32%' },
   singleColumn: { gap: 12 },

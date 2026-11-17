@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { filterScheduleTitleGroups, previewScheduleKit, scheduleTitleGroups, type ScheduleTitleGroup } from '../domain/schedule-options';
 import type { Assignment, Cycle, Data, Slot } from '../domain/model';
 import { TitleCover } from './title-cover';
@@ -14,44 +14,31 @@ type Props = {
   pendingKitId: string;
   meeting: string;
   stale: boolean;
-  disabled: boolean;
   onSelect: (id: string) => void;
+  onClose: () => void;
 };
 
-export function ScheduleTitlePicker({ data, cycle, slot, assignments, selected, pendingKitId, meeting, stale, disabled, onSelect }: Props) {
-  const [open, setOpen] = useState(false);
+export function ScheduleTitlePicker({ data, cycle, slot, assignments, selected, pendingKitId, meeting, stale, onSelect, onClose }: Props) {
   const [query, setQuery] = useState('');
   const groups = useMemo(() => scheduleTitleGroups(data, cycle, slot, assignments), [data, cycle, slot, assignments]);
   const matches = useMemo(() => filterScheduleTitleGroups(groups, query), [groups, query]);
   const kitsById = useMemo(() => new Map(data.kits.map((kit) => [kit.id, kit])), [data.kits]);
   const titlesById = useMemo(() => new Map(data.titles.map((title) => [title.id, title])), [data.titles]);
   const allAssignments = useMemo(() => [...data.assignments.filter((a) => a.cycleId !== cycle.id), ...assignments], [data.assignments, cycle.id, assignments]);
-  const pending = kitsById.get(pendingKitId);
-
-  function close() { setOpen(false); setQuery(''); }
   function renderGroup(group: ScheduleTitleGroup) {
     return <TitleGroup group={group} selected={selected} pendingKitId={pendingKitId}
       preview={(kit) => previewScheduleKit(data, cycle, slot, meeting, selected, kit, allAssignments, stale, kitsById, titlesById)}
-      onSelect={(id) => { onSelect(id); close(); }} />;
+      onSelect={(id) => { onSelect(id); onClose(); }} />;
   }
 
-  return <View style={{ gap: 5 }}>
+  return <View style={styles.panel}>
     <Label>Choose a title and kit</Label>
-    <Pressable accessibilityRole="button" accessibilityLabel="Choose a title and kit" disabled={disabled}
-      onPress={() => setOpen(true)} style={({ pressed }) => [uiStyles.input, styles.field, pressed && uiStyles.pressed, disabled && uiStyles.disabled]}>
-      <Text>{pending ? `${titlesById.get(pending.titleId)?.name ?? 'Unavailable title'} · ${pending.barcode}` : 'Select a title and kit'}</Text>
-    </Pressable>
-    {open && <Modal transparent visible onRequestClose={close} accessibilityLabel="Choose a title and kit">
-      <View style={styles.backdrop}><View style={styles.dialog}>
-        <Label>Choose a title and kit</Label>
-        <TextInput accessibilityLabel="Search titles and kits" placeholder="Search title, author, barcode or branch" value={query} onChangeText={setQuery} style={uiStyles.input} />
+        <TextInput autoFocus accessibilityLabel="Search titles and kits" placeholder="Search title, author, barcode or branch" value={query} onChangeText={setQuery} style={uiStyles.input} />
         <Note>Local conflict preview only. Expand a title to compare its kits; warnings do not prevent selection.</Note>
         <Note>{matches.length} of {groups.length} titles shown</Note>
         <FlatList data={matches} keyExtractor={(group) => group.titleId} keyboardShouldPersistTaps="handled" style={styles.list}
           ListEmptyComponent={<Note>Nothing matches this search.</Note>} renderItem={({ item }) => renderGroup(item)} />
-        <Actions><Action title="Close" onPress={close} /></Actions>
-      </View></View>
-    </Modal>}
+        <Actions><Action title="Close picker" onPress={onClose} /></Actions>
   </View>;
 }
 
@@ -89,9 +76,7 @@ function TitleGroup({ group, selected, pendingKitId, preview, onSelect }: {
 }
 
 const styles = StyleSheet.create({
-  field: { justifyContent: 'center' },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 16 },
-  dialog: { width: '100%', maxWidth: 650, maxHeight: '90%', backgroundColor: '#fffefa', padding: 20, gap: 10 },
+  panel: { flexShrink: 1, gap: 10 },
   list: { flexShrink: 1 },
   group: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#c9d6d1' },
   groupHeader: { minHeight: 48, paddingVertical: 10, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
