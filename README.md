@@ -26,6 +26,21 @@ npm start
 
 Migrations and the fictional demo seed are explicit commands; neither runs at startup. To import the title list in `server/data/titles-import.tsv` (title, author, ISBN-13), run `npm run import-titles -- --dry-run` to preview and then `npm run import-titles`. Titles whose ISBN already exists are skipped, so it is safe to rerun. Imported titles start with 0 pages, which can be edited in the catalogue. To create one kit per title that has no kit yet (10 copies each, at the first configured branch, barcode equal to the title name), run `npm run create-kits -- --dry-run` to preview and then `npm run create-kits`. If any title name clashes with an existing kit barcode, nothing is written and the clashing names are listed. To load the demo 2027 schedule in `server/data/demo-schedule.tsv` (club_id, ISBN-13, meeting date), run `npm run import-demo-schedule -- --dry-run` and then `npm run import-demo-schedule`. This creates one sample member per club, a `demo-cycle-2027` cycle with a 2026-12-15 voting deadline, meeting slots, and one ballot per club ranked by meeting order. It requires the clubs and titles to exist already, and it runs once; later runs report that it was already imported. Back up the target database and verify the connection before upgrading an existing deployment. The seed creates the initial demo admin and is repeatable without overwriting edits. Conflicting existing IDs or barcodes cause the affected seed step to fail transactionally. Use an appropriately scoped database account.
 
+### Import 2027 demo preferences
+
+The separate preferences import uses `server/data/demo-preferences-2027.csv`, which contains the supplied club names and preferences. Review whether this data is appropriate for the target environment before publishing it. Back up the database, verify `DATABASE_URL`, run migrations, and configure at least one branch in Admin lending settings. From `server`:
+
+```powershell
+npm run import-demo-preferences -- --dry-run
+npm run import-demo-preferences
+```
+
+Review the preview's new clubs, titles and kits, selected ballot members, compressed rank gaps, history and availability warnings before importing. The command creates `demo-preferences-cycle-2027`, separate from `demo-cycle-2027`: 39 ballots, 773 ranked selections and an undated slot for each CSV club in each month of 2027. It creates no schedule assignments. Missing clubs use Central, size 10 and pickup. Existing member leaders are preferred, then the member with the first ID; a demo member is created only when needed. Other memberships and clubs outside the CSV are left alone.
+
+The importer matches existing titles by ISBN or unambiguous title and author, using the reviewed aliases in `server/src/import-demo-preferences.js` and `server/data/titles-import.tsv`. Check the preview and resolve ambiguous catalog or club matches before retrying. Missing selected titles are added with known metadata or empty ISBN and zero pages; an absent author is recorded as `Unknown author`. Numbered sets are treated as the same title, not a kit-specific preference. Each preferred title without a kit receives one available 10-copy demo kit at the first configured branch, with a `demo-2027-` barcode. Existing kits and reading history are not changed. The import is transactional and runs once; later runs do not overwrite edits. A conflicting cycle ID without the import marker stops the import.
+
+After importing, refresh the app, choose a staff user, and select **Demo preferences 2027** on Preferences and Schedule. Individual ballots appear when selecting the chosen member on User. The cycle is collecting with a 2026-12-15 preference deadline; after that date voting is closed unless staff adjust the deadline and any incompatible meeting dates on Cycles. On Schedule, use **Generate locally**, review warnings and unassigned slots, then save the draft. Undated slots use the first Monday of each month. Previously read titles are excluded from priority views and scheduling even though their ballots remain; kit status, other schedules, turnaround buffers and limited kit supply can also leave slots unfilled. Adjust kits or slots manually as needed.
+
 If the server connection is instead configured in a root `.env` file, Node 22 can load it explicitly:
 
 ```powershell
@@ -117,6 +132,6 @@ Render supplies `PORT`. Run migrations deliberately against the intended databas
 
 ## Checks
 
-Run `npm test` in `server` for backend tests. PostgreSQL integration tests run only when both `TEST_DATABASE_URL` and `TEST_DATABASE_CONFIRM=isolated` are set for a dedicated test database; they create and remove their own uniquely named schema. Never point them at a database containing data you care about.
+Run `npm test` in `server` for backend tests. PostgreSQL integration tests run only when both `TEST_DATABASE_URL` and `TEST_DATABASE_CONFIRM=isolated` are set for a dedicated test database; they create and remove their own uniquely named schema. Never point them at a database containing data you care about. The demo-preferences integration test also needs the root development dependencies installed to exercise app scheduling logic.
 
 From the repository root, run `npm test`, `npx tsc --noEmit` and `npx expo lint` for the Expo app.
