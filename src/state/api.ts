@@ -290,6 +290,23 @@ export async function saveSchedule(cycleId: string, assignments: Assignment[], r
   return requireRevision(await request(`/api/cycles/${encodeURIComponent(cycleId)}/schedule`, 'PUT', { assignments, revision, publish }));
 }
 
+export type ScheduleValidation = { token: string; warnings: { slotId: string; message: string }[] };
+export type ScheduleBasis = { cycles: { id: string; revision: number }[]; kits: { id: string; revision: number }[]; clubs: { id: string; revision: number }[]; settings: number };
+
+export async function validateSchedule(cycleId: string, assignments: Assignment[], revision: number, publish: boolean, unlockIds: string[], basis?: ScheduleBasis): Promise<ScheduleValidation> {
+  const value = await request(`/api/cycles/${encodeURIComponent(cycleId)}/schedule/validate`, 'POST', { assignments, revision, publish, unlockIds, ...(basis ? { basis } : {}) });
+  if (!isObject(value) || !isString(value.token) || !Array.isArray(value.warnings) ||
+      !value.warnings.every((warning: unknown) => isObject(warning) && isString(warning.slotId) && isString(warning.message))) {
+    throw new Error('Server returned invalid schedule validation; refresh before retrying.');
+  }
+  return { token: value.token, warnings: value.warnings };
+}
+
+export async function saveValidatedSchedule(cycleId: string, assignments: Assignment[], revision: number, publish: boolean, unlockIds: string[], token: string, basis?: ScheduleBasis): Promise<number> {
+  return requireRevision(await request(`/api/cycles/${encodeURIComponent(cycleId)}/schedule`, 'PUT',
+    { assignments, revision, publish, unlockIds, validationToken: token, acknowledge: true, ...(basis ? { basis } : {}) }));
+}
+
 export async function saveSettings(library: Library): Promise<number> {
   return requireRevision(await request('/api/settings', 'PUT', library));
 }

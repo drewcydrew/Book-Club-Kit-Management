@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
 import { ScheduleGridView } from '../components/schedule-grid';
+import { ScheduleWorkspace } from '../components/schedule-workspace';
 import { TitleCover } from '../components/title-cover';
 import { memberSchedule, scheduleGrid } from '../domain/cycle-overview';
 import { today } from '../domain/dates';
-import { assignmentProblem, draft } from '../domain/logic';
-import type { Assignment } from '../domain/model';
-import { saveSchedule } from '../state/api';
+import { scheduleWarning } from '../domain/schedule-warning';
+import { assignmentProblem } from '../domain/logic';
+import type { Assignment, Cycle } from '../domain/model';
+import { saveSchedule, saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
 
@@ -30,13 +32,14 @@ export default function Schedule() {
   const [messages, setMessages] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [replacement, setReplacement] = useState<{ assignmentId: string; kitId: string } | null>(null);
-  const [swap, setSwap] = useState<{ firstId: string; secondId: string } | null>(null);
   const cycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
   const [selectedClubId, setSelectedClubId] = useState('');
   const [viewMode, setViewMode] = useState<'overview' | 'upcoming' | 'past' | 'grid' | 'list'>(person?.role === 'member' ? 'upcoming' : 'overview');
-  const [preview, setPreview] = useState<{ cycleId: string; revision: number; assignments: Assignment[]; problems: string[] } | null>(null);
+  const [workspace, setWorkspace] = useState<{ mode: 'generate' | 'existing'; cycle: Cycle } | null>(null);
+  const [publication, setPublication] = useState<{ cycleId: string; revision: number; assignments: Assignment[]; validation: ScheduleValidation } | null>(null);
+  const [validating, setValidating] = useState(false);
   const [gridClubIds, setGridClubIds] = useState<string[] | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [cycleOpen, setCycleOpen] = useState(false);
@@ -70,9 +73,9 @@ export default function Schedule() {
   const grid = mode === 'grid' && gridCycle
     ? scheduleGrid(data, gridCycle, gridClubKey ? gridClubKey.split('|') : [], data.assignments.filter((a) => a.cycleId === gridCycle.id))
     : null;
-  const previewGrid = preview && cycle && staff ? scheduleGrid(data, cycle, gridClubKey ? gridClubKey.split('|') : [], preview.assignments) : null;
   const memberMeetings = !staff && (mode === 'upcoming' || mode === 'past')
     ? memberSchedule(data, gridClubKey ? gridClubKey.split('|') : [], today(), mode) : [];
+  if (workspace) return <ScheduleWorkspace data={data} cycle={workspace.cycle} mode={workspace.mode} onClose={(result) => { setWorkspace(null); setMessage(result ?? ''); }} />;
   if (!person) return <Page title="Schedule"><Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
   if (!cycle) return <Page title="Schedule"><Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = data.assignments.filter((assignment) => assignment.cycleId === cycle.id);
@@ -103,13 +106,13 @@ export default function Schedule() {
       <Text style={{ fontWeight: '600' }}>{clubById.get(assignment.clubId)?.name ?? 'Unavailable club'} · {titleById.get(kit?.titleId ?? '')?.name ?? 'Unavailable title'}</Text>
       {problem && <Text style={{ color: '#a22525' }}>Needs review: {problem}</Text>}
       <Text>{kit?.barcode ?? 'Unavailable kit'} · Ready {assignment.ready} · Meeting {assignment.meeting} · Due {assignment.due}</Text>
-        {staff && (cycle.status === 'drafted' || (cycle.status === 'published' && !!problem && assignment.locked)) && <Actions>
+        {staff && cycle.status === 'published' && !!problem && assignment.locked && <Actions>
           <Action title={assignment.locked ? 'Unlock' : 'Lock'} disabled={shared.saving} onPress={() => {
             const next = data.assignments.map((item) => item.id === assignment.id ? { ...item, locked: !item.locked } : item);
             persist(next, cycle.status === 'published', 'Assignment lock saved.');
           }} />
         </Actions>}
-        {staff && !assignment.locked && (cycle.status === 'drafted' || (cycle.status === 'published' && !!problem)) && <>
+        {staff && !assignment.locked && cycle.status === 'published' && !!problem && <>
           <Note>Choose a feasible replacement kit:</Note><Actions>{data.kits.filter((kitOption) => kitOption.id !== assignment.kitId &&
             !assignmentProblem(data, { ...assignment, kitId: kitOption.id }, data.assignments)).map((kitOption) => <Action key={kitOption.id} selected={replacement?.assignmentId === assignment.id && replacement.kitId === kitOption.id}
               title={`${kitOption.barcode} · ${titleById.get(kitOption.titleId)?.name ?? 'Unavailable title'}`}
@@ -122,23 +125,6 @@ export default function Schedule() {
             persist(next, cycle.status === 'published', 'Kit replacement saved.');
             setReplacement(null);
           }} /><Action title="Cancel replacement" onPress={() => setReplacement(null)} /></Actions>}
-          {cycle.status === 'drafted' && <><Note>Swap with another unlocked meeting:</Note><Actions>{cycleAssignments.filter((other) =>
-            other.id !== assignment.id && !other.locked && other.kitId !== assignment.kitId).map((other) => <Action key={other.id} selected={swap?.firstId === assignment.id && swap.secondId === other.id}
-              title={`${clubById.get(other.clubId)?.name ?? 'Club'} · ${other.meeting}`}
-              onPress={() => setSwap({ firstId: assignment.id, secondId: other.id })} />)}</Actions>
-            {swap?.firstId === assignment.id && <Actions><Action tone="primary" title="Confirm swap" disabled={shared.saving} onPress={() => {
-              const first = data.assignments.find((item) => item.id === swap.firstId);
-              const second = data.assignments.find((item) => item.id === swap.secondId);
-              if (!first || !second || first.locked || second.locked) { setMessages(['Assignments no longer exist or are locked. Refresh and retry.']); return; }
-              const firstChanged = { ...first, kitId: second.kitId };
-              const secondChanged = { ...second, kitId: first.kitId };
-              const next = data.assignments.map((item) => item.id === first.id ? firstChanged : item.id === second.id ? secondChanged : item);
-              const conflict = assignmentProblem(data, firstChanged, next) || assignmentProblem(data, secondChanged, next);
-              if (conflict) { setMessages([conflict]); return; }
-              persist(next, false, 'Kit swap saved.');
-              setSwap(null);
-            }} /><Action title="Cancel swap" onPress={() => setSwap(null)} /></Actions>}
-          </>}
         </>}
     </View>;
   }
@@ -150,23 +136,25 @@ export default function Schedule() {
       .catch((error: unknown) => { setMessage(error instanceof Error ? error.message : 'Unable to save schedule.'); return false; });
   }
 
-  function generate() {
-    if (cycle.status !== 'collecting' && cycle.status !== 'drafted') return;
-    const result = draft(data, cycle);
-    setMessages(result.problems);
-    if (result.problems.some((problem) => problem.startsWith('Locked assignment'))) return;
-    persist(result.assignments, false, 'Shared schedule draft saved.', result.problems);
+  async function publishValidated(candidate: { cycleId: string; revision: number; assignments: Assignment[]; validation: ScheduleValidation }) {
+    try {
+      await shared.mutate(() => saveValidatedSchedule(candidate.cycleId, candidate.assignments, candidate.revision, true, [], candidate.validation.token));
+      setPublication(null); setMessages([]); setMessage('Shared schedule published.');
+    } catch (error: unknown) {
+      setPublication(null); setMessage(error instanceof Error ? error.message : 'Unable to publish schedule.');
+    }
   }
 
-  function publish() {
-    const errors = cycleAssignments.map((assignment) => assignmentProblem(data, assignment, data.assignments))
-      .filter((value): value is string => !!value);
-    if (cycle.slots.length === 0 || cycleAssignments.length !== cycle.slots.length ||
-        new Set(cycleAssignments.map((assignment) => assignment.slotId)).size !== cycle.slots.length) {
-      errors.push('Every meeting slot must have exactly one assignment before publishing.');
-    }
-    if (errors.length) { setMessages(errors); return; }
-    persist(cycleAssignments, true, 'Shared schedule published.');
+  async function publish() {
+    setValidating(true); setMessage(''); setMessages([]);
+    try {
+      const validation = await validateSchedule(cycle.id, cycleAssignments, cycle.revision, true, []);
+      const candidate = { cycleId: cycle.id, revision: cycle.revision, assignments: cycleAssignments, validation };
+      if (validation.warnings.length) setPublication(candidate);
+      else await publishValidated(candidate);
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : 'Unable to validate publication.');
+    } finally { setValidating(false); }
   }
 
   return <Page title="Schedule">
@@ -176,38 +164,30 @@ export default function Schedule() {
         {staff && data.cycles.length > 1 && <Action title={cycleOpen ? 'Close cycles' : 'Change cycle'} onPress={() => setCycleOpen(!cycleOpen)} />}
         {staff && <Action title={toolsOpen ? 'Hide schedule actions' : 'Schedule actions'} onPress={() => setToolsOpen(!toolsOpen)} />}
       </Actions>
-      {staff && cycleOpen && <Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} disabled={shared.saving} title={value.name} onPress={() => {
+      {staff && cycleOpen && <Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} disabled={shared.saving || validating} title={value.name} onPress={() => {
         if (value.id !== cycle.id) {
-          setSelectedId(value.id); setMessages([]); setMessage(preview ? 'Preview discarded after changing cycle.' : '');
-          setPreview(null); setReplacement(null); setSwap(null); setExpandedId(null); setShowAllMessages(false);
+          setSelectedId(value.id); setMessages([]); setMessage('');
+          setPublication(null); setReplacement(null); setExpandedId(null); setShowAllMessages(false);
         }
         setCycleOpen(false);
       }} />)}</Actions>}
       {staff && toolsOpen && <>
-        <Note>Preview uses current preferences and availability. Changes are checked by the server; loans include a {data.library.bufferDays}-day turnaround buffer.</Note>
+        <Note>Generate and edit locally before saving a shared draft. Loans include a {data.library.bufferDays}-day turnaround buffer.</Note>
         {cycle.status === 'collecting' && cycleAssignments.length > 0 && <Note>
           Existing assignments may be provisional. Generating a draft can replace unlocked assignments; locked assignments are retained and may need attention. Checked-out kits or reading history can prevent drafting or publication.
         </Note>}
         <Actions>
-          <Action title="Preview schedule" disabled={shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => {
-            const result = draft(data, cycle);
-            setPreview({ cycleId: cycle.id, revision: cycle.revision, assignments: result.assignments, problems: result.problems });
-            setMessages([]); setMessage('');
-          }} />
-          <Action title="Generate / re-run shared draft" disabled={!!preview || shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={generate} />
-          <Action tone="primary" title="Publish schedule" disabled={!!preview || shared.saving || cycle.status !== 'drafted'} onPress={publish} />
-          <Action title="Refresh shared schedule" disabled={shared.saving} onPress={() => { void shared.refresh().catch((error: unknown) => setMessages([error instanceof Error ? error.message : 'Unable to refresh.'])); }} />
+          <Action title="Generate local schedule" disabled={validating || shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => setWorkspace({ mode: 'generate', cycle })} />
+          <Action title="Edit shared draft locally" disabled={validating || shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => setWorkspace({ mode: 'existing', cycle })} />
+          <Action tone="primary" title="Publish schedule" disabled={validating || shared.saving || !!publication || cycle.status !== 'drafted'} onPress={() => { void publish(); }} />
+          <Action title="Refresh shared schedule" disabled={shared.saving || validating} onPress={() => { void shared.refresh().catch((error: unknown) => setMessages([error instanceof Error ? error.message : 'Unable to refresh.'])); }} />
         </Actions>
       </>}
-      {staff && preview && <>
-        <Note>{preview.revision !== cycle.revision || preview.cycleId !== cycle.id ? 'This preview is out of date. Discard it and preview again.' : 'Preview only: nothing is saved until you confirm.'}</Note>
-        <Actions>
-          <Action tone="primary" title="Confirm and save draft" disabled={shared.saving || preview.revision !== cycle.revision || preview.cycleId !== cycle.id || preview.problems.some((problem) => problem.startsWith('Locked assignment'))} onPress={() => {
-            void persist(preview.assignments, false, 'Shared schedule draft saved.', preview.problems).then((saved) => { if (saved) setPreview(null); });
-          }} />
-          <Action title="Discard preview" disabled={shared.saving} onPress={() => setPreview(null)} />
-        </Actions>
-        {preview.problems.map((problem, index) => <Text key={`${problem}-${index}`} style={{ color: '#a22525' }}>{problem}</Text>)}
+      {staff && publication && <>
+        <Note>Publishing these warnings can create impossible or unsafe schedules and affect other cycles. Review every issue before confirming.</Note>
+        {publication.validation.warnings.map((warning, index) => <Text key={`${warning.slotId}-${index}`} style={{ color: '#a22525' }}>{scheduleWarning(data, cycle, warning)}</Text>)}
+        <Actions><Action tone="danger" title="Publish despite warnings" disabled={shared.saving || validating || publication.cycleId !== cycle.id || publication.revision !== cycle.revision}
+          onPress={() => { void publishValidated(publication); }} /><Action title="Cancel publication" disabled={shared.saving} onPress={() => setPublication(null)} /></Actions>
       </>}
       {staff && (showAllMessages ? messages : messages.slice(0, 5)).map((item, index) => <Text key={`${item}-${index}`} style={{ color: '#a22525' }}>{item}</Text>)}
       {staff && messages.length > 5 && <Action title={showAllMessages ? 'Show fewer messages' : `Show all messages (${messages.length})`} onPress={() => setShowAllMessages(!showAllMessages)} />}
@@ -245,12 +225,6 @@ export default function Schedule() {
           setSelectedClubId(value.id); setExpandedId(null);
         }} />)}</Actions>}
     </Card>}
-    {staff && preview && previewGrid && <>
-        <Label>Proposed schedule</Label>
-        <ScheduleGridView grid={previewGrid} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
-          titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
-          expandedId={null} showProblems onToggle={() => undefined} renderDetail={() => null} />
-    </>}
     {!staff && (mode === 'upcoming' || mode === 'past') && <Card>
       <Label>{mode === 'upcoming' ? 'Upcoming meetings' : 'Past meetings'}</Label>
       {clubChoices.length > 0 && gridClubs.length === 0 ? <Note>Select clubs to see meetings.</Note>
