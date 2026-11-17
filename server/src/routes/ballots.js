@@ -10,6 +10,12 @@ async function getBallot(c, cycleId, clubId, personId) {
   for (const m of marks.rows) { ballot.marks[m.title_id] = m.mark; if (m.rank !== null) ballot.ranking.push(m.title_id); }
   return ballot;
 }
+// Preferences stay editable after a schedule is drafted or published so late-added clubs can choose titles. Schedule changes are separate.
+function assertPreferencesOpen(cycle) {
+  const collecting = cycle.status === 'collecting' && cycle.voting;
+  if (!collecting && !['drafted', 'published'].includes(cycle.status)) throw new HttpError(409, 'Preferences cannot be changed for this cycle.');
+}
+
 router.get('/cycles/:cycleId/clubs/:clubId/ballots/:personId', async (req, res) => {
   res.json(await getBallot(getPool(),id(req.params.cycleId),id(req.params.clubId),id(req.params.personId)));
 });
@@ -22,7 +28,7 @@ router.put('/cycles/:cycleId/clubs/:clubId/ballots/:personId', async (req, res) 
   const rev = expected(b.revision,true); const cycleId = id(req.params.cycleId); const clubId = id(req.params.clubId); const personId = id(req.params.personId);
   const result = await transaction(async (c) => {
     const cycle = await one(c,"SELECT status, deadline >= CURRENT_DATE AS voting FROM cycles WHERE id=$1 FOR UPDATE",[cycleId],'Cycle');
-    if (cycle.status !== 'collecting' || !cycle.voting) throw new HttpError(409, 'Voting is closed for this cycle.');
+    assertPreferencesOpen(cycle);
     await one(c,'SELECT 1 FROM memberships WHERE club_id=$1 AND person_id=$2',[clubId,personId],'Membership');
     const existing = await c.query('SELECT revision FROM ballots WHERE cycle_id=$1 AND club_id=$2 AND person_id=$3',[cycleId,clubId,personId]);
     stale(existing.rowCount ? existing.rows[0].revision : 0,rev);
@@ -44,7 +50,7 @@ router.put('/cycles/:cycleId/clubs/:clubId/ranking', async (req, res) => {
   const cycleId = id(req.params.cycleId); const clubId = id(req.params.clubId); const rev = expected(b.revision);
   const next = await transaction(async (c) => {
     const cycle = await one(c,'SELECT revision,status,deadline >= CURRENT_DATE AS voting FROM cycles WHERE id=$1 FOR UPDATE',[cycleId],'Cycle'); stale(cycle.revision,rev);
-    if (cycle.status !== 'collecting' || !cycle.voting) throw new HttpError(409,'Ranking cannot be changed after voting closes.');
+    assertPreferencesOpen(cycle);
     await one(c,'SELECT id FROM clubs WHERE id=$1',[clubId],'Club');
     for (const titleId of ranking) await one(c,'SELECT id FROM titles WHERE id=$1',[titleId],'Title');
     await c.query('DELETE FROM finalized_rankings WHERE cycle_id=$1 AND club_id=$2',[cycleId,clubId]);

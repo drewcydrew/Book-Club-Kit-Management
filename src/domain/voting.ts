@@ -6,6 +6,23 @@ export interface VotingStatus {
   detail: string;
 }
 
+export interface PreferenceStatus extends VotingStatus {
+  editable: boolean;
+}
+
+export function preferenceStatus(cycle: { status: CycleStatus; deadline: string }, day: string): PreferenceStatus {
+  if (cycle.status === 'drafted' || cycle.status === 'published') {
+    return {
+      open: true,
+      editable: true,
+      label: `Schedule ${cycle.status}`,
+      detail: 'Choices can still be updated. Existing assignments are not changed.',
+    };
+  }
+  const voting = votingStatus(cycle, day);
+  return { ...voting, editable: voting.open };
+}
+
 export function votingStatus(cycle: { status: CycleStatus; deadline: string }, day: string): VotingStatus {
   if (cycle.status === 'open') {
     return { open: false, label: 'Voting has not opened yet', detail: 'Staff open member voting from Cycles.' };

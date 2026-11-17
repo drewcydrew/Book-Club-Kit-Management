@@ -6,7 +6,7 @@ import { assignmentProblem, assignmentProblems, circulate, draft, fairness, firs
 import { filterOptions, type PickerOption } from '../src/domain/search';
 import { seed } from '../src/domain/seed';
 import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
-import { votingStatus } from '../src/domain/voting';
+import { preferenceStatus, votingStatus } from '../src/domain/voting';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
 import { clubPriorities, clubStatuses, groupSlotsByMonth, memberSchedule, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
@@ -20,6 +20,15 @@ test('voting status explains whether member voting is open and why it is not', (
   assert.equal(votingStatus(collecting, '2026-11-21').open, false);
   assert.equal(votingStatus(collecting, '2026-11-21').detail, 'The deadline was 2026-11-20.');
   assert.equal(votingStatus({ status: 'drafted', deadline: '2026-11-20' }, '2026-11-18').open, false);
+});
+
+test('preferences stay editable after a schedule is drafted or published', () => {
+  const late = '2026-12-01';
+  assert.equal(preferenceStatus({ status: 'collecting', deadline: '2026-11-20' }, late).editable, false);
+  assert.equal(preferenceStatus({ status: 'collecting', deadline: '2026-11-20' }, '2026-11-18').editable, true);
+  assert.equal(preferenceStatus({ status: 'drafted', deadline: '2026-11-20' }, late).editable, true);
+  assert.equal(preferenceStatus({ status: 'published', deadline: '2026-11-20' }, late).label, 'Schedule published');
+  assert.equal(preferenceStatus({ status: 'published', deadline: '2026-11-20' }, late).open, true);
 });
 
 test('meetings group by month in date order and filter by club', () => {

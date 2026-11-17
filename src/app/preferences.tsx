@@ -6,7 +6,7 @@ import { SCHEDULE_DESKTOP_WIDTH } from "../components/schedule-layout";
 import { RankingList } from "../components/ranking-list";
 import { TitleDetails } from "../components/title-details";
 import { TitleGallery } from "../components/title-gallery";
-import { votingStatus } from "../domain/voting";
+import { preferenceStatus } from "../domain/voting";
 import {
   ballotKey,
   emptyBallot,
@@ -112,8 +112,8 @@ export default function Preferences() {
         membership.clubId === club?.id &&
         membership.leader,
     );
-  const voting = cycle ? votingStatus(cycle, today()) : null;
-  const editable = !!voting?.open;
+  const voting = cycle ? preferenceStatus(cycle, today()) : null;
+  const editable = !!voting?.editable;
   const serverBallot =
     cycle && club && person
       ? data.ballots.find(
@@ -494,7 +494,7 @@ export default function Preferences() {
               />
               {!editable && (
                 <Note>
-                  Leader review is available only while voting is open.
+                  Leader review is available only while preferences are open.
                 </Note>
               )}
               {editable && (syncRefreshing || syncRefreshError || sync.status.state === "saving" || sync.status.state === "error") && (

@@ -191,12 +191,27 @@ test('discarding a published schedule clears all assignments and returns the cyc
   });
   const draft = await req(`${cycleUrl}/schedule`, 'PUT', { revision: cycle.revision, assignments, publish: false });
   assert.equal(draft.status, 200, JSON.stringify(draft.json));
-  const publish = await req(`${cycleUrl}/schedule`, 'PUT', { revision: draft.json.revision, assignments, publish: true });
+  const member = state.memberships.find((item) => item.clubId === 'c1' && !item.leader);
+  const ballotUrl = `${cycleUrl}/clubs/c1/ballots/${member.personId}`;
+  const savePreferences = (revision) => req(ballotUrl, 'PUT',
+    { revision, marks: { t1: 'selected', t2: 'selected' }, ranking: ['t2', 't1'] });
+  const draftedChoices = await savePreferences(0);
+  assert.equal(draftedChoices.status, 200, JSON.stringify(draftedChoices.json));
+  const drafted = (await snapshot()).cycles.find((item) => item.id === 'cycle1');
+  const publish = await req(`${cycleUrl}/schedule`, 'PUT', { revision: drafted.revision, assignments, publish: true });
   assert.equal(publish.status, 200, JSON.stringify(publish.json));
   state = await snapshot();
   cycle = state.cycles.find((item) => item.id === 'cycle1');
   assert.equal(cycle.status, 'published');
   assert.equal(state.assignments.length, assignments.length);
+
+  const assignmentsBeforeChoices = state.assignments;
+  const publishedChoices = await savePreferences(draftedChoices.json.revision);
+  assert.equal(publishedChoices.status, 200, JSON.stringify(publishedChoices.json));
+  state = await snapshot();
+  cycle = state.cycles.find((item) => item.id === 'cycle1');
+  assert.equal(cycle.status, 'published', 'preference saves keep the schedule published');
+  assert.deepEqual(state.assignments, assignmentsBeforeChoices, 'preference saves do not change assignments');
 
   assert.equal((await discard(cycle.revision, false)).status, 400);
   assert.equal((await discard(cycle.revision - 1)).status, 409, 'stale revision is rejected');
