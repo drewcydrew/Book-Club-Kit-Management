@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { useStore } from '../state/store';
 import { useShared } from '../state/shared';
 
-export function Page({ title, children }: { title: string; children: React.ReactNode }) {
+export function Page({ title, children, wide = false }: { title: string; children: React.ReactNode; wide?: boolean }) {
   const { data, error } = useStore();
   const shared = useShared();
   const { refresh } = shared;
@@ -15,7 +15,7 @@ export function Page({ title, children }: { title: string; children: React.React
     data.assignments.some((assignment) => !data.clubs.some((club) => club.id === assignment.clubId) || !data.kits.some((kit) => kit.id === assignment.kitId)) ||
     data.ballots.some((ballot) => !data.clubs.some((club) => club.id === ballot.clubId) || ballot.ranking.some((id) => !data.titles.some((title) => title.id === id))) ||
     data.events.some((event) => !data.kits.some((kit) => kit.id === event.kitId));
-  return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+  return <ScrollView contentContainerStyle={[styles.page, wide && styles.widePage]} keyboardShouldPersistTaps="handled">
     <Text accessibilityRole="header" style={styles.heading}>{title}</Text>
     {error ? <Text style={styles.error}>Unable to save: {error}</Text> : null}
     {shared.error ? <><Text style={styles.error}>{shared.error}</Text>
@@ -56,6 +56,7 @@ export function Note({ children }: { children: React.ReactNode }) {
 
 export const styles = StyleSheet.create({
   page: { paddingHorizontal: 20, paddingTop: 24, gap: 18, width: '100%', maxWidth: 1050, alignSelf: 'center', paddingBottom: 60 },
+  widePage: { maxWidth: '100%' },
   heading: { fontSize: 30, fontWeight: '700', color: '#183a36', letterSpacing: -0.5 },
   label: { fontWeight: '700', color: '#183a36', fontSize: 16 },
   card: { backgroundColor: '#fffefa', paddingHorizontal: 16, paddingVertical: 18, borderLeftWidth: 3, borderLeftColor: '#75958a', gap: 12 },

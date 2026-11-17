@@ -133,6 +133,7 @@ export interface PriorityCell {
 
 export interface PriorityRow {
   titleId: string;
+  rankedClubCount: number;
   contested: boolean;
   cells: PriorityCell[];
 }
@@ -155,16 +156,16 @@ export function priorityMatrix(data: Data, cycle: Cycle, clubIds: string[], assi
     const titleId = data.kits.find((kit) => kit.id === assignment.kitId)?.titleId;
     if (titleId) titleIds.add(titleId);
   }
-  const rows = [...titleIds].map((titleId): PriorityRow => ({
-    titleId,
-    contested: clubIds.filter((clubId) => ranks.get(clubId)?.has(titleId)).length > 1,
-    cells: clubIds.map((clubId) => {
+  const rows = [...titleIds].map((titleId): PriorityRow => {
+    const cells = clubIds.map((clubId) => {
       const assignment = cycleAssignments.find((item) => item.clubId === clubId && data.kits.find((kit) => kit.id === item.kitId)?.titleId === titleId);
       const slot = assignment ? cycle.slots.find((item) => item.id === assignment.slotId) : undefined;
       return { clubId, rank: ranks.get(clubId)?.get(titleId) ?? null, month: slot?.month ?? null, assignment };
-    }),
-  }));
-  rows.sort((a, b) => b.cells.filter((cell) => cell.rank !== null).length - a.cells.filter((cell) => cell.rank !== null).length
+    });
+    const rankedClubCount = cells.filter((cell) => cell.rank !== null).length;
+    return { titleId, rankedClubCount, contested: rankedClubCount > 1, cells };
+  });
+  rows.sort((a, b) => b.rankedClubCount - a.rankedClubCount
     || a.titleId.localeCompare(b.titleId));
   return { clubIds, rows };
 }
