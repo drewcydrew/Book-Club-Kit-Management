@@ -285,19 +285,20 @@ test('title demand counts each selected club once regardless of finalization', (
   assert.equal(titleDemand(data, 'cy', []).size, 0);
 });
 
-test('member schedule filters published enrolled assignments and orders upcoming and past', () => {
+test('member schedule shows drafted and published enrolled assignments and orders upcoming and past', () => {
   const data = {
-    cycles: [{ id: 'cy1', status: 'published' }, { id: 'cy2', status: 'published' }, { id: 'draft', status: 'drafted' }],
+    cycles: [{ id: 'cy1', status: 'published' }, { id: 'cy2', status: 'published' }, { id: 'draft', status: 'drafted' }, { id: 'collect', status: 'collecting' }],
     assignments: [
       { id: 'future', cycleId: 'cy2', clubId: 'c2', meeting: '2026-03-01' },
       { id: 'today', cycleId: 'cy1', clubId: 'c1', meeting: '2026-02-01' },
       { id: 'tie', cycleId: 'cy2', clubId: 'c1', meeting: '2026-02-01' },
       { id: 'past', cycleId: 'cy1', clubId: 'c1', meeting: '2026-01-01' },
-      { id: 'private', cycleId: 'draft', clubId: 'c1', meeting: '2026-03-01' },
+      { id: 'drafted', cycleId: 'draft', clubId: 'c1', meeting: '2026-03-01' },
+      { id: 'hidden', cycleId: 'collect', clubId: 'c1', meeting: '2026-03-01' },
       { id: 'other', cycleId: 'cy1', clubId: 'c3', meeting: '2026-03-01' },
     ],
   } as unknown as Data;
-  assert.deepEqual(memberSchedule(data, ['c1', 'c2'], '2026-02-01', 'upcoming').map((a) => a.id), ['today', 'tie', 'future']);
+  assert.deepEqual(memberSchedule(data, ['c1', 'c2'], '2026-02-01', 'upcoming').map((a) => a.id), ['today', 'tie', 'drafted', 'future']);
   assert.deepEqual(memberSchedule(data, ['c1'], '2026-02-01', 'past').map((a) => a.id), ['past']);
   assert.deepEqual(memberSchedule(data, [], '2026-02-01', 'upcoming'), []);
 });

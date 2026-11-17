@@ -7,7 +7,7 @@ import { SCHEDULE_DESKTOP_WIDTH } from '../components/schedule-layout';
 import { ScheduleInstructions } from '../components/schedule-instructions';
 import { useScheduleWorkspace } from '../components/schedule-workspace';
 import { TitleCover } from '../components/title-cover';
-import { memberSchedule, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
+import { memberSchedule, memberVisibleCycle, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
 import { assignmentProblem, fairness } from '../domain/logic';
@@ -71,17 +71,17 @@ export default function Schedule() {
   const clubId = clubChoices.find((club) => club.id === selectedClubId)?.id ?? clubChoices[0]?.id;
   const visibleAssignments = viewData.assignments.filter((a) => staff
     ? a.cycleId === cycleId
-    : enrolledClubIds.includes(a.clubId) && data.cycles.some((c) => c.id === a.cycleId && c.status === 'published'));
+    : enrolledClubIds.includes(a.clubId) && data.cycles.some((c) => c.id === a.cycleId && memberVisibleCycle(c)));
   const assignments = visibleAssignments
     .filter((a) => a.clubId === clubId)
     .sort((a, b) => a.meeting.localeCompare(b.meeting) || a.cycleId.localeCompare(b.cycleId) || a.id.localeCompare(b.id));
   const kitById = new Map(viewData.kits.map((kit) => [kit.id, kit] as const));
   const titleById = new Map(viewData.titles.map((title) => [title.id, title] as const));
   const clubById = new Map(viewData.clubs.map((club) => [club.id, club] as const));
-  const publishedCycles = data.cycles.filter((c) => c.status === 'published' &&
+  const memberCycles = data.cycles.filter((c) => memberVisibleCycle(c) &&
     (c.slots.some((slot) => enrolledClubIds.includes(slot.clubId)) ||
       data.assignments.some((a) => a.cycleId === c.id && enrolledClubIds.includes(a.clubId))));
-  const gridCycle = staff ? cycle : publishedCycles.find((c) => c.id === selectedId) ?? publishedCycles[0];
+  const gridCycle = staff ? cycle : memberCycles.find((c) => c.id === selectedId) ?? memberCycles[0];
   const selectedClubIds = staff ? staffClubIds : gridClubIds;
   const gridClubs = selectedClubIds ? clubChoices.filter((club) => selectedClubIds.includes(club.id)) : clubChoices;
   const problemClubs = new Set(gridClubs.map((club) => club.id));
@@ -200,7 +200,7 @@ export default function Schedule() {
       <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={editor.requestDiscard} />
     </Card>}
     <Card>
-      <Label>{staff ? `${cycle.name} · ${cycle.status}` : 'Your published schedule'}</Label>
+      <Label>{staff ? `${cycle.name} · ${cycle.status}` : `Your schedule${gridCycle ? ` · ${gridCycle.status}` : ''}`}</Label>
       <Actions>
         {staff && data.cycles.length > 1 && <Action title={cycleOpen ? 'Close cycles' : 'Change cycle'} onPress={() => setCycleOpen(!cycleOpen)} />}
         {staff && <Action title={toolsOpen ? 'Hide schedule actions' : 'Schedule actions'} onPress={() => setToolsOpen(!toolsOpen)} />}
@@ -332,7 +332,7 @@ export default function Schedule() {
     {!staff && (mode === 'upcoming' || mode === 'past') && <Card>
       <Label>{mode === 'upcoming' ? 'Upcoming meetings' : 'Past meetings'}</Label>
       {clubChoices.length > 0 && gridClubs.length === 0 ? <Note>Select clubs to see meetings.</Note>
-        : clubChoices.length > 0 && publishedCycles.length === 0 ? <Note>No published schedules are available for your clubs yet.</Note>
+        : clubChoices.length > 0 && memberCycles.length === 0 ? <Note>No drafted or published schedules are available for your clubs yet.</Note>
           : clubChoices.length > 0 && memberMeetings.length === 0 ? <Note>No {mode} meetings for the selected clubs.</Note> : null}
       <View style={wide ? scheduleStyles.columns : scheduleStyles.singleColumn}>{memberMeetings.map((assignment) => {
         const kit = kitById.get(assignment.kitId);
@@ -378,7 +378,7 @@ export default function Schedule() {
     </Card>}
     {!staff && mode === 'grid' && gridCycle && <Card>
       <Label>Published cycle · {gridCycle.name}</Label>
-      {publishedCycles.length > 1 && <Actions>{publishedCycles.map((value) => <Action key={value.id} selected={value.id === gridCycle.id} title={value.name} onPress={() => { setSelectedId(value.id); setExpandedId(null); }} />)}</Actions>}
+      {memberCycles.length > 1 && <Actions>{memberCycles.map((value) => <Action key={value.id} selected={value.id === gridCycle.id} title={`${value.name} · ${value.status}`} onPress={() => { setSelectedId(value.id); setExpandedId(null); }} />)}</Actions>}
     </Card>}
     {staff && mode === 'grid' && <Note>Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
     {mode === 'grid' && staff && highlightTitle && grid && <Card>
@@ -401,7 +401,7 @@ export default function Schedule() {
           clubResult={editor.clubResult}
           clubSummaryFor={staff ? (clubId) => { const result = fairness(viewData, cycle, clubId, cycleAssignments); return `Fairness ${result.score === null ? 'N/A' : `${Math.round(result.score)}%`} · ${result.assigned}/${result.slots} assigned`; } : undefined}
           onHideClub={staff ? (clubId) => updateStaffClubs(gridClubs.filter((club) => club.id !== clubId).map((club) => club.id)) : undefined} />)
-      : <Note>No published schedule is available for your clubs yet.</Note>)}
+      : <Note>No drafted or published schedule is available for your clubs yet.</Note>)}
     {staff && mode === 'kits' && <Card>
       <Label>Kits</Label>
       {clubChoices.length > 0 && gridClubs.length === 0 ? <Note>Select clubs to see their assigned kits.</Note>
@@ -434,7 +434,7 @@ export default function Schedule() {
       })}</View>
     </Card>}
     {mode === 'list' && <>
-    {clubId && assignments.length === 0 && unassignedSlots.length === 0 && <Note>{staff ? 'No assignments for this club in this cycle yet.' : 'No published assignments for this club yet.'}</Note>}
+    {clubId && assignments.length === 0 && unassignedSlots.length === 0 && <Note>{staff ? 'No assignments for this club in this cycle yet.' : 'No assignments for this club yet.'}</Note>}
     {monthKeys.map((month) => <View key={month} style={{ marginTop: 8 }}>
       <Label>{month}</Label>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>

@@ -212,11 +212,16 @@ export function titleDemand(data: Data, cycleId: string, clubIds: string[]): Map
   return new Map([...clubsByTitle].map(([titleId, clubs]) => [titleId, clubs.size]));
 }
 
+// Temporary development rule: members can see drafted schedules as well as published ones.
+export function memberVisibleCycle(cycle: Pick<Cycle, 'status'>): boolean {
+  return cycle.status === 'drafted' || cycle.status === 'published';
+}
+
 export function memberSchedule(data: Data, clubIds: string[], day: string, period: 'upcoming' | 'past'): Assignment[] {
   const clubs = new Set(clubIds);
-  const published = new Set(data.cycles.filter((cycle) => cycle.status === 'published').map((cycle) => cycle.id));
+  const visible = new Set(data.cycles.filter(memberVisibleCycle).map((cycle) => cycle.id));
   return data.assignments
-    .filter((assignment) => clubs.has(assignment.clubId) && published.has(assignment.cycleId)
+    .filter((assignment) => clubs.has(assignment.clubId) && visible.has(assignment.cycleId)
       && (period === 'upcoming' ? assignment.meeting >= day : assignment.meeting < day))
     .sort((a, b) => (period === 'upcoming' ? a.meeting.localeCompare(b.meeting) : b.meeting.localeCompare(a.meeting))
       || a.clubId.localeCompare(b.clubId) || a.cycleId.localeCompare(b.cycleId) || a.id.localeCompare(b.id));
