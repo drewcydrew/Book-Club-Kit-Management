@@ -37,38 +37,60 @@ export function windowFor(data: Data, meeting: string): Pick<Assignment, 'ready'
 }
 
 export function assignmentProblem(data: Data, assignment: Assignment, others: Assignment[]): string | null {
+  return assignmentProblems(data, assignment, others)[0] ?? null;
+}
+
+export function assignmentProblems(data: Data, assignment: Assignment, others: Assignment[]): string[] {
+  const problems: string[] = [];
   const kit = data.kits.find((item) => item.id === assignment.kitId);
   const club = data.clubs.find((item) => item.id === assignment.clubId);
   const cycle = data.cycles.find((item) => item.id === assignment.cycleId);
   const slot = cycle?.slots.find((item) => item.id === assignment.slotId);
   const slotMatches = slot?.meeting ? slot.meeting === assignment.meeting : assignment.meeting.startsWith(`${slot?.month}-`);
-  if (!kit || !club || !cycle || !slot || slot.clubId !== club.id || !slotMatches) return 'Assignment no longer matches an existing meeting, kit and club.';
+  if (!kit || !club || !cycle || !slot || slot.clubId !== club.id || !slotMatches) return ['Assignment no longer matches an existing meeting, kit and club.'];
   if (!validDate(assignment.ready) || !validDate(assignment.meeting) || !validDate(assignment.due) ||
-      assignment.ready > assignment.meeting || assignment.meeting > assignment.due) return 'The loan dates are invalid.';
-  if (kit.status === 'inspection' || kit.status === 'unavailable') return 'Kit is currently unavailable.';
+      assignment.ready > assignment.meeting || assignment.meeting > assignment.due) return ['The loan dates are invalid.'];
+  if (kit.status === 'inspection' || kit.status === 'unavailable') problems.push('Kit is currently unavailable.');
   if (kit.status === 'out') {
     const active = others.filter((a) => a.kitId === kit.id && a.ready <= today() &&
       data.cycles.some((c) => c.id === a.cycleId && c.status === 'published'))
       .sort((a, b) => b.ready.localeCompare(a.ready))[0];
-    if (!active) return 'Kit is checked out without a current published assignment.';
-    if (active.id !== assignment.id && (assignment.ready <= addDays(active.due, data.library.bufferDays) ||
-      (active.due < today() && assignment.ready <= addDays(today(), data.library.bufferDays)))) return 'A checked-out or overdue kit blocks this assignment.';
+    if (!active) problems.push('Kit is checked out without a current published assignment.');
+    else if (active.id !== assignment.id && (assignment.ready <= addDays(active.due, data.library.bufferDays) ||
+      (active.due < today() && assignment.ready <= addDays(today(), data.library.bufferDays)))) problems.push('A checked-out or overdue kit blocks this assignment.');
   }
-  if (club.history.includes(kit.titleId)) return 'The club has already read this title.';
+  if (club.history.includes(kit.titleId)) problems.push('The club has already read this title.');
   for (const other of others) {
     if (other.id === assignment.id) continue;
-    if (other.cycleId === assignment.cycleId && other.slotId === assignment.slotId) return 'Meeting already has an assignment.';
+    if (other.cycleId === assignment.cycleId && other.slotId === assignment.slotId) problems.push('Meeting already has an assignment.');
     if (other.cycleId === assignment.cycleId && other.clubId === assignment.clubId &&
       data.kits.find((item) => item.id === other.kitId)?.titleId === kit.titleId) {
-      return 'The club already has this title in the cycle.';
+      problems.push('The club already has this title in the cycle.');
     }
     if (other.kitId === assignment.kitId &&
       assignment.ready <= addDays(other.due, data.library.bufferDays) &&
       other.ready <= addDays(assignment.due, data.library.bufferDays)) {
-      return 'Kit loan windows conflict, including the turnaround buffer.';
+      problems.push(`Kit loan windows conflict with slot ${other.slotId} in cycle ${other.cycleId}, including the turnaround buffer.`);
     }
   }
-  return null;
+  return [...new Set(problems)];
+}
+
+export function fairness(data: Data, cycle: Cycle, clubId: string, assignments: Assignment[]): { score: number | null; assigned: number; slots: number } {
+  const slots = cycle.slots.filter((slot) => slot.clubId === clubId).sort((a, b) => a.month.localeCompare(b.month) || a.id.localeCompare(b.id));
+  const priority = cycle.finalized[clubId] ?? rankings(data, cycle, clubId, true);
+  const bySlot = new Map(assignments.filter((a) => a.cycleId === cycle.id && a.clubId === clubId).map((a) => [a.slotId, a]));
+  const seen = new Set<string>();
+  let total = 0;
+  for (const slot of slots) {
+    const assignment = bySlot.get(slot.id);
+    const titleId = data.kits.find((kit) => kit.id === assignment?.kitId)?.titleId;
+    if (!titleId || seen.has(titleId)) continue;
+    seen.add(titleId);
+    const rank = priority.indexOf(titleId);
+    if (rank >= 0) total += (priority.length - rank) / priority.length;
+  }
+  return { score: priority.length && slots.length ? 100 * total / slots.length : null, assigned: slots.filter((slot) => bySlot.has(slot.id)).length, slots: slots.length };
 }
 
 export function satisfactionDebt(data: Data, clubId: string): number {
@@ -83,14 +105,14 @@ export function satisfactionDebt(data: Data, clubId: string): number {
   }, 0) / previous.length;
 }
 
-export function draft(data: Data, cycle: Cycle): { assignments: Assignment[]; problems: string[] } {
+export function draft(data: Data, cycle: Cycle, continueWithInvalidLocks = false): { assignments: Assignment[]; problems: string[] } {
   const retained = data.assignments.filter((a) => a.cycleId !== cycle.id || a.locked);
   const problems: string[] = [];
   for (const locked of retained.filter((a) => a.cycleId === cycle.id)) {
     const problem = assignmentProblem(data, locked, retained);
     if (problem) problems.push(`Locked assignment ${locked.slotId}: ${problem}`);
   }
-  if (problems.length) return { assignments: data.assignments, problems };
+  if (problems.length && !continueWithInvalidLocks) return { assignments: data.assignments, problems };
   const slots = [...cycle.slots].sort((a, b) => a.month.localeCompare(b.month) ||
     satisfactionDebt(data, b.clubId) - satisfactionDebt(data, a.clubId) || a.clubId.localeCompare(b.clubId) || a.id.localeCompare(b.id));
   for (const slot of slots) {

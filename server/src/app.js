@@ -16,6 +16,7 @@ app.use((request, response, next) => {
   return next();
 });
 app.put('/api/cycles/:cycleId/schedule', express.json({ limit: '2mb' }));
+app.post('/api/cycles/:cycleId/schedule/validate', express.json({ limit: '2mb' }));
 app.use(express.json({ limit: '64kb' }));
 
 app.get('/health', (_request, response) => {

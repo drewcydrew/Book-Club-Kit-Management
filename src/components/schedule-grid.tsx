@@ -17,35 +17,46 @@ interface ScheduleGridProps {
   showProblems: boolean;
   onToggle: (assignmentId: string) => void;
   renderDetail: (assignment: Assignment) => React.ReactNode;
+  selectedSlotId?: string | null;
+  onSelectSlot?: (slotId: string) => void;
+  clubSummaryFor?: (clubId: string) => string;
+  renderSlotDetail?: (slotId: string) => React.ReactNode;
 }
 
-export function ScheduleGridView({ grid, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail }: ScheduleGridProps) {
+export function ScheduleGridView({ grid, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, clubSummaryFor, renderSlotDetail }: ScheduleGridProps) {
   if (grid.rows.length === 0) return null;
   return <View>
     {grid.rows.map((row) => {
-      const expandedCell = row.cells.find((cell) => cell.assignment && cell.assignment.id === expandedId);
+      const expandedCell = row.cells.find((cell) => onSelectSlot ? cell.slot?.id === selectedSlotId : cell.assignment && cell.assignment.id === expandedId);
       return <View key={row.clubId} style={{ marginBottom: 16 }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-          <Text numberOfLines={3} style={{ width: CLUB_WIDTH, fontWeight: '600', paddingRight: 8 }}>{clubNameFor(row.clubId)}</Text>
+          <View style={{ width: CLUB_WIDTH, paddingRight: 8 }}>
+            <Text numberOfLines={3} style={{ fontWeight: '600' }}>{clubNameFor(row.clubId)}</Text>
+            {clubSummaryFor && <Text>{clubSummaryFor(row.clubId)}</Text>}
+          </View>
           <ScrollView horizontal showsHorizontalScrollIndicator>
             <View style={{ flexDirection: 'row' }}>
               {row.cells.map((cell) => <GridCellView key={cell.month} cell={cell} title={cell.assignment ? titleFor(cell.assignment) : undefined}
-                expanded={!!cell.assignment && cell.assignment.id === expandedId} showProblems={showProblems} onToggle={onToggle} />)}
+                expanded={onSelectSlot ? cell.slot?.id === selectedSlotId : !!cell.assignment && cell.assignment.id === expandedId}
+                showProblems={showProblems} onToggle={onToggle} onSelectSlot={onSelectSlot} clubName={clubNameFor(row.clubId)} />)}
             </View>
           </ScrollView>
         </View>
-        {expandedCell?.assignment && <View style={{ marginLeft: CLUB_WIDTH }}>{renderDetail(expandedCell.assignment)}</View>}
+        {expandedCell?.slot && onSelectSlot && renderSlotDetail && <View>{renderSlotDetail(expandedCell.slot.id)}</View>}
+        {!onSelectSlot && expandedCell?.assignment && <View style={{ marginLeft: CLUB_WIDTH }}>{renderDetail(expandedCell.assignment)}</View>}
       </View>;
     })}
   </View>;
 }
 
-function GridCellView({ cell, title, expanded, showProblems, onToggle }: {
+function GridCellView({ cell, title, expanded, showProblems, onToggle, onSelectSlot, clubName }: {
   cell: GridCell;
   title: Title | undefined;
   expanded: boolean;
   showProblems: boolean;
   onToggle: (assignmentId: string) => void;
+  onSelectSlot?: (slotId: string) => void;
+  clubName: string;
 }) {
   const cellStyle = { width: CELL_WIDTH, marginRight: 8 };
   if (!cell.slot) {
@@ -57,17 +68,20 @@ function GridCellView({ cell, title, expanded, showProblems, onToggle }: {
     </View>;
   }
   if (!cell.assignment || !title) {
-    return <View style={cellStyle} accessibilityLabel={`${cell.month}, not yet assigned`}>
+    const content = <>
       <Text style={{ fontSize: 11, color: '#374151', marginBottom: 4 }}>{cell.month}</Text>
-      <View style={{ height: COVER_HEIGHT, borderRadius: 6, borderWidth: 1, borderStyle: 'dashed', borderColor: '#9ca3af', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ height: COVER_HEIGHT, borderRadius: 6, borderWidth: expanded ? 2 : 1, borderStyle: 'dashed', borderColor: expanded ? '#2563eb' : '#9ca3af', alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 12 }}>Not assigned</Text>
       </View>
-    </View>;
+    </>;
+    return onSelectSlot
+      ? <Pressable style={cellStyle} accessibilityRole="button" accessibilityLabel={`${clubName}, ${cell.month}, not assigned`} accessibilityState={{ selected: expanded }} onPress={() => onSelectSlot(cell.slot!.id)}>{content}</Pressable>
+      : <View style={cellStyle} accessibilityLabel={`${cell.month}, not yet assigned`}>{content}</View>;
   }
   const clash = showProblems && !!cell.problem;
   const assignment = cell.assignment;
-  return <Pressable accessibilityRole="button" accessibilityLabel={`${title.name}, ${cell.month}${clash ? ', needs review' : ''}`}
-    accessibilityState={{ expanded }} onPress={() => onToggle(assignment.id)} style={cellStyle}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${onSelectSlot ? `${clubName}, ` : ''}${title.name}, ${cell.month}${clash ? ', needs review' : ''}`}
+    accessibilityState={onSelectSlot ? { selected: expanded } : { expanded }} onPress={() => onSelectSlot ? onSelectSlot(assignment.slotId) : onToggle(assignment.id)} style={cellStyle}>
     <Text style={{ fontSize: 11, color: '#374151', marginBottom: 4 }}>{cell.month}</Text>
     <View style={{ borderRadius: 6, borderWidth: 2, borderColor: clash ? CLASH : expanded ? '#2563eb' : 'transparent', overflow: 'hidden' }}>
       <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ width: CELL_WIDTH - 4, height: COVER_HEIGHT, marginRight: 0, marginBottom: 0 }} />

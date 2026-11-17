@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { addDays, today } from '../src/domain/dates';
-import { assignmentProblem, circulate, draft, firstMonday, meetingFor, rankings, satisfactionDebt } from '../src/domain/logic';
+import { assignmentProblem, assignmentProblems, circulate, draft, fairness, firstMonday, meetingFor, rankings, satisfactionDebt } from '../src/domain/logic';
 import { filterOptions, type PickerOption } from '../src/domain/search';
 import { seed } from '../src/domain/seed';
 import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
@@ -281,6 +281,40 @@ test('draft handles duplicate physical kits and preserves locks on rerun', () =>
   assert.equal(next.problems.length, 0);
 });
 
+test('fairness weights priorities per slot and counts repeated titles only once', () => {
+  const data = seed();
+  const cycle = data.cycles[0];
+  cycle.finalized.c1 = ['t1', 't2', 't3'];
+  const first = cycle.slots.find((slot) => slot.id === 's1')!;
+  const second = cycle.slots.find((slot) => slot.id === 's3')!;
+  const make = (slot: typeof first, kitId: string): Assignment => ({
+    id: slot.id, cycleId: cycle.id, slotId: slot.id, clubId: slot.clubId, kitId,
+    ready: '2026-01-01', meeting: '2026-01-02', due: '2026-01-03', locked: false,
+  });
+  assert.equal(fairness(data, cycle, 'c1', [make(first, 'k1'), make(second, 'k3')]).score, 100 * (1 + 2 / 3) / 2);
+  assert.equal(fairness(data, cycle, 'c1', [make(first, 'k1'), make(second, 'k2')]).score, 50);
+  assert.equal(fairness(data, cycle, 'c1', [make(first, 'k5')]).score, 0);
+  assert.ok(Math.abs((fairness(data, cycle, 'c1', [make(second, 'k4')]).score ?? 0) - 100 / 6) < 1e-10);
+  cycle.finalized.c1 = [];
+  assert.equal(fairness(data, cycle, 'c1', [make(first, 'k1')]).score, null);
+  assert.equal(fairness(data, cycle, 'missing', []).score, null);
+  delete cycle.finalized.c1;
+  assert.notEqual(fairness(data, cycle, 'c1', [make(first, 'k1')]).score, null);
+});
+
+test('local assignment warnings include multiple issues and other cycles', () => {
+  const data = seed();
+  const cycle = data.cycles[0];
+  const assignment = draft(data, cycle).assignments[0];
+  data.kits.find((kit) => kit.id === assignment.kitId)!.status = 'unavailable';
+  data.clubs.find((club) => club.id === assignment.clubId)!.history.push(data.kits.find((kit) => kit.id === assignment.kitId)!.titleId);
+  const other = { ...assignment, id: 'other', cycleId: 'other-cycle', slotId: 'other-slot' };
+  const problems = assignmentProblems(data, assignment, [assignment, other]);
+  assert.ok(problems.some((problem) => problem.includes('unavailable')));
+  assert.ok(problems.some((problem) => problem.includes('already read')));
+  assert.ok(problems.some((problem) => problem.includes('other-cycle')));
+});
+
 test('buffer boundary and invalid locks are reported', () => {
   const data = seed();
   const cycle = data.cycles[0];
@@ -293,6 +327,9 @@ test('buffer boundary and invalid locks are reported', () => {
   assert.match(assignmentProblem(data, conflicting, [assignment]) ?? '', /buffer/);
   data.assignments = [{ ...assignment, locked: true }, conflicting];
   assert.ok(draft(data, cycle).problems.some((p) => p.startsWith('Locked assignment')));
+  const editable = draft(data, cycle, true);
+  assert.ok(editable.problems.some((p) => p.startsWith('Locked assignment')));
+  assert.ok(editable.assignments.some((item) => item.slotId !== assignment.slotId && item.slotId !== conflicting.slotId));
 });
 
 test('circulation enforces transitions and inspection makes damaged kit unavailable', () => {

@@ -1,12 +1,16 @@
 const express = require('express');
+const { createHash } = require('node:crypto');
 const { HttpError, object, boolean } = require('../http');
 const { id, date, list, unique, expected, transaction, one, stale } = require('./workflow-util');
 const router = express.Router();
 const addDays = (d,n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400000).toISOString().slice(0,10);
 const MAX_ASSIGNMENTS = 5000;
 const found = (rows, key, label) => { const row = rows.get(key); if (!row) throw new HttpError(404, `${label} not found.`); return row; };
-router.put('/cycles/:cycleId/schedule', async (req,res) => {
+
+async function schedule(req, res, validateOnly) {
   const b = object(req.body); const cycleId = id(req.params.cycleId); const rev = expected(b.revision); const publish = boolean(b.publish,'publish');
+  const basis = b.basis === undefined ? null : object(b.basis);
+  const unlockIds = unique(list(b.unlockIds ?? [], 'unlockIds', MAX_ASSIGNMENTS).map((value) => id(value)), 'unlockIds').sort();
   const assignments = list(b.assignments,'assignments',MAX_ASSIGNMENTS).map((a) => {
     object(a);
     const item = { id:id(a.id),cycleId:id(a.cycleId,'cycleId'),slotId:id(a.slotId,'slotId'),clubId:id(a.clubId,'clubId'),kitId:id(a.kitId,'kitId'),
@@ -15,34 +19,55 @@ router.put('/cycles/:cycleId/schedule', async (req,res) => {
     return item;
   });
   unique(assignments.map((a) => a.id),'assignments'); unique(assignments.map((a) => a.slotId),'slots');
-  const next = await transaction(async (c) => {
+  const result = await transaction(async (c) => {
     const cycle = await one(c,`SELECT revision,status,to_char(deadline,'YYYY-MM-DD') AS deadline FROM cycles WHERE id=$1 FOR UPDATE`,[cycleId],'Cycle'); stale(cycle.revision,rev);
     if (!['collecting','drafted','published'].includes(cycle.status)) throw new HttpError(409,'Cycle must be collecting before drafting.');
     if (publish && cycle.status === 'collecting') throw new HttpError(409,'Save a draft before publishing.');
     if (cycle.status === 'published' && !publish) throw new HttpError(409,'A published schedule cannot be reverted to a draft.');
     const settings = await one(c,'SELECT loan_days,buffer_days FROM lending_settings WHERE singleton=true',[],'Settings');
+    if (basis) {
+      const sortIds = (rows) => rows.sort((a,b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+      const currentBasis = {
+        cycles:sortIds((await c.query('SELECT id,revision FROM cycles ORDER BY id FOR SHARE')).rows),
+        kits:sortIds((await c.query('SELECT id,revision FROM kits ORDER BY id FOR SHARE')).rows),
+        clubs:sortIds((await c.query('SELECT id,revision FROM clubs ORDER BY id FOR SHARE')).rows),
+        settings:(await c.query('SELECT revision FROM lending_settings WHERE singleton=true')).rows[0].revision,
+      };
+      const submittedBasis = { cycles:basis.cycles, kits:basis.kits, clubs:basis.clubs, settings:basis.settings };
+      if (JSON.stringify(submittedBasis) !== JSON.stringify(currentBasis)) throw new HttpError(409,'Shared schedule inputs changed. Refresh and start the local schedule again.');
+    }
     const locked = (await c.query(`SELECT id,slot_id AS "slotId",club_id AS "clubId",kit_id AS "kitId",to_char(ready,'YYYY-MM-DD') AS ready,
-      to_char(meeting,'YYYY-MM-DD') AS meeting,to_char(due,'YYYY-MM-DD') AS due FROM schedule_assignments WHERE cycle_id=$1 AND locked=true`,[cycleId])).rows;
+      to_char(meeting,'YYYY-MM-DD') AS meeting,to_char(due,'YYYY-MM-DD') AS due FROM schedule_assignments WHERE cycle_id=$1 AND locked=true ORDER BY id`,[cycleId])).rows;
+    if (unlockIds.some((value) => !locked.some((item) => item.id === value))) throw new HttpError(409,'An assignment to unlock is no longer locked. Refresh and retry.');
     for (const old of locked) {
       const current = assignments.find((a) => a.id === old.id);
-      if (!current || ['slotId','clubId','kitId','ready','meeting','due'].some((key) => old[key] !== current[key])) throw new HttpError(409,'Unlock the assignment before changing or removing it.');
+      if ((!current || ['slotId','clubId','kitId','ready','meeting','due'].some((key) => old[key] !== current[key])) && !unlockIds.includes(old.id)) {
+        throw new HttpError(409,'Unlock the assignment before changing or removing it.');
+      }
     }
     const allOther = (await c.query(`SELECT a.id,a.cycle_id AS "cycleId",a.slot_id AS "slotId",a.club_id AS "clubId",a.kit_id AS "kitId",
       to_char(a.ready,'YYYY-MM-DD') AS ready,to_char(a.due,'YYYY-MM-DD') AS due,k.title_id AS "titleId",cy.status
-      FROM schedule_assignments a JOIN kits k ON k.id=a.kit_id JOIN cycles cy ON cy.id=a.cycle_id WHERE a.cycle_id<>$1`,[cycleId])).rows;
+      FROM schedule_assignments a JOIN kits k ON k.id=a.kit_id JOIN cycles cy ON cy.id=a.cycle_id WHERE a.cycle_id<>$1 ORDER BY a.id`,[cycleId])).rows;
     const slotIds = assignments.map((a) => a.slotId);
     const kitIds = [...new Set(assignments.map((a) => a.kitId))];
     const clubIds = [...new Set(assignments.map((a) => a.clubId))];
-    const slotById = new Map((await c.query(`SELECT id,club_id AS "clubId",month,to_char(meeting,'YYYY-MM-DD') AS meeting FROM meeting_slots WHERE cycle_id=$1 AND id=ANY($2)`,[cycleId,slotIds])).rows.map((r) => [r.id,r]));
-    const kitById = new Map((await c.query('SELECT id,title_id AS "titleId",status FROM kits WHERE id=ANY($1)',[kitIds])).rows.map((r) => [r.id,r]));
-    const readTitles = new Set((await c.query('SELECT club_id,title_id FROM club_history WHERE club_id=ANY($1)',[clubIds])).rows.map((r) => `${r.club_id}|${r.title_id}`));
-    const existingById = new Map((await c.query(`SELECT id,club_id AS "clubId",kit_id AS "kitId",to_char(ready,'YYYY-MM-DD') AS ready,to_char(meeting,'YYYY-MM-DD') AS meeting,
-      to_char(due,'YYYY-MM-DD') AS due FROM schedule_assignments WHERE cycle_id=$1`,[cycleId])).rows.map((r) => [r.id,r]));
-    const activeByKit = new Map((await c.query(`SELECT DISTINCT ON (a.kit_id) a.kit_id AS "kitId",a.id,to_char(a.ready,'YYYY-MM-DD') AS ready,to_char(a.due,'YYYY-MM-DD') AS due
-      FROM schedule_assignments a JOIN cycles cy ON cy.id=a.cycle_id WHERE a.kit_id=ANY($1) AND cy.status='published' AND a.ready <= CURRENT_DATE ORDER BY a.kit_id,a.ready DESC`,[kitIds])).rows.map((r) => [r.kitId,r]));
+    const slots = (await c.query(`SELECT id,club_id AS "clubId",month,to_char(meeting,'YYYY-MM-DD') AS meeting FROM meeting_slots WHERE cycle_id=$1 AND id=ANY($2) ORDER BY id`,[cycleId,slotIds])).rows;
+    const kits = (await c.query('SELECT id,title_id AS "titleId",status FROM kits WHERE id=ANY($1) ORDER BY id FOR SHARE',[kitIds])).rows;
+    const history = (await c.query('SELECT club_id,title_id FROM club_history WHERE club_id=ANY($1) ORDER BY club_id,title_id',[clubIds])).rows;
+    const existing = (await c.query(`SELECT id,club_id AS "clubId",kit_id AS "kitId",to_char(ready,'YYYY-MM-DD') AS ready,to_char(meeting,'YYYY-MM-DD') AS meeting,
+      to_char(due,'YYYY-MM-DD') AS due FROM schedule_assignments WHERE cycle_id=$1 ORDER BY id`,[cycleId])).rows;
+    const active = (await c.query(`SELECT DISTINCT ON (a.kit_id) a.kit_id AS "kitId",a.id,to_char(a.ready,'YYYY-MM-DD') AS ready,to_char(a.due,'YYYY-MM-DD') AS due
+      FROM schedule_assignments a JOIN cycles cy ON cy.id=a.cycle_id WHERE a.kit_id=ANY($1) AND cy.status='published' AND a.ready <= CURRENT_DATE ORDER BY a.kit_id,a.ready DESC,a.id`,[kitIds])).rows;
     const dbToday = (await c.query("SELECT to_char(CURRENT_DATE,'YYYY-MM-DD') AS today")).rows[0].today;
+    const slotById = new Map(slots.map((r) => [r.id,r]));
+    const kitById = new Map(kits.map((r) => [r.id,r]));
+    const readTitles = new Set(history.map((r) => `${r.club_id}|${r.title_id}`));
+    const existingById = new Map(existing.map((r) => [r.id,r]));
+    const activeByKit = new Map(active.map((r) => [r.kitId,r]));
     const enriched = [];
     const dateless = [];
+    const warnings = [];
+    const warn = (a, message) => warnings.push({ slotId:a.slotId, message });
     for (const a of assignments) {
       const slot = found(slotById,a.slotId,'Slot');
       if (slot.clubId !== a.clubId) throw new HttpError(409,'Assignment does not match the meeting slot.');
@@ -53,32 +78,41 @@ router.put('/cycles/:cycleId/schedule', async (req,res) => {
         dateless.push({ slotId:a.slotId, meeting:a.meeting });
       }
       const kit = found(kitById,a.kitId,'Kit');
-      if (['inspection','unavailable'].includes(kit.status)) throw new HttpError(409,'Kit is currently unavailable.');
-      const existing = existingById.get(a.id);
+      if (['inspection','unavailable'].includes(kit.status)) warn(a,`Kit ${a.kitId} is currently unavailable.`);
+      const previous = existingById.get(a.id);
       if (addDays(a.ready,settings.loan_days) !== a.due) {
-        if (!existing || existing.ready !== a.ready || existing.due !== a.due) throw new HttpError(409,'New or rescheduled assignments must use the current loan length.');
+        if (!previous || previous.ready !== a.ready || previous.due !== a.due) throw new HttpError(409,'New or rescheduled assignments must use the current loan length.');
       }
       if (readTitles.has(`${a.clubId}|${kit.titleId}`)) {
-        const historic = existing && existing.clubId === a.clubId && existing.kitId === a.kitId && existing.meeting === a.meeting && existing.meeting < dbToday;
-        if (cycle.status !== 'published' || !historic) throw new HttpError(409,'Club has already read this title.');
+        const historic = previous && previous.clubId === a.clubId && previous.kitId === a.kitId && previous.meeting === a.meeting && previous.meeting < dbToday;
+        if (cycle.status !== 'published' || !historic) warn(a,`Club ${a.clubId} has already read title ${kit.titleId}.`);
       }
       if (kit.status === 'out') {
-        const active = activeByKit.get(a.kitId);
-        const today = new Date().toISOString().slice(0,10);
-        if (!active || (active.id !== a.id && (a.ready <= addDays(active.due,settings.buffer_days) || (active.due < today && a.ready <= addDays(today,settings.buffer_days))))) throw new HttpError(409,'A checked-out or overdue kit blocks this assignment.');
+        const current = activeByKit.get(a.kitId);
+        if (!current || (current.id !== a.id && (a.ready <= addDays(current.due,settings.buffer_days) || (current.due < dbToday && a.ready <= addDays(dbToday,settings.buffer_days))))) {
+          warn(a,`Checked-out or overdue kit ${a.kitId} blocks this assignment.`);
+        }
       }
       const candidate = { ...a, titleId: kit.titleId };
-      for (const pool of [allOther,enriched]) {
-        for (const other of pool) {
-          if (other.cycleId === cycleId && other.clubId === a.clubId && other.titleId === kit.titleId) throw new HttpError(409,'Club already has this title in the cycle.');
-          if (other.kitId === a.kitId && a.ready <= addDays(other.due,settings.buffer_days) && other.ready <= addDays(a.due,settings.buffer_days)) throw new HttpError(409,'Kit loan windows conflict, including the turnaround buffer.');
+      for (const other of [...allOther,...enriched]) {
+        if (other.cycleId === cycleId && other.clubId === a.clubId && other.titleId === kit.titleId) warn(a,`Club ${a.clubId} already has title ${kit.titleId} in slot ${other.slotId}.`);
+        if (other.kitId === a.kitId && a.ready <= addDays(other.due,settings.buffer_days) && other.ready <= addDays(a.due,settings.buffer_days)) {
+          warn(a,`Kit ${a.kitId} overlaps slot ${other.slotId} in cycle ${other.cycleId}, including the turnaround buffer.`);
         }
       }
       enriched.push(candidate);
     }
     if (publish) {
-      const slots = await c.query('SELECT count(*)::int AS count FROM meeting_slots WHERE cycle_id=$1',[cycleId]);
-      if (!slots.rows[0].count || slots.rows[0].count !== assignments.length) throw new HttpError(409,'Every meeting needs an assignment before publication.');
+      const count = await c.query('SELECT count(*)::int AS count FROM meeting_slots WHERE cycle_id=$1',[cycleId]);
+      if (!count.rows[0].count || count.rows[0].count !== assignments.length) throw new HttpError(409,'Every meeting needs an assignment before publication.');
+    }
+    const token = createHash('sha256').update(JSON.stringify({ cycleId,cycle,settings,assignments,unlockIds,publish,basis,slots,kits,history,existing,locked,active,allOther,dbToday,warnings })).digest('hex');
+    if (validateOnly) return { warnings, token };
+    if (b.validationToken === undefined) {
+      if (unlockIds.length) throw new HttpError(409,'Validate and confirm unlocked assignments before saving.');
+      if (warnings.length) throw new HttpError(409,warnings[0].message);
+    } else if (typeof b.validationToken !== 'string' || b.validationToken !== token || (warnings.length && b.acknowledge !== true)) {
+      throw new HttpError(409,'Schedule validation changed or warnings were not acknowledged. Review and validate again.');
     }
     for (const d of dateless) await c.query('UPDATE meeting_slots SET meeting=$3 WHERE cycle_id=$1 AND id=$2',[cycleId,d.slotId,d.meeting]);
     await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1',[cycleId]);
@@ -86,8 +120,10 @@ router.put('/cycles/:cycleId/schedule', async (req,res) => {
     await c.query(`INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked)
       SELECT * FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::date[],$7::date[],$8::date[],$9::boolean[])`,
       [column('id'),column('cycleId'),column('slotId'),column('clubId'),column('kitId'),column('ready'),column('meeting'),column('due'),column('locked')]);
-    return (await c.query('UPDATE cycles SET status=$2,revision=revision+1 WHERE id=$1 RETURNING revision',[cycleId,publish?'published':'drafted'])).rows[0].revision;
+    return { revision:(await c.query('UPDATE cycles SET status=$2,revision=revision+1 WHERE id=$1 RETURNING revision',[cycleId,publish?'published':'drafted'])).rows[0].revision };
   });
-  res.json({ revision:next });
-});
+  res.json(result);
+}
+router.post('/cycles/:cycleId/schedule/validate', (req,res) => schedule(req,res,true));
+router.put('/cycles/:cycleId/schedule', (req,res) => schedule(req,res,false));
 module.exports = router;

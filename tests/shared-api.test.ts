@@ -4,7 +4,7 @@ import test from 'node:test';
 import { seed } from '../src/domain/seed';
 import {
   ApiError, deleteCycle, deleteUser, finalizeRanking, loadShared, reopenCycle, saveBallot, saveCycle, saveEvent,
-  saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser,
+  saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser, saveValidatedSchedule, validateSchedule,
 } from '../src/state/api';
 
 const demo = seed();
@@ -103,6 +103,33 @@ test('stale server responses expose actionable API conflict errors', async () =>
     await assert.rejects(loadShared(), /Revision conflict/);
     const error = new ApiError('Revision conflict', 409);
     assert.equal(error.status, 409);
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL;
+    else process.env.EXPO_PUBLIC_API_URL = oldUrl;
+  }
+});
+
+test('schedule validation binds acknowledged saves to revision, unlocks and snapshot', async () => {
+  const oldUrl = process.env.EXPO_PUBLIC_API_URL;
+  const oldFetch = globalThis.fetch;
+  process.env.EXPO_PUBLIC_API_URL = 'https://demo.example';
+  const requests: { path: string; method: string | undefined; body: Record<string, unknown> }[] = [];
+  globalThis.fetch = async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    requests.push({ path, method: init?.method, body: JSON.parse(String(init?.body)) });
+    return new Response(JSON.stringify(path.endsWith('/validate') ? { token: 'token', warnings: [{ slotId: 's1', message: 'Conflict' }] } : { revision: 3 }), { status: 200 });
+  };
+  try {
+    const basis = { cycles: [{ id: 'cycle1', revision: 2 }], kits: [], clubs: [], settings: 1 };
+    const validation = await validateSchedule('cycle1', [], 2, false, ['a1'], basis);
+    assert.equal(validation.warnings[0].slotId, 's1');
+    await saveValidatedSchedule('cycle1', [], 2, false, ['a1'], validation.token, basis);
+    assert.deepEqual(requests[0], { path: '/api/cycles/cycle1/schedule/validate', method: 'POST',
+      body: { assignments: [], revision: 2, publish: false, unlockIds: ['a1'], basis } });
+    assert.deepEqual(requests[1].body, { assignments: [], revision: 2, publish: false, unlockIds: ['a1'], validationToken: 'token', acknowledge: true, basis });
+    globalThis.fetch = async () => new Response(JSON.stringify({ token: 'token', warnings: [{ slotId: 1 }] }), { status: 200 });
+    await assert.rejects(validateSchedule('cycle1', [], 2, false, []), /invalid schedule validation/);
   } finally {
     globalThis.fetch = oldFetch;
     if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL;
