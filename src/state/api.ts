@@ -163,8 +163,47 @@ export async function saveRecord(kind: 'titles' | 'kits' | 'clubs', record: Shar
   return value;
 }
 
-export async function deleteRecord(kind: 'titles' | 'kits' | 'clubs', id: string, revision: number): Promise<void> {
+export async function deleteRecord(kind: 'titles' | 'kits', id: string, revision: number): Promise<void> {
   await request(`/api/${kind}/${encodeURIComponent(id)}`, 'DELETE', undefined, revision);
+}
+
+export type ClubDeletionPreview = {
+  token: string;
+  club: { id: string; name: string; revision: number };
+  counts: { memberships: number; kitLinks: number; history: number; ballots: number; ballotMarks: number;
+    finalizedGroups: number; finalizedRankings: number; slots: number; assignments: number; lockedAssignments: number };
+  cycles: { id: string; name: string; status: Cycle['status']; slots: number; assignments: number; remainingSlots: number }[];
+  affectedKits: { id: string; barcode: string; status: 'out' | 'reserved' }[];
+};
+
+function isCount(value: unknown): value is number {
+  return Number.isSafeInteger(value) && typeof value === 'number' && value >= 0;
+}
+
+function isClubDeletionPreview(value: unknown): value is ClubDeletionPreview {
+  if (!isObject(value) || typeof value.token !== 'string' || !/^[a-f0-9]{64}$/.test(value.token) ||
+      !isObject(value.club) || !isString(value.club.id) || !isString(value.club.name) || !isCount(value.club.revision) ||
+      value.club.revision < 1 || !isObject(value.counts)) return false;
+  const counts = value.counts;
+  return ['memberships', 'kitLinks', 'history', 'ballots', 'ballotMarks', 'finalizedGroups', 'finalizedRankings', 'slots', 'assignments', 'lockedAssignments']
+    .every((key) => isCount(counts[key])) &&
+    Array.isArray(value.cycles) && value.cycles.every((cycle) => isObject(cycle) && isString(cycle.id) && isString(cycle.name) &&
+      ['open', 'collecting', 'drafted', 'published'].includes(String(cycle.status)) &&
+      isCount(cycle.slots) && isCount(cycle.assignments) && isCount(cycle.remainingSlots)) &&
+    Array.isArray(value.affectedKits) && value.affectedKits.every((kit) => isObject(kit) && isString(kit.id) && isString(kit.barcode) &&
+      (kit.status === 'out' || kit.status === 'reserved'));
+}
+
+export async function previewClubDeletion(id: string, revision: number): Promise<ClubDeletionPreview> {
+  const value = await request(`/api/clubs/${encodeURIComponent(id)}/deletion-preview`, 'POST', { revision });
+  if (!isClubDeletionPreview(value) || value.club.id !== id || value.club.revision !== revision) {
+    throw new Error('Server returned an invalid club deletion preview. Refresh before retrying.');
+  }
+  return value;
+}
+
+export async function deleteClub(id: string, revision: number, token: string): Promise<void> {
+  await request(`/api/clubs/${encodeURIComponent(id)}`, 'DELETE', { token, acknowledge: true }, revision);
 }
 
 export async function setClubKit(clubId: string, kitId: string, linked: boolean): Promise<void> {

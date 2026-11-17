@@ -40,9 +40,10 @@ export function assignmentProblem(data: Data, assignment: Assignment, others: As
   return assignmentProblems(data, assignment, others)[0] ?? null;
 }
 
-export function assignmentProblems(data: Data, assignment: Assignment, others: Assignment[]): string[] {
+export function assignmentProblems(data: Data, assignment: Assignment, others: Assignment[], kitsById?: ReadonlyMap<string, Kit>): string[] {
   const problems: string[] = [];
-  const kit = data.kits.find((item) => item.id === assignment.kitId);
+  const findKit = (kitId: string) => kitsById ? kitsById.get(kitId) : data.kits.find((item) => item.id === kitId);
+  const kit = findKit(assignment.kitId);
   const club = data.clubs.find((item) => item.id === assignment.clubId);
   const cycle = data.cycles.find((item) => item.id === assignment.cycleId);
   const slot = cycle?.slots.find((item) => item.id === assignment.slotId);
@@ -64,7 +65,7 @@ export function assignmentProblems(data: Data, assignment: Assignment, others: A
     if (other.id === assignment.id) continue;
     if (other.cycleId === assignment.cycleId && other.slotId === assignment.slotId) problems.push('Meeting already has an assignment.');
     if (other.cycleId === assignment.cycleId && other.clubId === assignment.clubId &&
-      data.kits.find((item) => item.id === other.kitId)?.titleId === kit.titleId) {
+      findKit(other.kitId)?.titleId === kit.titleId) {
       problems.push('The club already has this title in the cycle.');
     }
     if (other.kitId === assignment.kitId &&

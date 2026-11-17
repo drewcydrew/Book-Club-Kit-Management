@@ -27,14 +27,16 @@ import {
 import type { Club, Membership } from "../domain/model";
 import type { PickerOption } from "../domain/search";
 import {
-  deleteRecord,
+  ApiError,
+  deleteClub,
   loadShared,
+  previewClubDeletion,
   saveHistory,
   saveMemberships,
   saveRecord,
   setClubKit,
 } from "../state/api";
-import type { SharedData } from "../state/api";
+import type { ClubDeletionPreview, SharedData } from "../state/api";
 import { useShared } from "../state/shared";
 import { useStore } from "../state/store";
 
@@ -84,6 +86,10 @@ const blankClub = (branch: string): Club => ({
 
 function errorText(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+function countLabel(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function detailsKey(value: Draft) {
@@ -283,7 +289,11 @@ export default function Clubs() {
     id: string;
     name: string;
     revision: number;
+    loading: boolean;
+    preview: ClubDeletionPreview | null;
+    error: string;
   } | null>(null);
+  const deletionInFlight = useRef(false);
   const [unlinking, setUnlinking] = useState<{
     clubId: string;
     kitId: string;
@@ -705,6 +715,54 @@ export default function Clubs() {
     setOpen((current) => ({ ...current, [section]: !current[section] }));
   }
 
+  async function beginDeletion(value: Club) {
+    if (person?.role !== "admin" || busy || deletionInFlight.current) return;
+    if (draftRef.current?.club.id === value.id && hasUnsettledWork()) {
+      setMessage("Finish saving or revert this club's edits before deleting it.");
+      return;
+    }
+    const record = shared.data.clubs.find((item) => item.id === value.id);
+    if (!record) { setMessage("Club is no longer available. Refresh shared data."); return; }
+    deletionInFlight.current = true;
+    setMessage("");
+    setDeleting({ id: record.id, name: record.name, revision: record.revision, loading: true, preview: null, error: "" });
+    try {
+      const preview = await previewClubDeletion(record.id, record.revision);
+      setDeleting({ id: record.id, name: record.name, revision: record.revision, loading: false, preview, error: "" });
+    } catch (error: unknown) {
+      setDeleting({ id: record.id, name: record.name, revision: record.revision, loading: false, preview: null,
+        error: `${errorText(error, "Unable to load deletion details.")} Refresh shared data before reviewing again.` });
+    } finally { deletionInFlight.current = false; }
+  }
+
+  async function confirmDeletion() {
+    if (!deleting?.preview || person?.role !== "admin" || busy || deletionInFlight.current) return;
+    const { id, revision, preview } = deleting;
+    deletionInFlight.current = true;
+    setDeleting({ ...deleting, loading: true, error: "" });
+    let completed = false;
+    let started = false;
+    let failure: unknown;
+    try {
+      await shared.mutate(async () => {
+        started = true;
+        try { await deleteClub(id, revision, preview.token); completed = true; }
+        catch (error: unknown) { failure = error; throw error; }
+      });
+      if (draftRef.current?.club.id === id) { draftRef.current = null; setDraft(null); }
+      setDeleting(null);
+      setMessage("Club permanently deleted from shared data.");
+    } catch (error: unknown) {
+      const knownRejection = failure instanceof ApiError && failure.status >= 400 && failure.status < 500;
+      const detail = errorText(knownRejection ? failure : error, "Unable to delete club.");
+      const outcome = completed ? "The club was deleted, but refreshing failed."
+        : started && !knownRejection ? "Deletion may have completed."
+          : detail;
+      setDeleting({ id, name: preview.club.name, revision, loading: false, preview: null,
+        error: `${outcome} Refresh shared data and inspect the club before reviewing again.` });
+    } finally { deletionInFlight.current = false; }
+  }
+
   const visibleClubs = data.clubs.filter(
     (value) =>
       staff ||
@@ -763,34 +821,44 @@ export default function Clubs() {
           the explicit demo seed.
         </Note>
       )}
-      {deleting && (
-        <Card>
-          <Label>Delete {deleting.name}?</Label>
-          <Note>
-            Deletion is blocked while any shared membership, cycle, schedule,
-            history or kit link refers to this club.
-          </Note>
-          <Actions>
-            <Action
-              tone="danger"
-              title="Confirm deletion"
-              onPress={() => {
-                void shared
-                  .mutate(() =>
-                    deleteRecord("clubs", deleting.id, deleting.revision),
-                  )
-                  .then(() => {
-                    setDeleting(null);
-                    setMessage("Club deleted.");
-                  })
-                  .catch((error: unknown) =>
-                    setMessage(errorText(error, "Unable to delete club.")),
-                  );
-              }}
-            />
-            <Action title="Cancel deletion" onPress={() => setDeleting(null)} />
-          </Actions>
-        </Card>
+      {deleting && person?.role === "admin" && (
+        <Modal transparent visible onRequestClose={() => { if (!deleting.loading) setDeleting(null); }} accessibilityLabel="Delete club">
+          <View style={modalStyles.backdrop}><View style={modalStyles.dialog}>
+            <ScrollView contentContainerStyle={modalStyles.content}>
+              <Label>Permanently delete {deleting.name}?</Label>
+              <Note>This removes the club and its related records for everyone. This cannot be undone.</Note>
+              {deleting.loading && <Note>{deleting.preview ? "Deleting club…" : "Loading deletion details…"}</Note>}
+              {deleting.error ? <Text accessibilityRole="alert" style={modalStyles.syncError}>{deleting.error}</Text> : null}
+              {deleting.preview && <>
+                <Note>Remove {countLabel(deleting.preview.counts.memberships, "membership")},
+                  {" "}{countLabel(deleting.preview.counts.kitLinks, "kit link")},
+                  {" "}{countLabel(deleting.preview.counts.history, "history entry", "history entries")},
+                  {" "}{countLabel(deleting.preview.counts.ballots, "ballot")} and
+                  {" "}{countLabel(deleting.preview.counts.ballotMarks, "ballot mark")},
+                  {" "}{countLabel(deleting.preview.counts.finalizedGroups, "finalized group")} and
+                  {" "}{countLabel(deleting.preview.counts.finalizedRankings, "ranking")},
+                  {" "}{countLabel(deleting.preview.counts.slots, "meeting")} and
+                  {" "}{countLabel(deleting.preview.counts.assignments, "assignment")} ({deleting.preview.counts.lockedAssignments} locked).</Note>
+                {deleting.preview.cycles.map((cycle) => <Note key={cycle.id}>
+                  {cycle.name} · {cycle.status}: {countLabel(cycle.slots, "meeting")} and {countLabel(cycle.assignments, "assignment")} removed.
+                  {cycle.status === "published" && cycle.remainingSlots === 0 ? " It will remain published with no meetings." : ""}
+                </Note>)}
+                <Note>People, titles, kits, kit statuses, circulation events, other clubs and cycles are retained.
+                  Published schedule information, due dates and loan associations for this club can disappear.</Note>
+                {deleting.preview.affectedKits.length > 0 && <View>
+                  <Text style={modalStyles.syncError}>Reserved or checked-out kits need manual follow-up. Their status is not changed:</Text>
+                  {deleting.preview.affectedKits.map((kit) => <Text key={kit.id}>{kit.barcode} · {kit.status}</Text>)}
+                  <Note>Kit status is shared and may not identify which club holds the kit.</Note>
+                </View>}
+                <Note>Development workflow only; this is not a production-safe circulation or audit process.</Note>
+              </>}
+              <Actions>
+                {deleting.preview && <Action tone="danger" title="Confirm permanent deletion" disabled={deleting.loading || busy} onPress={() => { void confirmDeletion(); }} />}
+                <Action title="Cancel deletion" disabled={deleting.loading || busy} onPress={() => setDeleting(null)} />
+              </Actions>
+            </ScrollView>
+          </View></View>
+        </Modal>
       )}
       {unlinking && (
         <Card>
@@ -931,21 +999,12 @@ export default function Clubs() {
                     />
                     <Actions>
                       <Action title="Edit club" onPress={() => edit(value)} />
-                      <Action
+                      {person?.role === "admin" && <Action
                         tone="danger"
                         title="Delete club"
-                        onPress={() => {
-                          const record = shared.data.clubs.find(
-                            (item) => item.id === value.id,
-                          );
-                          if (record)
-                            setDeleting({
-                              id: record.id,
-                              name: record.name,
-                              revision: record.revision,
-                            });
-                        }}
-                      />
+                        disabled={busy}
+                        onPress={() => { void beginDeletion(value); }}
+                      />}
                     </Actions>
                   </>
                 )}

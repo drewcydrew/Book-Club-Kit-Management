@@ -115,7 +115,9 @@ test('shared records persist, enforce constraints and reject stale edits', { ski
   assert.equal((await request(link, 'DELETE')).status, 204);
   assert.equal((await request(`/api/kits/${kit.json.id}`, 'DELETE', undefined, kit.json.revision)).status, 204);
   assert.equal((await request(`/api/titles/${titleId}`, 'DELETE', undefined, updated.json.revision)).status, 204);
-  assert.equal((await request(`/api/clubs/${club.json.id}`, 'DELETE', undefined, club.json.revision)).status, 204);
+  const deletionPreview = await request(`/api/clubs/${club.json.id}/deletion-preview`, 'POST', { revision: club.json.revision });
+  assert.equal(deletionPreview.status, 200);
+  assert.equal((await request(`/api/clubs/${club.json.id}`, 'DELETE', { token: deletionPreview.json.token, acknowledge: true }, club.json.revision)).status, 204);
   assert.equal((await request(`/api/titles/${titleId}`)).status, 404);
 });
 
