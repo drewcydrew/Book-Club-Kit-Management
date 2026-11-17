@@ -2,14 +2,14 @@ import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
 import { ScheduleGridView } from '../components/schedule-grid';
-import { ScheduleWorkspace } from '../components/schedule-workspace';
+import { useScheduleWorkspace } from '../components/schedule-workspace';
 import { TitleCover } from '../components/title-cover';
-import { memberSchedule, scheduleGrid } from '../domain/cycle-overview';
+import { memberSchedule, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
-import { assignmentProblem } from '../domain/logic';
-import type { Assignment, Cycle } from '../domain/model';
-import { saveSchedule, saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
+import { assignmentProblem, fairness } from '../domain/logic';
+import type { Assignment } from '../domain/model';
+import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
 
@@ -31,59 +31,86 @@ export default function Schedule() {
   const [selectedId, setSelectedId] = useState(data.cycles[0]?.id ?? '');
   const [messages, setMessages] = useState<string[]>([]);
   const [message, setMessage] = useState('');
-  const [replacement, setReplacement] = useState<{ assignmentId: string; kitId: string } | null>(null);
-  const cycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
+  const selectedCycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
+  const editor = useScheduleWorkspace(data, selectedCycle);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
   const [selectedClubId, setSelectedClubId] = useState('');
-  const [viewMode, setViewMode] = useState<'overview' | 'upcoming' | 'past' | 'grid' | 'list'>(person?.role === 'member' ? 'upcoming' : 'overview');
-  const [workspace, setWorkspace] = useState<{ mode: 'generate' | 'existing'; cycle: Cycle } | null>(null);
+  const [memberViewMode, setMemberViewMode] = useState<'upcoming' | 'past' | 'grid' | 'list'>('upcoming');
+  const [staffViewMode, setStaffViewMode] = useState<'grid' | 'meetings' | 'kits'>('grid');
   const [publication, setPublication] = useState<{ cycleId: string; revision: number; assignments: Assignment[]; validation: ScheduleValidation } | null>(null);
   const [validating, setValidating] = useState(false);
   const [gridClubIds, setGridClubIds] = useState<string[] | null>(null);
+  const [staffClubIds, setStaffClubIds] = useState<string[] | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [staffFiltersOpen, setStaffFiltersOpen] = useState(false);
   const [cycleOpen, setCycleOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [expandedClubs, setExpandedClubs] = useState<string[]>([]);
   const staff = person?.role === 'staff' || person?.role === 'admin';
-  const mode = staff ? (viewMode === 'upcoming' || viewMode === 'past' ? 'overview' : viewMode) : (viewMode === 'overview' ? 'upcoming' : viewMode);
+  const viewData = staff && editor.proposalData ? editor.proposalData : data;
+  const cycle = staff && editor.dirty && editor.workspace ? editor.workspace.cycle : selectedCycle;
+  const [previousStaff, setPreviousStaff] = useState(staff);
+  if (staff !== previousStaff) {
+    setPreviousStaff(staff);
+    if (staff) setStaffViewMode('grid');
+  }
+  const mode = staff ? staffViewMode : memberViewMode;
   const personId = person?.id;
   const enrolledClubIds = data.memberships.filter((membership) => membership.personId === personId).map((membership) => membership.clubId);
   const cycleId = cycle?.id;
-  const clubChoices = staff ? data.clubs : data.clubs.filter((club) => enrolledClubIds.includes(club.id));
+  const clubChoices = staff ? viewData.clubs : data.clubs.filter((club) => enrolledClubIds.includes(club.id));
   const clubId = clubChoices.find((club) => club.id === selectedClubId)?.id ?? clubChoices[0]?.id;
-  const visibleAssignments = data.assignments.filter((a) => staff
+  const visibleAssignments = viewData.assignments.filter((a) => staff
     ? a.cycleId === cycleId
     : enrolledClubIds.includes(a.clubId) && data.cycles.some((c) => c.id === a.cycleId && c.status === 'published'));
   const assignments = visibleAssignments
     .filter((a) => a.clubId === clubId)
     .sort((a, b) => a.meeting.localeCompare(b.meeting) || a.cycleId.localeCompare(b.cycleId) || a.id.localeCompare(b.id));
-  const kitById = new Map(data.kits.map((kit) => [kit.id, kit] as const));
-  const titleById = new Map(data.titles.map((title) => [title.id, title] as const));
-  const clubById = new Map(data.clubs.map((club) => [club.id, club] as const));
+  const kitById = new Map(viewData.kits.map((kit) => [kit.id, kit] as const));
+  const titleById = new Map(viewData.titles.map((title) => [title.id, title] as const));
+  const clubById = new Map(viewData.clubs.map((club) => [club.id, club] as const));
   const publishedCycles = data.cycles.filter((c) => c.status === 'published' &&
     (c.slots.some((slot) => enrolledClubIds.includes(slot.clubId)) ||
       data.assignments.some((a) => a.cycleId === c.id && enrolledClubIds.includes(a.clubId))));
   const gridCycle = staff ? cycle : publishedCycles.find((c) => c.id === selectedId) ?? publishedCycles[0];
-  const gridClubs = gridClubIds ? clubChoices.filter((club) => gridClubIds.includes(club.id)) : clubChoices;
-  const problemClubs = new Set(mode === 'list' ? [clubId] : gridClubs.map((club) => club.id));
+  const selectedClubIds = staff ? staffClubIds : gridClubIds;
+  const gridClubs = selectedClubIds ? clubChoices.filter((club) => selectedClubIds.includes(club.id)) : clubChoices;
+  const problemClubs = new Set(gridClubs.map((club) => club.id));
   const problems = new Map((staff ? visibleAssignments.filter((assignment) => problemClubs.has(assignment.clubId)) : [])
-    .map((assignment) => [assignment.id, assignmentProblem(data, assignment, data.assignments) ?? null] as const));
+    .map((assignment) => [assignment.id, assignmentProblem(viewData, assignment, viewData.assignments) ?? null] as const));
   const gridClubKey = gridClubs.map((club) => club.id).join('|');
   const grid = mode === 'grid' && gridCycle
-    ? scheduleGrid(data, gridCycle, gridClubKey ? gridClubKey.split('|') : [], data.assignments.filter((a) => a.cycleId === gridCycle.id))
+    ? scheduleGrid(viewData, gridCycle, gridClubKey ? gridClubKey.split('|') : [], viewData.assignments.filter((a) => a.cycleId === gridCycle.id))
     : null;
   const memberMeetings = !staff && (mode === 'upcoming' || mode === 'past')
     ? memberSchedule(data, gridClubKey ? gridClubKey.split('|') : [], today(), mode) : [];
-  if (workspace) return <ScheduleWorkspace data={data} cycle={workspace.cycle} mode={workspace.mode} onClose={(result) => { setWorkspace(null); setMessage(result ?? ''); }} />;
-  if (!person) return <Page title="Schedule"><Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
-  if (!cycle) return <Page title="Schedule"><Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
-  const cycleAssignments = data.assignments.filter((assignment) => assignment.cycleId === cycle.id);
+  const kits = staff && mode === 'kits' && cycle ? scheduleByKit(viewData, cycle.id, gridClubs.map((club) => club.id)) : [];
+  const pendingConfirmation = editor.pendingAction && <Card>
+    <Note>{editor.pendingAction.description}</Note>
+    <Actions><Action tone="danger" title={editor.pendingAction.confirmLabel} onPress={editor.confirmAction} />
+      <Action title="Keep editing" onPress={editor.cancelAction} /></Actions>
+  </Card>;
+  const discardUnavailableProposal = editor.dirty && <Card>
+    <Note>Unsaved staff schedule changes are held on this device.</Note>
+    <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={editor.requestDiscard} />
+  </Card>;
+  if (!person) return <Page title="Schedule">{pendingConfirmation}{discardUnavailableProposal}<Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
+  if (!cycle) return <Page title="Schedule">{pendingConfirmation}{discardUnavailableProposal}<Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
+  const cycleAssignments = viewData.assignments.filter((assignment) => assignment.cycleId === cycle.id);
   const assignedSlotIds = new Set(assignments.map((assignment) => assignment.slotId));
   const unassignedSlots = staff && clubId ? cycle.slots.filter((slot) => slot.clubId === clubId && !assignedSlotIds.has(slot.id)) : [];
   const assignmentsByMonth = groupBy(assignments, (assignment) => assignment.meeting.slice(0, 7));
   const unassignedByMonth = groupBy(unassignedSlots, (slot) => slot.month);
   const monthKeys = [...new Set([...assignmentsByMonth.keys(), ...unassignedByMonth.keys()])].sort();
+
+  function updateStaffClubs(ids: string[]) {
+    setStaffClubIds(ids);
+    if (expandedId && !viewData.assignments.some((assignment) => assignment.id === expandedId && ids.includes(assignment.clubId))) {
+      setExpandedId(null);
+    }
+    if (editor.selectedSlotId && !cycle.slots.some((slot) => slot.id === editor.selectedSlotId && ids.includes(slot.clubId))) editor.closeSlot();
+  }
 
   function renderTile(assignment: Assignment) {
     const kit = kitById.get(assignment.kitId);
@@ -106,34 +133,7 @@ export default function Schedule() {
       <Text style={{ fontWeight: '600' }}>{clubById.get(assignment.clubId)?.name ?? 'Unavailable club'} · {titleById.get(kit?.titleId ?? '')?.name ?? 'Unavailable title'}</Text>
       {problem && <Text style={{ color: '#a22525' }}>Needs review: {problem}</Text>}
       <Text>{kit?.barcode ?? 'Unavailable kit'} · Ready {assignment.ready} · Meeting {assignment.meeting} · Due {assignment.due}</Text>
-        {staff && cycle.status === 'published' && !!problem && assignment.locked && <Actions>
-          <Action title={assignment.locked ? 'Unlock' : 'Lock'} disabled={shared.saving} onPress={() => {
-            const next = data.assignments.map((item) => item.id === assignment.id ? { ...item, locked: !item.locked } : item);
-            persist(next, cycle.status === 'published', 'Assignment lock saved.');
-          }} />
-        </Actions>}
-        {staff && !assignment.locked && cycle.status === 'published' && !!problem && <>
-          <Note>Choose a feasible replacement kit:</Note><Actions>{data.kits.filter((kitOption) => kitOption.id !== assignment.kitId &&
-            !assignmentProblem(data, { ...assignment, kitId: kitOption.id }, data.assignments)).map((kitOption) => <Action key={kitOption.id} selected={replacement?.assignmentId === assignment.id && replacement.kitId === kitOption.id}
-              title={`${kitOption.barcode} · ${titleById.get(kitOption.titleId)?.name ?? 'Unavailable title'}`}
-              onPress={() => setReplacement({ assignmentId: assignment.id, kitId: kitOption.id })} />)}</Actions>
-          {replacement?.assignmentId === assignment.id && <Actions><Action tone="primary" title="Confirm replacement" disabled={shared.saving} onPress={() => {
-            const changed = { ...assignment, kitId: replacement.kitId };
-            const next = data.assignments.map((item) => item.id === assignment.id ? changed : item);
-            const conflict = assignmentProblem(data, changed, next);
-            if (conflict) { setMessages([conflict]); return; }
-            persist(next, cycle.status === 'published', 'Kit replacement saved.');
-            setReplacement(null);
-          }} /><Action title="Cancel replacement" onPress={() => setReplacement(null)} /></Actions>}
-        </>}
     </View>;
-  }
-
-  function persist(assignmentsToSave: Assignment[], publish: boolean, success: string, problems: string[] = []): Promise<boolean> {
-    setMessage('');
-    return shared.mutate(() => saveSchedule(cycle.id, assignmentsToSave.filter((a) => a.cycleId === cycle.id), cycle.revision, publish))
-      .then(() => { setMessages(problems); setMessage(success); return true; })
-      .catch((error: unknown) => { setMessage(error instanceof Error ? error.message : 'Unable to save schedule.'); return false; });
   }
 
   async function publishValidated(candidate: { cycleId: string; revision: number; assignments: Assignment[]; validation: ScheduleValidation }) {
@@ -146,6 +146,8 @@ export default function Schedule() {
   }
 
   async function publish() {
+    if (editor.dirty || editor.busy) return;
+    editor.closeSlot();
     setValidating(true); setMessage(''); setMessages([]);
     try {
       const validation = await validateSchedule(cycle.id, cycleAssignments, cycle.revision, true, []);
@@ -158,55 +160,104 @@ export default function Schedule() {
   }
 
   return <Page title="Schedule">
+    {!staff && editor.dirty && <Card>
+      <Note>Unsaved staff schedule changes are still held on this device. Discard them before leaving or return to a staff user.</Note>
+      <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={editor.requestDiscard} />
+    </Card>}
     <Card>
       <Label>{staff ? `${cycle.name} · ${cycle.status}` : 'Your published schedule'}</Label>
       <Actions>
         {staff && data.cycles.length > 1 && <Action title={cycleOpen ? 'Close cycles' : 'Change cycle'} onPress={() => setCycleOpen(!cycleOpen)} />}
         {staff && <Action title={toolsOpen ? 'Hide schedule actions' : 'Schedule actions'} onPress={() => setToolsOpen(!toolsOpen)} />}
       </Actions>
-      {staff && cycleOpen && <Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} disabled={shared.saving || validating} title={value.name} onPress={() => {
+      {staff && cycleOpen && <Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} disabled={editor.busy || validating} title={value.name} onPress={() => {
         if (value.id !== cycle.id) {
-          setSelectedId(value.id); setMessages([]); setMessage('');
-          setPublication(null); setReplacement(null); setExpandedId(null); setShowAllMessages(false);
+          editor.requestCycleChange(() => {
+            setSelectedId(value.id); setMessages([]); setMessage('');
+            setPublication(null); setExpandedId(null); setShowAllMessages(false); setCycleOpen(false);
+          });
+        } else {
+          setCycleOpen(false);
         }
-        setCycleOpen(false);
       }} />)}</Actions>}
       {staff && toolsOpen && <>
-        <Note>Generate and edit locally before saving a shared draft. Loans include a {data.library.bufferDays}-day turnaround buffer.</Note>
+        <Note>Loans include a {viewData.library.bufferDays}-day turnaround buffer.</Note>
         {cycle.status === 'collecting' && cycleAssignments.length > 0 && <Note>
           Existing assignments may be provisional. Generating a draft can replace unlocked assignments; locked assignments are retained and may need attention. Checked-out kits or reading history can prevent drafting or publication.
         </Note>}
         <Actions>
-          <Action title="Generate local schedule" disabled={validating || shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => setWorkspace({ mode: 'generate', cycle })} />
-          <Action title="Edit shared draft locally" disabled={validating || shared.saving || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => setWorkspace({ mode: 'existing', cycle })} />
-          <Action tone="primary" title="Publish schedule" disabled={validating || shared.saving || !!publication || cycle.status !== 'drafted'} onPress={() => { void publish(); }} />
-          <Action title="Refresh shared schedule" disabled={shared.saving || validating} onPress={() => { void shared.refresh().catch((error: unknown) => setMessages([error instanceof Error ? error.message : 'Unable to refresh.'])); }} />
+          <Action tone="primary" title="Publish schedule" disabled={validating || editor.busy || editor.dirty || !!publication || cycle.status !== 'drafted'} onPress={() => { void publish(); }} />
+          <Action title="Refresh shared schedule" disabled={editor.busy || validating} onPress={() => { void shared.refresh().catch((error: unknown) => setMessages([error instanceof Error ? error.message : 'Unable to refresh.'])); }} />
         </Actions>
       </>}
       {staff && publication && <>
         <Note>Publishing these warnings can create impossible or unsafe schedules and affect other cycles. Review every issue before confirming.</Note>
         {publication.validation.warnings.map((warning, index) => <Text key={`${warning.slotId}-${index}`} style={{ color: '#a22525' }}>{scheduleWarning(data, cycle, warning)}</Text>)}
-        <Actions><Action tone="danger" title="Publish despite warnings" disabled={shared.saving || validating || publication.cycleId !== cycle.id || publication.revision !== cycle.revision}
+        <Actions><Action tone="danger" title="Publish despite warnings" disabled={editor.busy || editor.dirty || validating || publication.cycleId !== cycle.id || publication.revision !== cycle.revision}
           onPress={() => { void publishValidated(publication); }} /><Action title="Cancel publication" disabled={shared.saving} onPress={() => setPublication(null)} /></Actions>
       </>}
       {staff && (showAllMessages ? messages : messages.slice(0, 5)).map((item, index) => <Text key={`${item}-${index}`} style={{ color: '#a22525' }}>{item}</Text>)}
       {staff && messages.length > 5 && <Action title={showAllMessages ? 'Show fewer messages' : `Show all messages (${messages.length})`} onPress={() => setShowAllMessages(!showAllMessages)} />}
       {staff && message ? <Text>{message}</Text> : null}
+      {staff && editor.message ? <Text>{editor.message}</Text> : null}
       <Actions>
-        {staff ? <Action selected={mode === 'overview'} title="Overview" onPress={() => setViewMode('overview')} /> : <>
-          <Action selected={mode === 'upcoming'} title="Upcoming" onPress={() => setViewMode('upcoming')} />
-          <Action selected={mode === 'past'} title="Past" onPress={() => setViewMode('past')} />
+        {staff ? <>
+          <Action selected={mode === 'grid'} title="Grid" onPress={() => { editor.closeSlot(); setStaffViewMode('grid'); }} />
+          <Action selected={mode === 'meetings'} title="Meetings" onPress={() => { editor.closeSlot(); setStaffViewMode('meetings'); }} />
+          <Action selected={mode === 'kits'} title="Kits" onPress={() => { editor.closeSlot(); setStaffViewMode('kits'); }} />
+        </> : <>
+          <Action selected={mode === 'upcoming'} title="Upcoming" onPress={() => setMemberViewMode('upcoming')} />
+          <Action selected={mode === 'past'} title="Past" onPress={() => setMemberViewMode('past')} />
+          <Action selected={mode === 'grid'} title="Grid" onPress={() => setMemberViewMode('grid')} />
+          <Action selected={mode === 'list'} title="List by club" onPress={() => setMemberViewMode('list')} />
         </>}
-        <Action selected={mode === 'grid'} title="Grid" onPress={() => setViewMode('grid')} />
-        <Action selected={mode === 'list'} title="List by club" onPress={() => setViewMode('list')} />
       </Actions>
     </Card>
-    {mode !== 'list' ? <Card>
+    {pendingConfirmation}
+    {staff && <Card>
+      <Label>{editor.dirty ? 'Unsaved local schedule' : 'Shared schedule'}</Label>
+      {editor.dirty
+        ? <Note>Changes are visible only on this device until saved. Saving creates a shared draft; publishing is separate.</Note>
+        : (cycle.status === 'collecting' || cycle.status === 'drafted') && <Note>Select a meeting in Grid to edit it locally. Nothing changes for other users until you save a draft.</Note>}
+      {cycle.status === 'published' && <Note>Published schedules are read-only here. Reopen this cycle on Cycles before editing; reopening affects member visibility and circulation.</Note>}
+      {cycle.status === 'open' && <Note>Start collecting preferences on Cycles before editing this schedule.</Note>}
+      {editor.stale && editor.dirty && <Text style={{ color: '#a22525' }}>Shared data has changed. Refresh if needed, then discard these changes and start again before saving.</Text>}
+      <Actions>
+        <Action title={editor.dirty ? 'Regenerate locally' : 'Generate locally'} disabled={editor.busy || validating || !!publication || (editor.stale && editor.dirty) || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={editor.requestGenerate} />
+        <Action tone="primary" title="Save draft" disabled={!editor.dirty || editor.busy || validating || editor.stale} onPress={() => { void editor.validate(); }} />
+        <Action title="Discard changes" disabled={!editor.dirty || editor.busy || validating} onPress={editor.requestDiscard} />
+      </Actions>
+      {(!editor.stale || editor.dirty) && editor.workspace?.generationProblems.map((problem, index) => <Text key={`${problem}-${index}`} style={{ color: '#a22525' }}>{problem}</Text>)}
+      {editor.validation && editor.workspace && <>
+        <Label>Review before saving</Label>
+        <Note>These overrides can create impossible or unsafe schedules and affect other cycles. Save only if you accept every warning.</Note>
+        {editor.validation.warnings.map((warning, index) => <Text key={`${warning.slotId}-${index}`} style={{ color: '#a22525' }}>{scheduleWarning(editor.workspace!.base, editor.workspace!.cycle, warning)}</Text>)}
+        <Actions><Action tone="danger" title="Save draft despite warnings" disabled={editor.busy || editor.stale} onPress={() => { if (editor.validation) void editor.confirmSave(editor.validation.token); }} />
+          <Action title="Cancel save" disabled={editor.busy} onPress={editor.cancelValidation} /></Actions>
+      </>}
+    </Card>}
+    {staff ? <Card>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: staffFiltersOpen }}
+        accessibilityLabel={`Clubs shown, ${gridClubs.length} of ${clubChoices.length}`} onPress={() => setStaffFiltersOpen(!staffFiltersOpen)}
+        style={{ minHeight: 44, justifyContent: 'center' }}>
+        <Label>{staffFiltersOpen ? '▾' : '▸'} Clubs shown · {gridClubs.length} of {clubChoices.length}</Label>
+      </Pressable>
+      {clubChoices.length === 0 ? <Note>No clubs exist yet.</Note> : staffFiltersOpen && <>
+        <Actions>
+          <Action title="Show all" disabled={gridClubs.length === clubChoices.length} onPress={() => updateStaffClubs(clubChoices.map((club) => club.id))} />
+          <Action title="Hide all" disabled={gridClubs.length === 0} onPress={() => updateStaffClubs([])} />
+        </Actions>
+        <Actions>{clubChoices.map((value) => <Action key={value.id} selected={gridClubs.some((club) => club.id === value.id)} title={value.name} onPress={() => {
+          const current = gridClubs.map((club) => club.id);
+          updateStaffClubs(current.includes(value.id) ? current.filter((id) => id !== value.id) : [...current, value.id]);
+        }} />)}</Actions>
+      </>}
+    </Card> : mode !== 'list' ? <Card>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: filtersOpen }} onPress={() => setFiltersOpen(!filtersOpen)}>
-        <Label>{filtersOpen ? '▾' : '▸'} {staff ? 'Clubs shown' : 'Your clubs'} · {gridClubs.length} of {clubChoices.length}</Label>
+        <Label>{filtersOpen ? '▾' : '▸'} Your clubs · {gridClubs.length} of {clubChoices.length}</Label>
       </Pressable>
       {clubChoices.length === 0
-        ? <Note>{staff ? 'No clubs exist yet.' : 'You are not enrolled in any clubs. Enrol in a club on the My clubs tab.'}</Note>
+        ? <Note>You are not enrolled in any clubs. Enrol in a club on the My clubs tab.</Note>
         : filtersOpen && <>
           <Actions>
             <Action title={gridClubs.length === clubChoices.length ? 'Hide all' : 'Show all'} onPress={() => {
@@ -243,9 +294,9 @@ export default function Schedule() {
         </View>;
       })}
     </Card>}
-    {staff && mode === 'overview' && <Card>
-      <Label>Schedule overview</Label>
-      {gridClubs.length === 0 && <Note>Select clubs to see the schedule.</Note>}
+    {staff && mode === 'meetings' && <Card>
+      <Label>Meetings</Label>
+      {clubChoices.length > 0 && gridClubs.length === 0 && <Note>Select clubs to see meetings.</Note>}
       {gridClubs.map((club) => {
         const clubAssignments = cycleAssignments.filter((a) => a.clubId === club.id).sort((a, b) => a.meeting.localeCompare(b.meeting) || a.id.localeCompare(b.id));
         const assigned = new Set(clubAssignments.map((a) => a.slotId));
@@ -253,7 +304,7 @@ export default function Schedule() {
         const expanded = expandedClubs.includes(club.id);
         const needsReview = clubAssignments.filter((assignment) => problems.get(assignment.id)).length;
         const visible = expanded ? clubAssignments : clubAssignments.slice(0, 3);
-        return <View key={club.id} style={{ gap: 4 }}>
+        return <View key={club.id} style={{ gap: 4, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d6ddd9' }}>
           <Text style={{ fontWeight: '700', color: '#183a36' }}>{club.name} · {clubAssignments.length} assigned{missing.length ? ` · ${missing.length} unassigned` : ''}{needsReview ? ` · ${needsReview} need review` : ''}</Text>
           {visible.map((assignment) => {
             const kit = kitById.get(assignment.kitId);
@@ -276,14 +327,51 @@ export default function Schedule() {
       <Label>Published cycle · {gridCycle.name}</Label>
       {publishedCycles.length > 1 && <Actions>{publishedCycles.map((value) => <Action key={value.id} selected={value.id === gridCycle.id} title={value.name} onPress={() => { setSelectedId(value.id); setExpandedId(null); }} />)}</Actions>}
     </Card>}
+    {staff && mode === 'grid' && <Note>Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
     {mode === 'grid' && (grid
       ? (grid.rows.length === 0
-        ? <Note>Select at least one club to show the grid.</Note>
+        ? (staff && clubChoices.length === 0 ? null : <Note>Select at least one club to show the grid.</Note>)
         : <ScheduleGridView grid={grid} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
           titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
           expandedId={expandedId} showProblems={staff} onToggle={(assignmentId) => setExpandedId(expandedId === assignmentId ? null : assignmentId)}
-          renderDetail={renderDetail} />)
+          renderDetail={renderDetail}
+          selectedSlotId={staff ? editor.selectedSlotId : undefined}
+          onSelectSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.selectSlot : undefined}
+          renderSlotDetail={staff ? editor.renderSelectedSlot : undefined}
+          clubSummaryFor={staff ? (clubId) => { const result = fairness(viewData, cycle, clubId, cycleAssignments); return `Fairness ${result.score === null ? 'N/A' : `${Math.round(result.score)}%`} · ${result.assigned}/${result.slots} assigned`; } : undefined}
+          onHideClub={staff ? (clubId) => updateStaffClubs(gridClubs.filter((club) => club.id !== clubId).map((club) => club.id)) : undefined} />)
       : <Note>No published schedule is available for your clubs yet.</Note>)}
+    {staff && mode === 'kits' && <Card>
+      <Label>Kits</Label>
+      {clubChoices.length > 0 && gridClubs.length === 0 ? <Note>Select clubs to see their assigned kits.</Note>
+        : gridClubs.length > 0 && kits.length === 0 ? <Note>No kits are assigned to the selected clubs in this cycle.</Note> : null}
+      {kits.map((group) => {
+        const kit = kitById.get(group.kitId);
+        const title = titleById.get(kit?.titleId ?? '');
+        return <View key={group.kitId} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d6ddd9', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+            {title && <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ width: 64, height: 96, marginRight: 0, marginBottom: 0 }} />}
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={{ fontWeight: '700', color: '#183a36' }}>{title?.name ?? 'Unavailable title'}</Text>
+              <Text>{kit?.barcode ?? `Unavailable kit (${group.kitId})`}</Text>
+              <Text>{group.assignments.length} {group.assignments.length === 1 ? 'meeting' : 'meetings'}</Text>
+            </View>
+          </View>
+          {group.assignments.map((assignment) => {
+            const expanded = expandedId === assignment.id;
+            return <View key={assignment.id}>
+              <Pressable accessibilityRole="button" accessibilityState={{ expanded }}
+                onPress={() => setExpandedId(expanded ? null : assignment.id)}
+                style={{ minHeight: 44, justifyContent: 'center', paddingVertical: 6 }}>
+                <Text style={{ fontWeight: '600' }}>{assignment.meeting} · {clubById.get(assignment.clubId)?.name ?? 'Unavailable club'}</Text>
+                <Text>Ready {assignment.ready} · Due {assignment.due}{problems.get(assignment.id) ? ' · Needs review' : ''}</Text>
+              </Pressable>
+              {expanded && renderDetail(assignment)}
+            </View>;
+          })}
+        </View>;
+      })}
+    </Card>}
     {mode === 'list' && <>
     {clubId && assignments.length === 0 && unassignedSlots.length === 0 && <Note>{staff ? 'No assignments for this club in this cycle yet.' : 'No published assignments for this club yet.'}</Note>}
     {monthKeys.map((month) => <View key={month} style={{ marginTop: 8 }}>

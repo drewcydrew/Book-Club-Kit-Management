@@ -1,138 +1,158 @@
 import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Text, View } from 'react-native';
-import { assignmentProblems, draft, fairness, id, meetingFor, rankings, windowFor } from '../domain/logic';
-import { scheduleGrid } from '../domain/cycle-overview';
+import { assignmentProblems, draft, id, meetingFor, rankings, windowFor } from '../domain/logic';
+import { scheduleHasChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
-import { scheduleWarning } from '../domain/schedule-warning';
 import type { Assignment, Cycle, Data } from '../domain/model';
-import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
+import { saveValidatedSchedule, validateSchedule, type ScheduleBasis, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
 import { useNavigationGuard } from './navigation-guard';
-import { ScheduleGridView } from './schedule-grid';
 import { SearchPicker } from './search-picker';
-import { Action, Actions, Card, Field, Label, Note, Page } from './ui';
+import { Action, Actions, Card, Field, Label, Note } from './ui';
+
+type Workspace = {
+  base: Data;
+  cycle: Cycle;
+  snapshot: string;
+  basis: ScheduleBasis;
+  assignments: Assignment[];
+  unlockIds: string[];
+  generationProblems: string[];
+};
 
 function snapshot(data: Data): string {
   return JSON.stringify([data.library, data.cycles, data.ballots, data.assignments, data.kits, data.titles, data.clubs]);
 }
 
-export function ScheduleWorkspace({ data, cycle, mode, onClose }: {
-  data: Data; cycle: Cycle; mode: 'generate' | 'existing'; onClose: (message?: string) => void;
-}) {
+export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined) {
   const shared = useShared();
   const navigationGuard = useNavigationGuard();
-  const [base] = useState(data);
-  const [baseCycle] = useState(cycle);
-  const [basis] = useState(() => {
-    const revisions = (items: { id: string; revision: number }[]) => items.map(({ id: itemId, revision }) => ({ id: itemId, revision }))
-      .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-    return { cycles: revisions(shared.data.cycles), kits: revisions(shared.data.kits), clubs: revisions(shared.data.clubs), settings: shared.data.library.revision };
-  });
-  const [baseSnapshot] = useState(() => snapshot(data));
-  const [initial] = useState(() => mode === 'generate'
-    ? draft(data, cycle, true)
-    : { assignments: data.assignments, problems: [] as string[] });
-  const [assignments, setAssignments] = useState(() => initial.assignments.filter((a) => a.cycleId === cycle.id));
-  const [generationProblems, setGenerationProblems] = useState(initial.problems);
-  const [unlockIds, setUnlockIds] = useState<string[]>([]);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
   const [meeting, setMeeting] = useState('');
   const [kitId, setKitId] = useState('');
   const [swapId, setSwapId] = useState('');
-  const [clubIds, setClubIds] = useState(() => [...new Set(cycle.slots.map((slot) => slot.clubId))]);
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [validation, setValidation] = useState<ScheduleValidation | null>(null);
   const [checking, setChecking] = useState(false);
-  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
-  const busy = checking || shared.saving;
-  const stale = snapshot(data) !== baseSnapshot;
-  const allAssignments = useMemo(() => [...base.assignments.filter((a) => a.cycleId !== baseCycle.id), ...assignments], [assignments, base, baseCycle.id]);
-  const grid = useMemo(() => scheduleGrid(base, baseCycle, clubIds, assignments), [assignments, base, baseCycle, clubIds]);
-  const slot = baseCycle.slots.find((item) => item.id === selectedSlotId);
-  const selected = assignments.find((item) => item.slotId === selectedSlotId);
-  const club = base.clubs.find((item) => item.id === slot?.clubId);
-  const priority = club ? baseCycle.finalized[club.id] ?? rankings(base, baseCycle, club.id, true) : [];
-  const allWarnings = useMemo(() => assignments.flatMap((assignment) => assignmentProblems(base, assignment, allAssignments)
-    .map((problem) => ({ assignment, problem }))), [assignments, base, allAssignments]);
-  const clubOptions = base.clubs;
-  const options = base.kits.map((kit) => {
-    const title = base.titles.find((item) => item.id === kit.titleId);
-    const rank = priority.indexOf(kit.titleId);
-    return { id: kit.id, label: `${title?.name ?? 'Unavailable title'} · ${kit.barcode}`,
-      detail: `${rank < 0 ? 'Unranked' : `Priority ${rank + 1}`} · ${kit.status} · ${kit.branch}`, group: 'all' };
-  });
+  const [pendingAction, setPendingAction] = useState<{ description: string; confirmLabel: string; run: () => void } | null>(null);
+  const [reconciliationRequired, setReconciliationRequired] = useState(false);
+  const busy = checking || shared.saving || !!pendingAction;
+  const dirty = !!workspace && scheduleHasChanges(workspace.base.assignments.filter((a) => a.cycleId === workspace.cycle.id), workspace.assignments, workspace.unlockIds);
+  const stale = !!workspace && (reconciliationRequired || !!shared.error || snapshot(data) !== workspace.snapshot);
+  const proposalData = useMemo(() => workspace && dirty ? {
+    ...workspace.base,
+    assignments: [...workspace.base.assignments.filter((a) => a.cycleId !== workspace.cycle.id), ...workspace.assignments],
+  } : null, [workspace, dirty]);
 
-  const disablePrevention = usePreventRemove(true, ({ repeat }) => {
+  const disablePrevention = usePreventRemove(dirty || busy, ({ repeat }) => {
     if (busy) { setMessage('Wait for validation or saving to finish before leaving.'); return; }
-    setPendingAction(() => repeat);
+    setPendingAction({ description: 'Discard unsaved schedule changes and leave?', confirmLabel: 'Confirm discard', run: () => { setWorkspace(null); repeat(); } });
   });
-  useEffect(() => navigationGuard.register((continueNavigation) => {
-    if (busy) { setMessage('Wait for validation or saving to finish before leaving.'); return; }
-    setPendingAction(() => () => { disablePrevention(); continueNavigation(); });
-  }), [busy, disablePrevention, navigationGuard]);
   useEffect(() => {
-    if (Platform.OS !== 'web') return;
+    if (!dirty && !busy) return;
+    return navigationGuard.register((continueNavigation) => {
+      if (busy) { setMessage('Wait for validation or saving to finish before leaving.'); return; }
+      setPendingAction({ description: 'Discard unsaved schedule changes and leave?', confirmLabel: 'Confirm discard', run: () => {
+        setWorkspace(null); disablePrevention(); continueNavigation();
+      } });
+    });
+  }, [busy, dirty, disablePrevention, navigationGuard]);
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !dirty) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, []);
+  }, [dirty]);
 
-  function change(next: Assignment[]) {
-    setAssignments(next);
-    setGenerationProblems([]);
-    setValidation(null);
+  function createWorkspace(cycle: Cycle): Workspace {
+    const revisions = (items: { id: string; revision: number }[]) => items.map(({ id: itemId, revision }) => ({ id: itemId, revision }))
+      .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    return {
+      base: data, cycle, snapshot: snapshot(data),
+      basis: { cycles: revisions(shared.data.cycles), kits: revisions(shared.data.kits), clubs: revisions(shared.data.clubs), settings: shared.data.library.revision },
+      assignments: data.assignments.filter((a) => a.cycleId === cycle.id), unlockIds: [], generationProblems: [],
+    };
+  }
+
+  function closeSlot() {
+    setSelectedSlotId(null); setMeeting(''); setKitId(''); setSwapId('');
+  }
+
+  function selectSlot(slotId: string) {
+    if (busy) return;
+    if (selectedSlotId === slotId && (dirty || !stale)) { closeSlot(); return; }
+    const next = workspace && (dirty || !stale) ? workspace : currentCycle ? createWorkspace(currentCycle) : null;
+    if (!next) return;
+    const slot = next.cycle.slots.find((item) => item.id === slotId);
+    if (!slot) { setMessage('This meeting is no longer available. Refresh the schedule.'); return; }
+    const assignment = next.assignments.find((item) => item.slotId === slotId);
+    setWorkspace(next);
+    setSelectedSlotId(slotId);
+    setMeeting(assignment?.meeting ?? meetingFor(slot));
+    setKitId(assignment?.kitId ?? '');
+    setSwapId('');
     setMessage('');
   }
-  function selectSlot(slotId: string) {
-    const nextSlot = baseCycle.slots.find((item) => item.id === slotId);
-    const nextAssignment = assignments.find((item) => item.slotId === slotId);
-    setSelectedSlotId(slotId);
-    setMeeting(nextAssignment?.meeting ?? (nextSlot ? meetingFor(nextSlot) : ''));
-    setKitId(nextAssignment?.kitId ?? '');
-    setSwapId('');
+
+  function change(next: Assignment[], unlockIds = workspace?.unlockIds ?? []) {
+    if (!workspace) return;
+    setWorkspace({ ...workspace, assignments: next, unlockIds, generationProblems: [] });
+    setValidation(null); setMessage('');
   }
-  function setKit() {
-    if (!slot || !kitId || !base.kits.some((kit) => kit.id === kitId)) { setMessage('Select a kit first.'); return; }
-    if (selected?.locked) { setMessage('Unlock this assignment locally before changing it.'); return; }
-    if (!validDate(meeting) || !meeting.startsWith(`${slot.month}-`) || meeting <= baseCycle.deadline || (slot.meeting && meeting !== slot.meeting)) {
-      setMessage('The meeting must be in the slot month, after the deadline, and match the configured meeting date.'); return;
-    }
-    const next: Assignment = { id: selected?.id ?? id(), cycleId: baseCycle.id, slotId: slot.id, clubId: slot.clubId,
-      kitId, ...windowFor(base, meeting), locked: false };
-    if (selected && selected.meeting === meeting) { next.ready = selected.ready; next.due = selected.due; }
-    change([...assignments.filter((item) => item.slotId !== slot.id), next]);
+
+  function reset() {
+    setWorkspace(null); closeSlot(); setValidation(null); setMessage(''); setReconciliationRequired(false);
   }
-  function unlock() {
-    if (!selected) return;
-    if (base.assignments.some((item) => item.id === selected.id && item.locked)) {
-      setUnlockIds((current) => current.includes(selected.id) ? current : [...current, selected.id]);
-    }
-    change(assignments.map((item) => item.id === selected.id ? { ...item, locked: false } : item));
+
+  function requestDiscard() {
+    if (busy) return;
+    if (dirty) setPendingAction({ description: 'Discard all unsaved schedule changes?', confirmLabel: 'Confirm discard', run: reset });
+    else reset();
   }
+
+  function requestCycleChange(run: () => void) {
+    if (busy) return;
+    const changeCycle = () => { reset(); run(); };
+    if (dirty) setPendingAction({ description: 'Discard unsaved schedule changes and change cycle?', confirmLabel: 'Confirm discard', run: changeCycle });
+    else changeCycle();
+  }
+
   function regenerate() {
-    const result = draft({ ...base, assignments: allAssignments }, baseCycle, true);
-    change(result.assignments.filter((item) => item.cycleId === baseCycle.id));
-    setGenerationProblems(result.problems);
-    setSelectedSlotId(null);
+    if (!currentCycle || (stale && dirty)) return;
+    const source = workspace && (dirty || !stale) ? workspace : createWorkspace(currentCycle);
+    const allAssignments = [...source.base.assignments.filter((a) => a.cycleId !== source.cycle.id), ...source.assignments];
+    const result = draft({ ...source.base, assignments: allAssignments }, source.cycle, true);
+    setWorkspace({ ...source, assignments: result.assignments.filter((a) => a.cycleId === source.cycle.id), generationProblems: result.problems });
+    setValidation(null); setMessage(''); closeSlot();
   }
+
+  function requestGenerate() {
+    if (busy || (stale && dirty)) return;
+    if (dirty) setPendingAction({ description: 'Regenerate and replace unlocked local assignments?', confirmLabel: 'Confirm regenerate', run: regenerate });
+    else regenerate();
+  }
+
   async function save(token: string) {
+    if (!workspace) return;
     try {
-      await shared.mutate(() => saveValidatedSchedule(baseCycle.id, assignments, baseCycle.revision, false, unlockIds, token, basis));
-      disablePrevention();
-      onClose('Shared schedule draft saved.');
+      await shared.mutate(() => saveValidatedSchedule(workspace.cycle.id, workspace.assignments, workspace.cycle.revision, false, workspace.unlockIds, token, workspace.basis));
+      reset();
+      setMessage('Shared schedule draft saved.');
     } catch (error: unknown) {
       setValidation(null);
-      setMessage(error instanceof Error ? error.message : 'Unable to save schedule.');
+      setReconciliationRequired(true);
+      setMessage(`${error instanceof Error ? error.message : 'Unable to save schedule.'} Refresh, then discard local changes and inspect the shared schedule before starting again.`);
     }
   }
+
   async function validate() {
-    if (stale) { setMessage('Shared data changed. Discard or regenerate from refreshed data before saving.'); return; }
-    setChecking(true);
-    setMessage('');
+    if (!workspace || !dirty) return;
+    if (stale) { setMessage('Shared data changed. Discard local changes and start again from refreshed data before saving.'); return; }
+    setChecking(true); setMessage('');
     try {
-      const result = await validateSchedule(baseCycle.id, assignments, baseCycle.revision, false, unlockIds, basis);
+      const result = await validateSchedule(workspace.cycle.id, workspace.assignments, workspace.cycle.revision, false, workspace.unlockIds, workspace.basis);
       if (result.warnings.length) setValidation(result);
       else await save(result.token);
     } catch (error: unknown) {
@@ -140,14 +160,50 @@ export function ScheduleWorkspace({ data, cycle, mode, onClose }: {
     } finally { setChecking(false); }
   }
 
+  async function confirmSave(token: string) {
+    if (busy) return;
+    setChecking(true);
+    try { await save(token); } finally { setChecking(false); }
+  }
+
   function renderSelectedSlot() {
+    if (!workspace || !selectedSlotId) return null;
+    const { base, cycle, assignments } = workspace;
+    const slot = cycle.slots.find((item) => item.id === selectedSlotId);
     if (!slot) return null;
+    const selectedSlot = slot;
+    const selected = assignments.find((item) => item.slotId === selectedSlotId);
+    const club = base.clubs.find((item) => item.id === slot.clubId);
+    const priority = club ? cycle.finalized[club.id] ?? rankings(base, cycle, club.id, true) : [];
+    const allAssignments = [...base.assignments.filter((a) => a.cycleId !== cycle.id), ...assignments];
+    const options = base.kits.map((kit) => {
+      const title = base.titles.find((item) => item.id === kit.titleId);
+      const rank = priority.indexOf(kit.titleId);
+      return { id: kit.id, label: `${title?.name ?? 'Unavailable title'} · ${kit.barcode}`,
+        detail: `${rank < 0 ? 'Unranked' : `Priority ${rank + 1}`} · ${kit.status} · ${kit.branch}`, group: 'all' };
+    });
+    function setKit() {
+      if (!kitId || !base.kits.some((kit) => kit.id === kitId)) { setMessage('Select a kit first.'); return; }
+      if (selected?.locked) { setMessage('Unlock this assignment locally before changing it.'); return; }
+      if (!validDate(meeting) || !meeting.startsWith(`${selectedSlot.month}-`) || meeting <= cycle.deadline || (selectedSlot.meeting && meeting !== selectedSlot.meeting)) {
+        setMessage('The meeting must be in the slot month, after the deadline, and match the configured meeting date.'); return;
+      }
+      const next: Assignment = { id: selected?.id ?? id(), cycleId: cycle.id, slotId: selectedSlot.id, clubId: selectedSlot.clubId,
+        kitId, ...windowFor(base, meeting), locked: false };
+      if (selected && selected.meeting === meeting) { next.ready = selected.ready; next.due = selected.due; }
+      change([...assignments.filter((item) => item.slotId !== selectedSlot.id), next]);
+    }
     return <Card>
       <Label>{club?.name ?? 'Unavailable club'} · {slot.month}</Label>
+      <Note>Apply a selected kit or date to include it in local changes. Unapplied selections are lost when you leave this meeting.</Note>
       {message ? <Text>{message}</Text> : null}
       {selected && <Text>{selected.locked ? 'Locked' : 'Unlocked'} · {selected.ready} to {selected.due}</Text>}
       {selected && assignmentProblems(base, selected, allAssignments).map((problem) => <Text key={problem} style={{ color: '#a22525' }}>{problem}</Text>)}
-      {selected?.locked && <Action title="Unlock locally" disabled={busy} onPress={unlock} />}
+      {selected?.locked && <Action title="Unlock locally" disabled={busy} onPress={() => {
+        const unlockIds = base.assignments.some((item) => item.id === selected.id && item.locked) && !workspace.unlockIds.includes(selected.id)
+          ? [...workspace.unlockIds, selected.id] : workspace.unlockIds;
+        change(assignments.map((item) => item.id === selected.id ? { ...item, locked: false } : item), unlockIds);
+      }} />}
       {selected && !selected.locked && <Action title="Lock locally" disabled={busy} onPress={() => change(assignments.map((item) =>
         item.id === selected.id ? { ...item, locked: true } : item))} />}
       <SearchPicker label="Choose a kit" options={options} selectedId={kitId} groups={[{ value: 'all', label: 'All' }]}
@@ -173,48 +229,11 @@ export function ScheduleWorkspace({ data, cycle, mode, onClose }: {
     </Card>;
   }
 
-  return <Page title="Local schedule">
-    <Card>
-      <Label>{baseCycle.name} · local workspace</Label>
-      <Note>Nothing is shared until you save. This workspace is lost when you leave or close the app. Saving creates a draft; publication is separate.</Note>
-      {stale && <Text style={{ color: '#a22525' }}>Shared data has changed. Discard this workspace and start again from the refreshed data before saving.</Text>}
-      {message ? <Text>{message}</Text> : null}
-      <Actions>
-        <Action tone="primary" title="Save local draft" disabled={busy || stale} onPress={() => { void validate(); }} />
-        <Action title="Regenerate locally" disabled={busy || stale} onPress={() => setPendingAction(() => regenerate)} />
-        <Action title="Refresh shared data" disabled={busy} onPress={() => {
-          setChecking(true);
-          void shared.refresh().catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to refresh shared data.'))
-            .finally(() => setChecking(false));
-        }} />
-        <Action title="Discard local schedule" disabled={busy} onPress={() => setPendingAction(() => () => { disablePrevention(); onClose('Local schedule discarded.'); })} />
-      </Actions>
-      {pendingAction && <View>
-        <Note>Discard the current local schedule and unsaved edits?</Note>
-        <Actions><Action tone="danger" title="Confirm discard" onPress={() => { const action = pendingAction; setPendingAction(null); action(); }} />
-          <Action title="Keep editing" onPress={() => setPendingAction(null)} /></Actions>
-      </View>}
-      {generationProblems.map((problem, index) => <Text key={`${problem}-${index}`} style={{ color: '#a22525' }}>{problem}</Text>)}
-      {validation && <View style={{ gap: 8 }}>
-        <Label>Review before saving</Label>
-        <Note>These overrides can create impossible or unsafe schedules and affect other cycles. Save only if you accept every warning.</Note>
-        {validation.warnings.map((warning, index) => <Text key={`${warning.slotId}-${index}`} style={{ color: '#a22525' }}>{scheduleWarning(base, baseCycle, warning)}</Text>)}
-        <Actions><Action tone="danger" title="Save draft despite warnings" disabled={busy || stale} onPress={() => { void save(validation.token); }} />
-          <Action title="Cancel save" disabled={busy} onPress={() => setValidation(null)} /></Actions>
-      </View>}
-    </Card>
-    <Card>
-      <Label>Fairness and local assignments</Label>
-      <Note>Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>
-      <Action title={filtersOpen ? 'Hide club filters' : `Choose clubs (${clubIds.length} shown)`} onPress={() => setFiltersOpen(!filtersOpen)} />
-      {filtersOpen && <Actions>{clubOptions.map((item) => <Action key={item.id} title={item.name} selected={clubIds.includes(item.id)} onPress={() =>
-        setClubIds((current) => current.includes(item.id) ? current.filter((value) => value !== item.id) : [...current, item.id])} />)}</Actions>}
-      {clubIds.length === 0 && <Note>Select a club to show its meetings.</Note>}
-      <ScheduleGridView grid={grid} clubNameFor={(clubId) => base.clubs.find((item) => item.id === clubId)?.name ?? 'Unavailable club'}
-        clubSummaryFor={(clubId) => { const result = fairness(base, baseCycle, clubId, assignments); return `Fairness ${result.score === null ? 'N/A' : `${Math.round(result.score)}%`} · ${result.assigned}/${result.slots} assigned`; }}
-        titleFor={(assignment) => base.titles.find((title) => title.id === base.kits.find((kit) => kit.id === assignment.kitId)?.titleId)}
-        expandedId={null} selectedSlotId={selectedSlotId} showProblems onSelectSlot={selectSlot} renderSlotDetail={renderSelectedSlot} onToggle={() => undefined} renderDetail={() => null} />
-      {allWarnings.length > 0 && <Note>{allWarnings.length} local warning(s). Select a cell for details; saving requires server review.</Note>}
-    </Card>
-  </Page>;
+  return {
+    workspace, proposalData, dirty, stale, busy, message, validation, selectedSlotId: stale && !dirty ? null : selectedSlotId, pendingAction,
+    selectSlot, closeSlot, requestDiscard, requestCycleChange, requestGenerate, validate, confirmSave, renderSelectedSlot,
+    cancelValidation: () => setValidation(null),
+    confirmAction: () => { const action = pendingAction; setPendingAction(null); action?.run(); },
+    cancelAction: () => setPendingAction(null),
+  };
 }

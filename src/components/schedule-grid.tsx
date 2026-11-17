@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { TitleCover } from './title-cover';
+import { Action } from './ui';
 import type { ScheduleGrid as ScheduleGridData, GridCell } from '../domain/cycle-overview';
 import type { Assignment, Title } from '../domain/model';
 
@@ -21,9 +22,10 @@ interface ScheduleGridProps {
   onSelectSlot?: (slotId: string) => void;
   clubSummaryFor?: (clubId: string) => string;
   renderSlotDetail?: (slotId: string) => React.ReactNode;
+  onHideClub?: (clubId: string) => void;
 }
 
-export function ScheduleGridView({ grid, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, clubSummaryFor, renderSlotDetail }: ScheduleGridProps) {
+export function ScheduleGridView({ grid, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, clubSummaryFor, renderSlotDetail, onHideClub }: ScheduleGridProps) {
   if (grid.rows.length === 0) return null;
   return <View>
     {grid.rows.map((row) => {
@@ -33,6 +35,9 @@ export function ScheduleGridView({ grid, clubNameFor, titleFor, expandedId, show
           <View style={{ width: CLUB_WIDTH, paddingRight: 8 }}>
             <Text numberOfLines={3} style={{ fontWeight: '600' }}>{clubNameFor(row.clubId)}</Text>
             {clubSummaryFor && <Text>{clubSummaryFor(row.clubId)}</Text>}
+            {onHideClub && <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
+              <Action title="Hide" accessibilityLabel={`Hide ${clubNameFor(row.clubId)}`} onPress={() => onHideClub(row.clubId)} />
+            </View>}
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator>
             <View style={{ flexDirection: 'row' }}>
@@ -68,15 +73,18 @@ function GridCellView({ cell, title, expanded, showProblems, onToggle, onSelectS
     </View>;
   }
   if (!cell.assignment || !title) {
+    const unavailable = !!cell.assignment;
     const content = <>
       <Text style={{ fontSize: 11, color: '#374151', marginBottom: 4 }}>{cell.month}</Text>
       <View style={{ height: COVER_HEIGHT, borderRadius: 6, borderWidth: expanded ? 2 : 1, borderStyle: 'dashed', borderColor: expanded ? '#2563eb' : '#9ca3af', alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 12 }}>Not assigned</Text>
+        <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 12 }}>{unavailable ? 'Unavailable title' : 'Not assigned'}</Text>
       </View>
     </>;
     return onSelectSlot
-      ? <Pressable style={cellStyle} accessibilityRole="button" accessibilityLabel={`${clubName}, ${cell.month}, not assigned`} accessibilityState={{ selected: expanded }} onPress={() => onSelectSlot(cell.slot!.id)}>{content}</Pressable>
-      : <View style={cellStyle} accessibilityLabel={`${cell.month}, not yet assigned`}>{content}</View>;
+      ? <Pressable style={cellStyle} accessibilityRole="button" accessibilityLabel={`${clubName}, ${cell.month}, ${unavailable ? 'unavailable title' : 'not assigned'}`} accessibilityState={{ selected: expanded }} onPress={() => onSelectSlot(cell.slot!.id)}>{content}</Pressable>
+      : cell.assignment
+        ? <Pressable style={cellStyle} accessibilityRole="button" accessibilityLabel={`${clubName}, ${cell.month}, unavailable title`} accessibilityState={{ expanded }} onPress={() => onToggle(cell.assignment!.id)}>{content}</Pressable>
+        : <View style={cellStyle} accessibilityLabel={`${cell.month}, not yet assigned`}>{content}</View>;
   }
   const clash = showProblems && !!cell.problem;
   const assignment = cell.assignment;
