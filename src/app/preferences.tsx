@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { Action, Actions, Card, Label, Note, Page } from "../components/ui";
+import { PriorityGridView } from "../components/priority-grid";
 import { RankingList } from "../components/ranking-list";
 import { TitleGallery } from "../components/title-gallery";
 import {
@@ -9,6 +10,7 @@ import {
   moveInRanking,
   setMark,
 } from "../domain/ballot-draft";
+import { priorityMatrix } from "../domain/cycle-overview";
 import { today } from "../domain/dates";
 import { finalizeRanking, saveBallot } from "../state/api";
 import { useBallotSync } from "../state/ballot-sync";
@@ -47,6 +49,7 @@ export default function Preferences() {
   const draftRef = useRef<{ key: string; ballot: Ballot } | null>(null);
   const [titlesOpen, setTitlesOpen] = useState(false);
   const [lastDismissedId, setLastDismissedId] = useState<string | null>(null);
+  const [reviewClubIds, setReviewClubIds] = useState<string[] | null>(null);
   const sync = useBallotSync(
     saveBallot,
     () => void shared.refresh().catch(() => undefined),
@@ -98,6 +101,8 @@ export default function Preferences() {
   const selectedCount = Object.values(ballot?.marks ?? {}).filter(
     (value) => value === "selected",
   ).length;
+
+  const shownClubIds = reviewClubIds ?? availableClubs.map((value) => value.id);
 
   function chooseClub(value: string) {
     setReview(null);
@@ -188,7 +193,7 @@ export default function Preferences() {
           <Note>The preference deadline has passed.</Note>
         )}
       </Card>
-      {availableClubs.length > 0 && (
+      {!staff && availableClubs.length > 0 && (
         <Card>
           <Label>Choose a club</Label>
           <Actions>
@@ -215,7 +220,7 @@ export default function Preferences() {
           and preferences are shared across devices.
         </Note>
       )}
-      {club && (
+      {!staff && club && (
         <>
           <Card>
             <Pressable
@@ -401,6 +406,73 @@ export default function Preferences() {
               )}
             </Card>
           )}
+        </>
+      )}
+      {staff && (
+        <>
+          <Card>
+            <Label>Clubs shown</Label>
+            {data.clubs.length === 0 ? (
+              <Note>No clubs exist yet.</Note>
+            ) : (
+              <>
+                <Actions>
+                  <Action
+                    title={
+                      shownClubIds.length === data.clubs.length
+                        ? "Hide all"
+                        : "Show all"
+                    }
+                    onPress={() =>
+                      setReviewClubIds(
+                        shownClubIds.length === data.clubs.length
+                          ? []
+                          : data.clubs.map((value) => value.id),
+                      )
+                    }
+                  />
+                </Actions>
+                <Actions>
+                  {data.clubs.map((value) => (
+                    <Action
+                      key={value.id}
+                      selected={shownClubIds.includes(value.id)}
+                      title={value.name}
+                      onPress={() =>
+                        setReviewClubIds(
+                          shownClubIds.includes(value.id)
+                            ? shownClubIds.filter((id) => id !== value.id)
+                            : [...shownClubIds, value.id],
+                        )
+                      }
+                    />
+                  ))}
+                </Actions>
+              </>
+            )}
+          </Card>
+          <Card>
+            <Label>Preferences · {cycle.name}</Label>
+            <Note>
+              Selected titles and ranks for the clubs shown. Covers mark titles
+              already assigned in this cycle.
+            </Note>
+            <PriorityGridView
+              matrix={priorityMatrix(
+                data,
+                cycle,
+                shownClubIds,
+                data.assignments,
+              )}
+              clubNameFor={(clubId) =>
+                data.clubs.find((value) => value.id === clubId)?.name ??
+                "Unknown club"
+              }
+              titleFor={(titleId) =>
+                data.titles.find((value) => value.id === titleId)
+              }
+            />
+          </Card>
         </>
       )}
       {staff && (
