@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { seed } from '../src/domain/seed';
 import {
-  ApiError, deleteCycle, deleteUser, finalizeRanking, loadShared, reopenCycle, saveBallot, saveCycle, saveEvent,
+  ApiError, deleteClub, deleteCycle, deleteUser, finalizeRanking, loadShared, previewClubDeletion, reopenCycle, saveBallot, saveCycle, saveEvent,
   saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser, saveValidatedSchedule, validateSchedule,
 } from '../src/state/api';
 
@@ -56,6 +56,40 @@ test('shared loader rejects a snapshot missing catalog records', async () => {
   globalThis.fetch = async () => new Response(JSON.stringify(incomplete), { status: 200 });
   try {
     await assert.rejects(loadShared(), /invalid data for \/api\/shared/);
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL;
+    else process.env.EXPO_PUBLIC_API_URL = oldUrl;
+  }
+});
+
+test('club deletion previews and confirms the current revision and token', async () => {
+  const oldUrl = process.env.EXPO_PUBLIC_API_URL;
+  const oldFetch = globalThis.fetch;
+  process.env.EXPO_PUBLIC_API_URL = 'https://demo.example';
+  const calls: { path: string; method: string | undefined; body: Record<string, unknown>; revision: string | null }[] = [];
+  const preview = { token: 'a'.repeat(64), club: { id: 'club 1', name: 'Club', revision: 3 },
+    counts: { memberships: 1, kitLinks: 0, history: 0, ballots: 1, ballotMarks: 2, finalizedGroups: 0,
+      finalizedRankings: 0, slots: 1, assignments: 1, lockedAssignments: 1 },
+    cycles: [{ id: 'cycle', name: 'Cycle', status: 'published', slots: 1, assignments: 1, remainingSlots: 0 }],
+    affectedKits: [{ id: 'kit', barcode: 'KIT-1', status: 'out' }] };
+  globalThis.fetch = async (input, init) => {
+    calls.push({ path: new URL(String(input)).pathname, method: init?.method,
+      body: JSON.parse(String(init?.body)) as Record<string, unknown>, revision: new Headers(init?.headers).get('If-Match') });
+    return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : new Response(JSON.stringify(preview), { status: 200 });
+  };
+  try {
+    const result = await previewClubDeletion('club 1', 3);
+    assert.deepEqual(result, preview);
+    await deleteClub('club 1', 3, result.token);
+    assert.deepEqual(calls, [
+      { path: '/api/clubs/club%201/deletion-preview', method: 'POST', body: { revision: 3 }, revision: null },
+      { path: '/api/clubs/club%201', method: 'DELETE', body: { token: preview.token, acknowledge: true }, revision: '3' },
+    ]);
+    globalThis.fetch = async () => new Response(JSON.stringify({ ...preview, counts: {} }), { status: 200 });
+    await assert.rejects(previewClubDeletion('club 1', 3), /invalid club deletion preview/);
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: 'Details changed.' }), { status: 409 });
+    await assert.rejects(deleteClub('club 1', 3, result.token), /Details changed/);
   } finally {
     globalThis.fetch = oldFetch;
     if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL;

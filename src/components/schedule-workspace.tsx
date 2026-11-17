@@ -1,15 +1,24 @@
 import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Text, View } from 'react-native';
-import { assignmentProblems, draft, id, meetingFor, rankings, windowFor } from '../domain/logic';
+import { assignmentProblems, draft, id, meetingFor, windowFor } from '../domain/logic';
 import { scheduleHasChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
-import type { Assignment, Cycle, Data } from '../domain/model';
+import type { Assignment, Cycle, Data, Title } from '../domain/model';
 import { saveValidatedSchedule, validateSchedule, type ScheduleBasis, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
 import { useNavigationGuard } from './navigation-guard';
 import { SearchPicker } from './search-picker';
-import { Action, Actions, Card, Field, Label, Note } from './ui';
+import { ScheduleTitlePicker } from './schedule-title-picker';
+import { TitleCover } from './title-cover';
+import { Action, Card, Field, Label, Note } from './ui';
+
+function AssignmentCover({ title }: { title: Title | undefined }) {
+  if (title && (title.coverUrl || title.isbn.trim())) return <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} />;
+  return <View style={{ width: 48, height: 72, marginRight: 12, backgroundColor: '#e5e7eb', justifyContent: 'center', alignItems: 'center' }}>
+    <Text style={{ color: '#6b7280', fontSize: 10 }}>No cover</Text>
+  </View>;
+}
 
 type Workspace = {
   base: Data;
@@ -174,16 +183,14 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     const selectedSlot = slot;
     const selected = assignments.find((item) => item.slotId === selectedSlotId);
     const club = base.clubs.find((item) => item.id === slot.clubId);
-    const priority = club ? cycle.finalized[club.id] ?? rankings(base, cycle, club.id, true) : [];
     const allAssignments = [...base.assignments.filter((a) => a.cycleId !== cycle.id), ...assignments];
-    const options = base.kits.map((kit) => {
-      const title = base.titles.find((item) => item.id === kit.titleId);
-      const rank = priority.indexOf(kit.titleId);
-      return { id: kit.id, label: `${title?.name ?? 'Unavailable title'} · ${kit.barcode}`,
-        detail: `${rank < 0 ? 'Unranked' : `Priority ${rank + 1}`} · ${kit.status} · ${kit.branch}`, group: 'all' };
-    });
+    const currentKit = base.kits.find((kit) => kit.id === selected?.kitId);
+    const currentTitle = base.titles.find((title) => title.id === currentKit?.titleId);
+    const pendingKit = base.kits.find((kit) => kit.id === kitId);
+    const pendingTitle = base.titles.find((title) => title.id === pendingKit?.titleId);
+    const selectionChanged = !!kitId && (!selected || kitId !== selected.kitId || meeting !== selected.meeting);
     function setKit() {
-      if (!kitId || !base.kits.some((kit) => kit.id === kitId)) { setMessage('Select a kit first.'); return; }
+      if (!pendingKit || !pendingTitle) { setMessage('Select an available title and kit first.'); return; }
       if (selected?.locked) { setMessage('Unlock this assignment locally before changing it.'); return; }
       if (!validDate(meeting) || !meeting.startsWith(`${selectedSlot.month}-`) || meeting <= cycle.deadline || (selectedSlot.meeting && meeting !== selectedSlot.meeting)) {
         setMessage('The meeting must be in the slot month, after the deadline, and match the configured meeting date.'); return;
@@ -195,24 +202,38 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     }
     return <Card>
       <Label>{club?.name ?? 'Unavailable club'} · {slot.month}</Label>
-      <Note>Apply a selected kit or date to include it in local changes. Unapplied selections are lost when you leave this meeting.</Note>
+      <Note>Changes are local until Save draft. Unapplied selections are lost when you leave this meeting.</Note>
       {message ? <Text>{message}</Text> : null}
-      {selected && <Text>{selected.locked ? 'Locked' : 'Unlocked'} · {selected.ready} to {selected.due}</Text>}
+      <Label>Current assignment</Label>
+      {selected ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <AssignmentCover title={currentTitle} />
+        <View style={{ flex: 1, gap: 3 }}>
+          <Text>{currentTitle?.name ?? 'Unavailable title'}</Text>
+          <Note>{currentKit ? `${currentKit.barcode} · ${currentKit.branch} · ${currentKit.status}` : 'Kit unavailable'} · {selected.locked ? 'Locked' : 'Unlocked'}</Note>
+          <Note>{selected.ready} to {selected.due}</Note>
+        </View>
+        <Action title="Clear" disabled={busy || selected.locked} onPress={() => {
+          change(assignments.filter((item) => item.id !== selected.id)); setKitId(''); setSwapId('');
+        }} />
+      </View> : <Note>No title assigned.</Note>}
       {selected && assignmentProblems(base, selected, allAssignments).map((problem) => <Text key={problem} style={{ color: '#a22525' }}>{problem}</Text>)}
       {selected?.locked && <Action title="Unlock locally" disabled={busy} onPress={() => {
         const unlockIds = base.assignments.some((item) => item.id === selected.id && item.locked) && !workspace.unlockIds.includes(selected.id)
           ? [...workspace.unlockIds, selected.id] : workspace.unlockIds;
         change(assignments.map((item) => item.id === selected.id ? { ...item, locked: false } : item), unlockIds);
       }} />}
-      {selected && !selected.locked && <Action title="Lock locally" disabled={busy} onPress={() => change(assignments.map((item) =>
-        item.id === selected.id ? { ...item, locked: true } : item))} />}
-      <SearchPicker label="Choose a kit" options={options} selectedId={kitId} groups={[{ value: 'all', label: 'All' }]}
-        summary="Select a title and kit" disabled={busy || !!selected?.locked} onSelect={setKitId} />
+      {selected && !selected.locked && <Action title="Lock locally" disabled={busy} onPress={() => {
+        change(assignments.map((item) => item.id === selected.id ? { ...item, locked: true } : item));
+        setKitId(selected.kitId); setMeeting(selected.meeting);
+      }} />}
+      <ScheduleTitlePicker key={slot.id} data={base} cycle={cycle} slot={slot} assignments={assignments} selected={selected}
+        pendingKitId={kitId} meeting={meeting} stale={stale} disabled={busy || !!selected?.locked} onSelect={setKitId} />
+      {pendingKit && (!selected || pendingKit.id !== selected.kitId) && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <AssignmentCover title={pendingTitle} />
+        <View style={{ flex: 1 }}><Label>Pending selection</Label><Text>{pendingTitle?.name ?? 'Unavailable title'} · {pendingKit.barcode}</Text></View>
+      </View>}
       {!slot.meeting && <Field label="Meeting date (YYYY-MM-DD)" value={meeting} onChangeText={setMeeting} editable={!busy && !selected?.locked} />}
-      <Actions>
-        <Action title="Apply kit locally" disabled={busy || !!selected?.locked} onPress={setKit} />
-        {selected && <Action title="Clear assignment locally" disabled={busy || selected.locked} onPress={() => { change(assignments.filter((item) => item.id !== selected.id)); setKitId(''); }} />}
-      </Actions>
+      {selectionChanged && <Action title="Save selection" tone="primary" disabled={busy || !!selected?.locked} onPress={setKit} />}
       {selected && !selected.locked && <View style={{ gap: 8 }}>
         <SearchPicker label="Swap with meeting" selectedId={swapId} groups={[{ value: 'all', label: 'All' }]}
           options={assignments.filter((item) => item.id !== selected.id && !item.locked).map((item) => ({

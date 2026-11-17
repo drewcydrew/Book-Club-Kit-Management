@@ -1,11 +1,13 @@
 const { records } = require('./records');
 const { object, text, integer, HttpError } = require('../http');
 const { clubColumns } = require('./shared-selects');
+const { previewClubDeletion, deleteClub } = require('./club-deletion');
 
-module.exports = records({
+const router = records({
   table: 'clubs',
   columns: ['name', 'branch', 'size', 'cadence', 'pickup', 'address'],
   select: clubColumns,
+  remove: deleteClub,
   validate(value) {
     const b = object(value);
     const pickup = text(b.pickup, 'pickup', true, 20);
@@ -14,3 +16,5 @@ module.exports = records({
       text(b.cadence, 'cadence', false, 200), pickup, text(b.address, 'address', pickup === 'delivery')];
   },
 });
+router.post('/:id/deletion-preview', previewClubDeletion);
+module.exports = router;

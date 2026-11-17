@@ -90,6 +90,7 @@ export default function Cycles() {
     </Card>
     {cycle && <>
       <Card><Label>{cycle.name} · {cycle.status}</Label><Text>Preference deadline: {cycle.deadline}</Text>
+        {cycle.status === 'published' && cycle.slots.length === 0 && <Note>This cycle is published but has no meetings. Reopen it to add meetings before publishing again.</Note>}
         {cycle.status === 'collecting' && <Note>{today() <= cycle.deadline
           ? 'Voting is open through the deadline.'
           : 'Voting is closed because the deadline has passed. Edit the deadline and any incompatible meeting dates to reopen voting.'}</Note>}
