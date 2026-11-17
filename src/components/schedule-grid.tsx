@@ -22,13 +22,14 @@ interface ScheduleGridProps {
   onSelectSlot?: (slotId: string) => void;
   onAddSlot?: (clubId: string, month: string) => void;
   onGenerateClub?: (clubId: string, months: string[]) => void;
+  clubResult?: { clubId: string; text: string; problems: string[] } | null;
   clubSummaryFor?: (clubId: string) => string;
   onHideClub?: (clubId: string) => void;
   sharedLayout?: boolean;
   highlightTitleId?: string | null;
 }
 
-export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, onAddSlot, onGenerateClub, clubSummaryFor, onHideClub, sharedLayout = false, highlightTitleId = null }: ScheduleGridProps) {
+export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, onAddSlot, onGenerateClub, clubResult = null, clubSummaryFor, onHideClub, sharedLayout = false, highlightTitleId = null }: ScheduleGridProps) {
   const [containerWidth, setContainerWidth] = useState(0);
   const [planning, setPlanning] = useState<{ clubId: string; months: string[] } | null>(null);
   const reduceMotion = useReduceMotion();
@@ -74,9 +75,13 @@ export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Action title="Generate" disabled={planning.months.length === 0}
-            onPress={() => { const months = grid.months.filter((month) => planning.months.includes(month)); setPlanning(null); onGenerateClub(row.clubId, months); }} />
-          <Action title="Cancel" onPress={() => setPlanning(null)} />
+            onPress={() => { const months = grid.months.filter((month) => planning.months.includes(month)); onGenerateClub(row.clubId, months); }} />
+          <Action title="Close" onPress={() => setPlanning(null)} />
         </View>
+        {clubResult?.clubId === row.clubId && <View style={{ marginTop: 8 }}>
+          <Text style={{ color: '#111827' }}>{clubResult.text}</Text>
+          {clubResult.problems.map((problem, index) => <Text key={`${problem}-${index}`} style={{ color: CLASH }}>{problem}</Text>)}
+        </View>}
       </View>;
     }
     const expandedCell = expandedCellFor(row);

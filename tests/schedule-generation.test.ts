@@ -144,6 +144,41 @@ test('scoped generation fills a locally added slot that has no meeting date yet'
   assert.deepEqual(result.assignments.filter((item) => item.cycleId === cycle.id).map((item) => item.slotId), ['local']);
 });
 
+test('scoped generation refills cleared entries with the same titles', () => {
+  const data = scenario([['t1', 't2'], ['t1', 't2']]);
+  const cycle = data.cycles[0];
+  cycle.slots = [
+    { id: 'feb', clubId: 'c1', month: '2027-02', meeting: '2027-02-01' },
+    { id: 'mar', clubId: 'c1', month: '2027-03', meeting: '2027-03-01' },
+  ];
+  const scope = { clubId: 'c1' };
+  const first = draft(data, cycle, false, scope);
+  data.assignments = [];
+  const refilled = draft(data, cycle, false, scope);
+  assert.equal(refilled.assignments.length, 2);
+  assert.deepEqual(assignedTitles(data, refilled.assignments), assignedTitles(data, first.assignments));
+});
+
+test('scoped generation falls back to unranked titles the club has not read', () => {
+  const data = scenario([['t1']]);
+  const cycle = data.cycles[0];
+  cycle.finalized = { c1: [] };
+  cycle.slots = [{ id: 'feb', clubId: 'c1', month: '2027-02', meeting: '2027-02-01' }];
+  const result = draft(data, cycle, false, { clubId: 'c1' });
+  assert.equal(result.assignments.filter((item) => item.cycleId === cycle.id).length, 1);
+  assert.equal(result.problems.length, 0);
+});
+
+test('scoped generation reports why a slot cannot be filled', () => {
+  const data = scenario([['t1']]);
+  const cycle = data.cycles[0];
+  data.kits = [];
+  cycle.slots = [{ id: 'feb', clubId: 'c1', month: '2027-02', meeting: '2027-02-01' }];
+  const result = draft(data, cycle, false, { clubId: 'c1' });
+  assert.ok(result.problems.some((message) => message.startsWith('Club 1 in 2027-02: no ranked or available title')));
+});
+
+
 test('treats the exact turnaround-buffer boundary as a cross-cycle conflict', () => {
   const data = scenario([['t1', 't2']]);
   const cycle = data.cycles[0];

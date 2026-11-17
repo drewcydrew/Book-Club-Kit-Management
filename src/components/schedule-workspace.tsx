@@ -56,6 +56,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   const [activePicker, setActivePicker] = useState<'title' | 'swap' | null>(null);
   const pickerTrigger = useRef<'title' | 'swap' | null>(null);
   const [message, setMessage] = useState('');
+  const [clubResult, setClubResult] = useState<{ clubId: string; text: string; problems: string[] } | null>(null);
   const [validation, setValidation] = useState<ScheduleValidation | null>(null);
   const [checking, setChecking] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -159,7 +160,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   }
 
   function reset() {
-    setWorkspace(null); closeSlot(); setValidation(null); setMessage(''); setReconciliationRequired(false);
+    setWorkspace(null); closeSlot(); setValidation(null); setMessage(''); setClubResult(null); setReconciliationRequired(false);
   }
 
   function requestDiscard() {
@@ -190,9 +191,11 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
         const before = unassignedInScope(source.cycle, source.assignments, scope);
         const after = unassignedInScope(source.cycle, generated, scope);
         const name = source.base.clubs.find((club) => club.id === scope.clubId)?.name ?? 'this club';
-        setMessage(before === 0 ? `No unassigned meetings in the selected months for ${name}.`
-          : `Assigned ${before - after} of ${before} unassigned meetings for ${name}.${after ? ' See the problems list for the rest.' : ''}`);
-      } else setMessage('');
+        const text = before === 0 ? `No unassigned meetings in the selected months for ${name}.`
+          : `Assigned ${before - after} of ${before} unassigned meetings for ${name}.${after ? ' See the reasons below.' : ''}`;
+        setMessage('');
+        setClubResult({ clubId: scope.clubId, text, problems: result.problems.filter((problem) => problem.startsWith(`${name} in `)) });
+      } else { setMessage(''); setClubResult(null); }
     } catch (error: unknown) {
       setMessage(error instanceof Error ? `Unable to generate schedule: ${error.message}` : 'Unable to generate schedule.');
     } finally {
@@ -357,7 +360,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   }
 
   return {
-    workspace, proposalData, dirty, stale, busy, message, validation, selectedSlotId, pendingAction, activePicker, hasPending,
+    workspace, proposalData, dirty, stale, busy, message, clubResult, validation, selectedSlotId, pendingAction, activePicker, hasPending,
     selectSlot, closeSlot, requestCloseSlot, requestDiscard, requestCycleChange, requestGenerate, requestGenerateClub, toggleSlot, validate, confirmSave, renderSelectedSlot,
     cancelValidation: () => setValidation(null),
     confirmAction: () => { const action = pendingAction; setPendingAction(null); action?.run(); },

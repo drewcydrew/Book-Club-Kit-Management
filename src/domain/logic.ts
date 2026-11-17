@@ -137,7 +137,11 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
   const priorities = new Map<string, string[]>();
   for (const club of data.clubs) {
     const preference = preferences(data, cycle, club.id);
-    choices.set(club.id, preference.flatMap((titleId) => data.kits.filter((kit) => kit.titleId === titleId)
+    // A scoped run may also use unranked titles the club has not read, after its ranked choices.
+    const fallback = scope?.clubId === club.id
+      ? data.titles.map((title) => title.id).filter((titleId) => !preference.includes(titleId) && !club.history.includes(titleId))
+      : [];
+    choices.set(club.id, [...preference, ...fallback].flatMap((titleId) => data.kits.filter((kit) => kit.titleId === titleId)
       .sort((a, b) => Number(b.branch === club.branch) - Number(a.branch === club.branch) || a.id.localeCompare(b.id))));
     priorities.set(club.id, cycle.finalized[club.id] ?? rankings(data, cycle, club.id, true));
   }
@@ -337,7 +341,11 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
     ...slots.map((slot) => current.get(slot.id)).filter((item): item is Assignment => !!item)];
   for (const slot of targets) {
     if (current.has(slot.id)) continue;
-    problems.push(slotErrors.get(slot.id) ?? `${clubs.get(slot.clubId)?.name ?? slot.clubId} in ${slot.month}: no feasible preferred kit found.`);
+    const name = clubs.get(slot.clubId)?.name ?? slot.clubId;
+    const reason = (choices.get(slot.clubId) ?? []).length === 0
+      ? 'no ranked or available title to choose from.'
+      : 'no available kit fits the loan dates, turnaround buffer or club history.';
+    problems.push(slotErrors.get(slot.id) ?? (scope ? `${name} in ${slot.month}: ${reason}` : `${name} in ${slot.month}: no feasible preferred kit found.`));
   }
   if ((repairBudget.limited || repairBudget.remaining <= 0) && targets.some((slot) => !current.has(slot.id) && windows.has(slot.id))) {
     problems.push('Schedule search was limited; further rearrangements may fill additional slots.');
