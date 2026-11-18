@@ -25,3 +25,10 @@ export function moveInRanking(ballot: Ballot, from: number, to: number): Ballot 
   ranking.splice(to, 0, item);
   return { ...ballot, ranking };
 }
+
+export function undoDismissal(ballot: Ballot, titleId: string, dismissedAs: 'wont' | 'read', previous: Mark | null, previousIndex: number): Ballot {
+  if (ballot.marks[titleId] !== dismissedAs) return ballot;
+  const restored = setMark(ballot, titleId, previous);
+  if (previous !== 'selected') return restored;
+  return moveInRanking(restored, restored.ranking.length - 1, Math.max(0, Math.min(previousIndex, restored.ranking.length - 1)));
+}

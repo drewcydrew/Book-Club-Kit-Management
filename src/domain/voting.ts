@@ -23,6 +23,23 @@ export function preferenceStatus(cycle: { status: CycleStatus; deadline: string 
   return { ...voting, editable: voting.open };
 }
 
+export function memberCycleStatus(cycle: { status: CycleStatus; deadline: string }, day: string): { label: string; detail: string; editable: boolean } {
+  const status = preferenceStatus(cycle, day);
+  if (cycle.status === 'open') return {
+    label: 'Voting not open', detail: 'You can browse titles, but choices cannot be changed until voting opens.', editable: status.editable,
+  };
+  if (cycle.status === 'collecting') return {
+    label: status.editable ? 'Collecting votes' : 'Collecting votes · deadline passed',
+    detail: `${status.detail} ${status.editable ? 'You can add and rank titles.' : 'You can browse, but choices cannot be changed.'}`,
+    editable: status.editable,
+  };
+  return {
+    label: cycle.status === 'drafted' ? 'Schedule drafted' : 'Schedule published',
+    detail: 'You can still change preferences. Existing schedule assignments will not change; changes clear any finalized club ranking.',
+    editable: status.editable,
+  };
+}
+
 export function votingStatus(cycle: { status: CycleStatus; deadline: string }, day: string): VotingStatus {
   if (cycle.status === 'open') {
     return { open: false, label: 'Voting has not opened yet', detail: 'Staff open member voting from Cycles.' };

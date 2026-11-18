@@ -10,11 +10,12 @@ type SearchPickerProps = {
   groups: { value: string; label: string }[];
   disabled?: boolean;
   summary?: string;
+  feedback?: string;
   closeOnSelect?: boolean;
   onSelect: (id: string) => void;
 };
 
-export function SearchPicker({ label, options, selectedId, groups, disabled, summary, closeOnSelect = true, onSelect }: SearchPickerProps) {
+export function SearchPicker({ label, options, selectedId, groups, disabled, summary, feedback, closeOnSelect = true, onSelect }: SearchPickerProps) {
   const [open, setOpen] = useState(false);
   const selected = options.find((option) => option.id === selectedId);
   return <View style={{ gap: 5 }}>
@@ -24,13 +25,13 @@ export function SearchPicker({ label, options, selectedId, groups, disabled, sum
     </Pressable>
     {open && <Modal transparent visible onRequestClose={() => setOpen(false)} accessibilityLabel={label}>
       <View style={styles.backdrop}><View style={styles.dialog}>
-        <SearchPickerPanel label={label} options={options} selectedId={selectedId} groups={groups} closeOnSelect={closeOnSelect} onSelect={onSelect} onClose={() => setOpen(false)} />
+        <SearchPickerPanel label={label} options={options} selectedId={selectedId} groups={groups} disabled={disabled} feedback={feedback} closeOnSelect={closeOnSelect} onSelect={onSelect} onClose={() => setOpen(false)} />
       </View></View>
     </Modal>}
   </View>;
 }
 
-export function SearchPickerPanel({ label, options, selectedId, groups, closeOnSelect = true, onSelect, onClose, closeLabel = 'Close' }: SearchPickerProps & { onClose: () => void; closeLabel?: string }) {
+export function SearchPickerPanel({ label, options, selectedId, groups, disabled, feedback, closeOnSelect = true, onSelect, onClose, closeLabel = 'Close' }: SearchPickerProps & { onClose: () => void; closeLabel?: string }) {
   const [query, setQuery] = useState('');
   const [group, setGroup] = useState('all');
   const matches = useMemo(() => filterOptions(options, query, group), [options, query, group]);
@@ -39,10 +40,12 @@ export function SearchPickerPanel({ label, options, selectedId, groups, closeOnS
           <TextInput autoFocus accessibilityLabel={`Search ${label.toLowerCase()}`} placeholder="Search by name or role" value={query} onChangeText={setQuery} style={uiStyles.input} />
           <Actions>{groups.map((item) => <Action key={item.value} selected={group === item.value} title={item.label} onPress={() => setGroup(item.value)} />)}</Actions>
           <Note>{matches.length} of {options.length} shown</Note>
+          {feedback ? <Text accessibilityLiveRegion="polite">{feedback}</Text> : null}
           <FlatList data={matches} keyExtractor={(option) => option.id} keyboardShouldPersistTaps="handled" style={styles.list}
             ListEmptyComponent={<Note>Nothing matches this search.</Note>}
-            renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityState={{ selected: item.id === selectedId }}
-              onPress={() => { onSelect(item.id); if (closeOnSelect) onClose(); }} style={({ pressed }) => [styles.row, item.id === selectedId && styles.rowSelected, pressed && uiStyles.pressed]}>
+            renderItem={({ item }) => <Pressable accessibilityRole="button"
+              disabled={disabled} accessibilityState={{ selected: item.id === selectedId, disabled }}
+              onPress={() => { onSelect(item.id); if (closeOnSelect) onClose(); }} style={({ pressed }) => [styles.row, item.id === selectedId && styles.rowSelected, pressed && uiStyles.pressed, disabled && uiStyles.disabled]}>
               <Text style={styles.rowName}>{item.label}{item.id === selectedId ? ' ✓' : ''}</Text>
               <Note>{item.detail}</Note>
             </Pressable>} />

@@ -338,7 +338,7 @@ export default function Schedule() {
         <Label>{filtersOpen ? '▾' : '▸'} Your clubs · {gridClubs.length} of {clubChoices.length}</Label>
       </Pressable>
       {clubChoices.length === 0
-        ? <Note>You are not enrolled in any clubs. Enrol in a club on the My clubs tab.</Note>
+        ? <Note>You are not enrolled in any clubs. Enrol in a club on Home.</Note>
         : filtersOpen && <>
           <Actions>
             <Action title={gridClubs.length === clubChoices.length ? 'Hide all' : 'Show all'} onPress={() => {

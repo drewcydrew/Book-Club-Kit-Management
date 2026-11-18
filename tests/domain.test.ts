@@ -5,8 +5,8 @@ import { addDays, today } from '../src/domain/dates';
 import { assignmentProblem, assignmentProblems, circulate, draft, fairness, firstMonday, meetingFor, rankings, satisfactionDebt } from '../src/domain/logic';
 import { filterOptions, type PickerOption } from '../src/domain/search';
 import { seed } from '../src/domain/seed';
-import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft';
-import { preferenceStatus, votingStatus } from '../src/domain/voting';
+import { emptyBallot, moveInRanking, setMark, undoDismissal } from '../src/domain/ballot-draft';
+import { memberCycleStatus, preferenceStatus, votingStatus } from '../src/domain/voting';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
 import { clubPriorities, clubStatuses, groupSlotsByMonth, memberMeetingCalendar, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
@@ -29,6 +29,21 @@ test('preferences stay editable after a schedule is drafted or published', () =>
   assert.equal(preferenceStatus({ status: 'drafted', deadline: '2026-11-20' }, late).editable, true);
   assert.equal(preferenceStatus({ status: 'published', deadline: '2026-11-20' }, late).label, 'Schedule published');
   assert.equal(preferenceStatus({ status: 'published', deadline: '2026-11-20' }, late).open, true);
+});
+
+test('member cycle status distinguishes cycle phase and editable choices', () => {
+  const day = '2026-11-20';
+  assert.equal(memberCycleStatus({ status: 'open', deadline: day }, day).editable, false);
+  assert.equal(memberCycleStatus({ status: 'collecting', deadline: day }, day).label, 'Collecting votes');
+  const late = memberCycleStatus({ status: 'collecting', deadline: day }, '2026-11-21');
+  assert.equal(late.editable, false);
+  assert.match(late.label, /deadline passed/);
+  for (const status of ['drafted', 'published'] as const) {
+    const result = memberCycleStatus({ status, deadline: day }, '2026-12-01');
+    assert.equal(result.editable, true);
+    assert.match(result.label, new RegExp(status));
+    assert.match(result.detail, /assignments will not change/);
+  }
 });
 
 test('meetings group by month in date order and filter by club', () => {
@@ -82,6 +97,36 @@ test('ballot marks append to the ranking and moves reorder it', () => {
   ballot = moveInRanking(ballot, 2, 0);
   assert.deepEqual(ballot.ranking, ['c', 'a', 'b']);
   assert.equal(setMark(ballot, 'a', 'wont').ranking.includes('a'), false);
+});
+
+test('undo dismissal restores the original rank without replacing later choices', () => {
+  let ballot = emptyBallot('cycle', 'club', 'person');
+  for (const id of ['a', 'b', 'c']) ballot = setMark(ballot, id, 'selected');
+  ballot = setMark(ballot, 'b', 'wont');
+  ballot = setMark(ballot, 'd', 'selected');
+  const restored = undoDismissal(ballot, 'b', 'wont', 'selected', 1);
+  assert.deepEqual(restored.ranking, ['a', 'b', 'c', 'd']);
+  assert.strictEqual(undoDismissal(restored, 'b', 'wont', 'selected', 1), restored);
+  assert.equal(undoDismissal(setMark(ballot, 'a', 'wont'), 'a', 'wont', null, -1).marks.a, undefined);
+  assert.equal(undoDismissal(ballot, 'b', 'wont', 'read', -1).marks.b, 'read');
+  const shortened = setMark(setMark(ballot, 'a', null), 'c', null);
+  assert.deepEqual(undoDismissal(shortened, 'b', 'wont', 'selected', 2).ranking, ['d', 'b']);
+  const read = setMark(ballot, 'b', 'read');
+  assert.deepEqual(undoDismissal(read, 'b', 'read', 'selected', 1).ranking, ['a', 'b', 'c', 'd']);
+  assert.strictEqual(undoDismissal(read, 'b', 'wont', 'selected', 1), read);
+});
+
+test('marking a selected title as read removes it and undo preserves subsequent edits', () => {
+  let ballot = emptyBallot('cycle', 'club', 'person');
+  for (const id of ['a', 'b', 'c']) ballot = setMark(ballot, id, 'selected');
+  ballot = setMark(ballot, 'b', 'read');
+  assert.deepEqual(ballot.ranking, ['a', 'c']);
+  ballot = setMark(ballot, 'd', 'selected');
+  const restored = undoDismissal(ballot, 'b', 'read', 'selected', 1);
+  assert.deepEqual(restored.ranking, ['a', 'b', 'c', 'd']);
+  assert.equal(restored.marks.b, 'selected');
+  const changed = setMark(ballot, 'b', 'wont');
+  assert.strictEqual(undoDismissal(changed, 'b', 'read', 'selected', 1), changed);
 });
 
 test('club statuses report preferences and meeting counts for every club', () => {

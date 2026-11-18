@@ -28,10 +28,10 @@ function cleanCover(value) {
   return typeof value === 'string' && /^https:\/\/.{1,1980}$/.test(value) ? value : null;
 }
 
-// Returns { book } for a known ISBN, { book: null } when ISBNdb has no record, or null when ISBNdb is unavailable.
-async function lookupBook(isbn) {
+// The detailed result lets batch jobs distinguish a missing book from an unusable response.
+async function lookupBookDetailed(isbn) {
   const apiKey = process.env.ISBNDB_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) return { status: 'error', reason: 'ISBNDB_API_KEY is required.' };
   let response;
   try {
     response = await fetch(`https://api2.isbndb.com/book/${isbn}`, {
@@ -39,19 +39,20 @@ async function lookupBook(isbn) {
       signal: AbortSignal.timeout(lookupTimeoutMs),
     });
   } catch {
-    console.error('ISBNdb lookup failed: network error.');
-    return null;
+    return { status: 'error', reason: 'ISBNdb network error or timeout.' };
   }
-  if (response.status === 404) return { book: null };
+  if (response.status === 404) return { status: 'not-found' };
   if (!response.ok) {
-    console.error(`ISBNdb lookup failed: HTTP ${response.status}.`);
-    return null;
+    return { status: 'error', reason: `ISBNdb returned HTTP ${response.status}.` };
   }
   let body;
-  try { body = await response.json(); } catch { return null; }
+  try { body = await response.json(); } catch { return { status: 'error', reason: 'ISBNdb returned invalid JSON.' }; }
   const data = body?.book;
-  if (!data || typeof data !== 'object') return { book: null };
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { status: 'error', reason: 'ISBNdb returned an invalid book record.', missingBook: true };
+  }
   return {
+    status: 'found',
     book: {
       title: cleanText(data.title, 200),
       author: cleanList(data.authors, 200),
@@ -65,6 +66,15 @@ async function lookupBook(isbn) {
       language: cleanText(data.language, 40),
     },
   };
+}
+
+// Preserve the existing route contract: { book }, { book: null }, or null when unavailable.
+async function lookupBook(isbn) {
+  const result = await lookupBookDetailed(isbn);
+  if (result.status === 'found') return { book: result.book };
+  if (result.status === 'not-found' || result.missingBook) return { book: null };
+  console.error(`ISBNdb lookup failed: ${result.reason}`);
+  return null;
 }
 
 // Returns { results } of candidate ISBNs for a title, or null when ISBNdb is unavailable.
@@ -105,4 +115,4 @@ async function searchBooks(title) {
   return { results };
 }
 
-module.exports = { lookupBook, searchBooks };
+module.exports = { lookupBook, lookupBookDetailed, searchBooks };

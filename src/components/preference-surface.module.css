@@ -1,0 +1,94 @@
+.surface {
+  position: relative;
+  width: 100%;
+}
+
+.actions {
+  margin-top: 8px;
+}
+
+.palette .actions > * + * {
+  margin-top: 6px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .surface:hover,
+  .surface:focus-within {
+    z-index: 20;
+  }
+
+  .actions {
+    position: absolute;
+    z-index: 20;
+    margin: 0;
+    padding: 8px;
+    background: #fffefa;
+    border: 1px solid #65877b;
+    box-shadow: 0 3px 12px #183a3640;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .surface:hover .actions,
+  .surface:focus-within .actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .palette .actions {
+    top: 0;
+    left: 0;
+    right: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
+    gap: 6px;
+    max-height: min(180px, 70%);
+    overflow: auto;
+  }
+
+  .palette .actions > * + * {
+    margin-top: 0;
+  }
+
+  .palette .actions > button {
+    min-width: 0;
+    padding: 6px;
+  }
+
+  .rank .actions {
+    bottom: 100%;
+    right: 0;
+    width: max-content;
+    max-width: 100%;
+  }
+}
+
+@media (any-pointer: coarse) {
+  .palette .actions,
+  .rank .actions {
+    position: static;
+    bottom: auto;
+    margin-top: 8px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    opacity: 1;
+    pointer-events: auto;
+    max-height: none;
+    overflow: visible;
+    width: auto;
+  }
+
+  .palette .actions {
+    display: block;
+  }
+
+  .palette .actions > * + * {
+    margin-top: 6px;
+  }
+
+  .palette .actions > button {
+    padding: 10px 14px;
+  }
+}

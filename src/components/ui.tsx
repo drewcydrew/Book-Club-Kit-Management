@@ -38,10 +38,10 @@ export function Field({ label, value, onChangeText, placeholder, editable = true
   return <View style={{ gap: 5 }}><Label>{label}</Label><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} editable={editable} multiline={multiline} style={[styles.input, multiline && styles.multilineInput]} /></View>;
 }
 
-export function Action({ title, onPress, disabled = false, selected, tone = 'default', accessibilityLabel, description }: {
-  title: string; onPress: () => void; disabled?: boolean; selected?: boolean; tone?: 'default' | 'primary' | 'danger'; accessibilityLabel?: string; description?: string;
+export function Action({ title, onPress, disabled = false, selected, expanded, tone = 'default', accessibilityLabel, description }: {
+  title: string; onPress: () => void; disabled?: boolean; selected?: boolean; expanded?: boolean; tone?: 'default' | 'primary' | 'danger'; accessibilityLabel?: string; description?: string;
 }) {
-  const button = <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? (selected === undefined ? undefined : `${title}, ${selected ? 'selected' : 'not selected'}`)} accessibilityHint={description} accessibilityState={{ disabled, ...(selected === undefined ? {} : { selected }) }} disabled={disabled} onPress={onPress}
+  const button = <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? (selected === undefined ? undefined : `${title}, ${selected ? 'selected' : 'not selected'}`)} accessibilityHint={description} accessibilityState={{ disabled, ...(selected === undefined ? {} : { selected }), ...(expanded === undefined ? {} : { expanded }) }} disabled={disabled} onPress={onPress}
     style={({ pressed }) => [styles.button, tone === 'primary' && styles.primaryButton, tone === 'danger' && styles.dangerButton, selected && styles.selectedButton, pressed && styles.pressed, disabled && styles.disabled]}>
     <Text style={[styles.buttonText, tone === 'primary' && styles.primaryButtonText, tone === 'danger' && styles.dangerButtonText, selected && styles.selectedButtonText]}>{title}</Text>
   </Pressable>;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { catalogueMatches, indexKits, preferenceMatches } from '../src/domain/kit-label-search';
+import { catalogueMatches, indexKits, kitLabelSummary, preferenceMatches } from '../src/domain/kit-label-search';
 import type { Kit, KitLabel, Title } from '../src/domain/model';
 
 const title: Title = { id: 't', name: 'A Book', author: 'A Writer', isbn: '12345', pages: 1, genres: 'Imported', notes: '', largePrint: false, audio: false };
@@ -41,4 +41,11 @@ test('preference filters and label searches must match the same kit, regardless 
   assert.equal(preferenceMatches(title, [], labelMap, '', []), true);
   assert.equal(preferenceMatches(title, [], labelMap, 'writer', []), true);
   assert.equal(preferenceMatches(title, [], labelMap, '', ['g']), false);
+});
+
+test('kit summaries distinguish absent kits and labels and acknowledge labels can vary', () => {
+  assert.equal(kitLabelSummary([], labelMap), 'No physical kits yet.');
+  assert.equal(kitLabelSummary([kit('empty', [])], labelMap), 'No kit labels.');
+  assert.equal(kitLabelSummary([kit('one', ['g']), kit('two', ['v', 'g'])], labelMap),
+    'Kit labels (may vary): Genres: Mystery · Vibes: Discussion starter');
 });
