@@ -245,6 +245,27 @@ test('retains and reports an invalid locked assignment even if its slot is missi
   assert.deepEqual(result.assignments.find((item) => item.id === locked.id), locked);
 });
 
+test('prioritise utilisation lends a popular title to every club that ranks it', () => {
+  const data = scenario([['t2', 't1'], ['t1', 't3']]);
+  data.kits.push({ ...data.kits[0], id: 'k1b' });
+  assert.deepEqual(assignedTitles(data, draft(data, data.cycles[0], false, undefined, 'clubs').assignments), { s1: 't2', s2: 't1' });
+  assert.deepEqual(assignedTitles(data, draft(data, data.cycles[0], false, undefined, 'utilisation').assignments), { s1: 't1', s2: 't1' });
+});
+
+test('prioritise utilisation weights demand by ranking position', () => {
+  // t1 is first for club 2 and last for club 1. t2 is second for both. Weighted demand favours t1, while raw counts tie.
+  const data = scenario([['t3', 't2', 't1'], ['t1', 't2']]);
+  assert.deepEqual(assignedTitles(data, draft(data, data.cycles[0], false, undefined, 'utilisation').assignments), { s1: 't1', s2: 't2' });
+});
+
+test('defaults to prioritising clubs when no mode is given', () => {
+  const data = scenario([['t2', 't1'], ['t1', 't3']]);
+  const byDefault = draft(data, data.cycles[0]);
+  const byClubs = draft(data, data.cycles[0], false, undefined, 'clubs');
+  assert.deepEqual(assignedTitles(data, byDefault.assignments), assignedTitles(data, byClubs.assignments));
+  assert.deepEqual(byDefault.problems, byClubs.problems);
+});
+
 test('produces the same choices on repeat runs', () => {
   const data = scenario([['t1', 't2'], ['t2', 't3'], ['t1']]);
   const first = draft(data, data.cycles[0]);

@@ -1,7 +1,7 @@
 import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { assignmentProblems, draftAsync, id, meetingFor, windowFor, type DraftScope } from '../domain/logic';
+import { assignmentProblems, draftAsync, id, meetingFor, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
 import { scheduleHasChanges, slotChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
 import { scheduleSelectionPending } from '../domain/schedule-pending';
@@ -59,6 +59,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   const [validation, setValidation] = useState<ScheduleValidation | null>(null);
   const [checking, setChecking] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generationMode, setGenerationMode] = useState<DraftMode>('clubs');
   const generatingRef = useRef(false);
   const [pendingAction, setPendingAction] = useState<{ description: string; confirmLabel: string; run: () => void } | null>(null);
   const [reconciliationRequired, setReconciliationRequired] = useState(false);
@@ -182,7 +183,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     generatingRef.current = true;
     setGenerating(true); setMessage(scope ? 'Generating assignments...' : 'Generating schedule...');
     try {
-      const result = await draftAsync({ ...source.base, assignments: allAssignments }, source.cycle, true, scope);
+      const result = await draftAsync({ ...source.base, assignments: allAssignments }, source.cycle, true, scope, generationMode);
       const generated = result.assignments.filter((a) => a.cycleId === source.cycle.id);
       setWorkspace({ ...source, assignments: generated, generationProblems: result.problems });
       setValidation(null); closeSlot();
@@ -360,7 +361,8 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   }
 
   return {
-    workspace, proposalData, dirty, stale, busy, message, clubResult, validation, selectedSlotId, pendingAction, activePicker, hasPending,
+    workspace, proposalData, dirty, stale, busy, message, clubResult, validation, selectedSlotId, pendingAction, activePicker, hasPending, generationMode,
+    setGenerationMode,
     selectSlot, closeSlot, requestCloseSlot, requestDiscard, requestCycleChange, requestGenerate, requestGenerateClub, toggleSlot, validate, confirmSave, renderSelectedSlot,
     cancelValidation: () => setValidation(null),
     confirmAction: () => { const action = pendingAction; setPendingAction(null); action?.run(); },

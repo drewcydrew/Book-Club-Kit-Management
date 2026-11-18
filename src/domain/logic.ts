@@ -115,7 +115,10 @@ type DraftResult = { assignments: Assignment[]; problems: string[] };
 // A scoped run only fills empty slots of one club. Existing assignments are kept, and no other club's assignment is displaced.
 export type DraftScope = { clubId: string };
 
-function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope): Generator<void, DraftResult, void> {
+// 'clubs' maximises fairness across clubs. 'utilisation' prefers titles with high priority-weighted demand, so popular titles are lent out as often as possible.
+export type DraftMode = 'clubs' | 'utilisation';
+
+function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope, mode: DraftMode = 'clubs'): Generator<void, DraftResult, void> {
   const retained = scope ? [...data.assignments] : data.assignments.filter((a) => a.cycleId !== cycle.id || a.locked);
   const problems: string[] = [];
   for (const locked of retained.filter((a) => a.cycleId === cycle.id && a.locked && (!scope || a.clubId === scope.clubId))) {
@@ -132,8 +135,17 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
   const slotById = new Map(slots.map((slot) => [slot.id, slot]));
   const choices = new Map<string, Kit[]>();
   const priorities = new Map<string, string[]>();
+  const preferenceByClub = new Map(data.clubs.map((club) => [club.id, preferences(data, cycle, club.id)]));
+  // Each club's vote is weighted by position, so a first choice counts for more than a last choice.
+  const demand = new Map<string, number>();
+  for (const preference of preferenceByClub.values()) {
+    preference.forEach((titleId, index) => demand.set(titleId, (demand.get(titleId) ?? 0) + (preference.length - index) / preference.length));
+  }
   for (const club of data.clubs) {
-    const preference = preferences(data, cycle, club.id);
+    const ranked = preferenceByClub.get(club.id) ?? [];
+    const preference = mode === 'utilisation'
+      ? [...ranked].sort((a, b) => (demand.get(b) ?? 0) - (demand.get(a) ?? 0))
+      : ranked;
     // A scoped run may also use unranked titles the club has not read, after its ranked choices.
     const fallback = scope?.clubId === club.id
       ? data.titles.map((title) => title.id).filter((titleId) => !preference.includes(titleId) && !club.history.includes(titleId))
@@ -276,6 +288,16 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
     scoringSlots.set(slot.clubId, group);
   }
   function scores(): { sorted: number[]; byClub: Map<string, number> } {
+    if (mode === 'utilisation') {
+      let total = 0;
+      const byClub = new Map<string, number>();
+      for (const assignment of current.values()) {
+        const count = demand.get(kits.get(assignment.kitId)?.titleId ?? '') ?? 0;
+        total += count;
+        byClub.set(assignment.clubId, (byClub.get(assignment.clubId) ?? 0) + count);
+      }
+      return { sorted: [total], byClub };
+    }
     const result = new Map<string, number>();
     for (const [clubId, clubSlots] of scoringSlots) {
       const priority = priorities.get(clubId) ?? [];
@@ -351,15 +373,15 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
   return { assignments, problems };
 }
 
-export function draft(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope): DraftResult {
-  const steps = draftSteps(data, cycle, continueWithInvalidLocks, scope);
+export function draft(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope, mode: DraftMode = 'clubs'): DraftResult {
+  const steps = draftSteps(data, cycle, continueWithInvalidLocks, scope, mode);
   let step = steps.next();
   while (!step.done) step = steps.next();
   return step.value;
 }
 
-export async function draftAsync(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope): Promise<DraftResult> {
-  const steps = draftSteps(data, cycle, continueWithInvalidLocks, scope);
+export async function draftAsync(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope, mode: DraftMode = 'clubs'): Promise<DraftResult> {
+  const steps = draftSteps(data, cycle, continueWithInvalidLocks, scope, mode);
   for (;;) {
     for (let i = 0; i < 128; i++) {
       const step = steps.next();

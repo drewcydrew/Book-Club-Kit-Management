@@ -263,6 +263,9 @@ export default function Schedule() {
       {cycle.status === 'open' && <Note>Start collecting preferences on Cycles before editing this schedule.</Note>}
       {editor.stale && editor.dirty && <Text style={{ color: '#a22525' }}>Shared data has changed. Refresh if needed, then discard these changes and start again before saving.</Text>}
       <Actions>
+        <Action title="Prioritise clubs" selected={editor.generationMode === 'clubs'} accessibilityLabel="Generate by prioritising clubs (fairness)" disabled={editor.busy || validating} onPress={() => editor.setGenerationMode('clubs')} />
+      </Actions>
+      <Actions>
         <Action title={editor.dirty ? 'Regenerate locally' : 'Generate locally'} disabled={editor.busy || validating || !!publication || (editor.stale && editor.dirty) || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={editor.requestGenerate} />
         <Action tone="primary" title="Save draft" disabled={!editor.dirty || editor.busy || validating || editor.stale} onPress={() => { void editor.validate(); }} />
         <Action title="Discard changes" disabled={!editor.dirty || editor.busy || validating} onPress={editor.requestDiscard} />
