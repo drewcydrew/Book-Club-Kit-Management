@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text } from "react-native";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Action, Actions, Card, Label, Note } from "./ui";
 import { RankingList } from "./ranking-list";
 import { TitleDetails } from "./title-details";
@@ -18,6 +18,15 @@ function moved(list: string[], index: number, direction: -1 | 1): string[] {
   const next = [...list];
   [next[index], next[target]] = [next[target], next[index]];
   return next;
+}
+
+// Compact notice that fades in; used for undoable removals.
+function Toast({ children }: { children: ReactNode }) {
+  const [opacity] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: Platform.OS !== "web" }).start();
+  }, [opacity]);
+  return <Animated.View style={[styles.toast, { opacity }]}>{children}</Animated.View>;
 }
 
 export const syncMessages = {
@@ -190,18 +199,20 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
       {detailTitle && (
         <TitleDetails title={detailTitle} kits={data.kits.filter((kit) => kit.titleId === detailTitle.id)} labels={data.kitLabels} onClose={() => setDetailTitleId(null)} />
       )}
-      <Card>
+      <Card soft>
         <Label>Your ranked choices · {selectedCount}</Label>
-        <Note>Drag ⠿ or use the arrows to rank your choices. Your first choice is at the top.</Note>
+        <Note>{Platform.OS === "web"
+          ? "Drag a cover, or use the ← → buttons, to rank your choices. Your first choice is top-left."
+          : "Drag ⠿ or use the arrows to rank your choices. Your first choice is at the top."}</Note>
         <Note>Labels describe individual kits and may vary. Details show the synopsis and each kit’s labels.</Note>
         {activeUndo && (
-          <Actions>
+          <Toast>
             <Note>Moved “{data.titles.find((title) => title.id === activeUndo.titleId)?.name ?? "title"}” to {activeUndo.dismissedAs === "read" ? "Already read" : "Won’t read"}.</Note>
             <Action title="Undo" accessibilityLabel="Undo dismissal" disabled={!editable || !isMember} onPress={undoLastDismissal} />
-          </Actions>
+          </Toast>
         )}
         {lastRemovedId && ballot?.marks[lastRemovedId] === undefined && (
-          <Actions>
+          <Toast>
             <Note>Removed “{data.titles.find((t) => t.id === lastRemovedId)?.name ?? "title"}”.</Note>
             <Action
               title="Undo"
@@ -212,7 +223,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
                 mark(lastRemovedId, "selected");
               }}
             />
-          </Actions>
+          </Toast>
         )}
         <RankingList
           key={currentKey}
@@ -233,16 +244,17 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
             changeBallot((current) => moveInRanking(current, from, to))
           }
           onRemove={removeSelection}
-          onDismiss={(titleId) => mark(titleId, "wont")}
-          onRead={(titleId) => mark(titleId, "read")}
           onShowDetails={setDetailTitleId}
         />
         {(ballot?.ranking.length ?? 0) === 0 && (
-          <Note>No choices yet. Add titles below to start your ranking.</Note>
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>No choices yet</Text>
+            <Note>Add titles below to start your ranking.</Note>
+          </View>
         )}
         {!isMember && <Note>Only a user assigned to this club can submit preferences for it.</Note>}
       </Card>
-      <Card>
+      <Card soft>
         {data.titles.length === 0 ? <Note>No shared titles are available. Staff can add titles in the Catalog.</Note> :
           <TitleGallery titles={data.titles.filter((title) => !club.history.includes(title.id))}
             kits={data.kits} labels={data.kitLabels} marks={ballot?.marks ?? {}} disabled={!editable || !isMember}
@@ -253,18 +265,13 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
           <Action title="Clear existing mark" disabled={!editable || !isMember} onPress={() => mark(title.id, null)} />
         </Actions>)}
       </Card>
-      <Card>
-        <Label>Saving choices · all clubs and cycles</Label>
-        <Note>
-          {syncRefreshError ? `Unable to refresh choices: ${syncRefreshError}` :
-          sync.status.state === "error"
-            ? sync.status.message
-            : sync.status.state === "saving"
-              ? syncMessages.saving
-              : sync.status.state === "saved"
-                ? syncMessages.saved
-                : syncMessages.idle}
-        </Note>
+      <Card soft>
+        <Label>Save choices</Label>
+        {(syncRefreshError || sync.status.state === "error") && (
+          <Note>
+            {syncRefreshError ? `Unable to refresh choices: ${syncRefreshError}` : sync.status.state === "error" ? sync.status.message : ""}
+          </Note>
+        )}
         <Actions>
           <Action
             tone="primary"
@@ -285,7 +292,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
         </Actions>
       </Card>
       {isLeader && (
-        <Card>
+        <Card soft>
           <Pressable accessibilityRole="button" accessibilityState={{ expanded: leaderOpen }} onPress={() => setLeaderOpen(!leaderOpen)} style={styles.panelHeader}>
             <Label>{leaderOpen ? "▾" : "▸"} Leader review · {club.name}</Label>
             <Note>{Object.prototype.hasOwnProperty.call(cycle.finalized, club.id) ? "Finalized" : "Not finalized"}</Note>
@@ -367,4 +374,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
 
 const styles = StyleSheet.create({
   panelHeader: { gap: 4 },
+  toast: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, padding: 10, borderRadius: 8, backgroundColor: "#eef5ef" },
+  empty: { alignItems: "center", gap: 4, padding: 24, borderWidth: 1, borderStyle: "dashed", borderColor: "#9db8ac", borderRadius: 10, backgroundColor: "#f7fbf7" },
+  emptyTitle: { fontWeight: "700", color: "#183a36", fontSize: 16 },
 });

@@ -1,30 +1,59 @@
 .surface {
   position: relative;
+  flex: 1;
   width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #d9e4dc;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px #183a3614;
+}
+
+.mediaWrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: 7px;
+  background: #e5e7eb;
 }
 
 .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 8px;
 }
 
-.palette .actions > * + * {
-  margin-top: 6px;
+.active {
+  z-index: 30;
+  box-shadow: 0 14px 30px #183a3659;
+  cursor: grabbing;
 }
 
 @media (hover: hover) and (pointer: fine) {
+  .surface.active .actions,
+  .surface.active:hover .actions {
+    opacity: 0;
+  }
   .surface:hover,
   .surface:focus-within {
     z-index: 20;
+    box-shadow: 0 6px 18px #183a3629;
   }
 
   .actions {
     position: absolute;
-    z-index: 20;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
     margin: 0;
     padding: 8px;
-    background: #fffefa;
-    border: 1px solid #65877b;
-    box-shadow: 0 3px 12px #183a3640;
+    justify-content: center;
+    background: transparent;
     opacity: 0;
     pointer-events: none;
   }
@@ -32,63 +61,145 @@
   .surface:hover .actions,
   .surface:focus-within .actions {
     opacity: 1;
+  }
+
+  .surface:hover .actions > *,
+  .surface:focus-within .actions > * {
     pointer-events: auto;
   }
 
+  .actions [role="button"] {
+    min-height: 30px;
+    padding: 4px 6px;
+    border-radius: 999px;
+    border-color: #ffffff99;
+    background: #ffffffc7;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 1px 4px #00000026;
+    cursor: pointer;
+  }
+
+  .actions [role="button"]:hover {
+    background: #fffffff2;
+  }
+
+  .actions [role="button"] * {
+    font-size: 12px;
+  }
+
   .palette .actions {
-    top: 0;
-    left: 0;
-    right: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
-    gap: 6px;
-    max-height: min(180px, 70%);
-    overflow: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .palette .actions > * + * {
-    margin-top: 0;
-  }
-
-  .palette .actions > button {
+  .palette .actions > * {
     min-width: 0;
-    padding: 6px;
   }
 
-  .rank .actions {
-    bottom: 100%;
-    right: 0;
-    width: max-content;
-    max-width: 100%;
+  .palette .actions > :first-child * {
+    font-weight: 700;
   }
 }
 
 @media (any-pointer: coarse) {
-  .palette .actions,
-  .rank .actions {
+  .mediaWrap {
+    overflow: visible;
+    background: transparent;
+  }
+
+  .actions {
     position: static;
-    bottom: auto;
     margin-top: 8px;
     padding: 0;
-    background: transparent;
-    border: 0;
-    box-shadow: none;
+    justify-content: flex-start;
     opacity: 1;
     pointer-events: auto;
-    max-height: none;
-    overflow: visible;
-    width: auto;
+  }
+
+  .actions > * {
+    pointer-events: auto;
+  }
+
+  .actions [role="button"] {
+    min-height: 44px;
+    padding: 10px 14px;
+    border-radius: 0;
+    border-color: #65877b;
+    background: #fffefa;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+
+  .actions [role="button"] * {
+    font-size: 14px;
   }
 
   .palette .actions {
-    display: block;
+    display: flex;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .surface {
+    animation: enter 0.32s ease backwards;
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
   }
 
-  .palette .actions > * + * {
-    margin-top: 6px;
+  .rank {
+    animation-name: pop;
   }
 
-  .palette .actions > button {
-    padding: 10px 14px;
+  .actions {
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+
+  .mediaWrap > :first-child {
+    animation: fade 0.4s ease backwards;
+    transition: transform 0.35s ease;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .surface:hover {
+    transform: translateY(-2px);
+  }
+
+  .surface.active:hover {
+    transform: none;
+  }
+
+  .surface:hover .mediaWrap > :first-child {
+    transform: scale(1.04);
+  }
+
+  .actions {
+    transform: translateY(6px);
+  }
+
+  .surface:hover .actions,
+  .surface:focus-within .actions {
+    transform: none;
+  }
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
   }
 }

@@ -4,19 +4,12 @@ import { Action, Actions, Note } from './ui';
 import { TitleCover } from './title-cover';
 import { RANKING_ROW_GAP, rankingDragTarget } from './ranking-layout';
 import { PreferenceSurface } from './preference-surface';
+import type { RankedItem, RankingListProps } from './ranking-types';
 
-type RankedItem = {
-  id: string; label: string; author: string; coverUrl: string | null; isbn: string;
-  kitLabels: string; clubRead: boolean;
-};
 type Drag = { from: number; to: number; dy: number; height: number };
 type RowLayout = { height: number };
 
-export function RankingList({ items, disabled, onReorder, onRemove, onDismiss, onRead, onShowDetails }: {
-  items: RankedItem[]; disabled: boolean;
-  onReorder: (from: number, to: number) => void; onRemove: (titleId: string) => void;
-  onDismiss: (titleId: string) => void; onRead: (titleId: string) => void; onShowDetails: (titleId: string) => void;
-}) {
+export function RankingList({ items, disabled, onReorder, onRemove, onShowDetails }: RankingListProps) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const layouts = useRef<Record<string, RowLayout>>({});
   const dragOrder = useRef<string[]>([]);
@@ -60,15 +53,15 @@ export function RankingList({ items, disabled, onReorder, onRemove, onDismiss, o
       }}
       onDragCancel={() => setDrag(null)}
       onMoveUp={() => onReorder(index, index - 1)} onMoveDown={() => onReorder(index, index + 1)}
-      onRemove={() => onRemove(item.id)} onDismiss={() => onDismiss(item.id)} onRead={() => onRead(item.id)} onShowDetails={() => onShowDetails(item.id)} />)}
+      onRemove={() => onRemove(item.id)} onShowDetails={() => onShowDetails(item.id)} />)}
   </View>;
 }
 
-function RankRow({ item, index, disabled, offset, active, canMoveUp, canMoveDown, onLayout, onDragStart, onDragMove, onDragEnd, onDragCancel, onMoveUp, onMoveDown, onRemove, onDismiss, onRead, onShowDetails }: {
+function RankRow({ item, index, disabled, offset, active, canMoveUp, canMoveDown, onLayout, onDragStart, onDragMove, onDragEnd, onDragCancel, onMoveUp, onMoveDown, onRemove, onShowDetails }: {
   item: RankedItem; index: number; disabled: boolean; offset: number; active: boolean; canMoveUp: boolean; canMoveDown: boolean;
   onLayout: (layout: RowLayout) => void; onDragStart: () => void; onDragMove: (dy: number) => void;
   onDragEnd: (dy: number) => void; onDragCancel: () => void; onMoveUp: () => void; onMoveDown: () => void;
-  onRemove: () => void; onDismiss: () => void; onRead: () => void; onShowDetails: () => void;
+  onRemove: () => void; onShowDetails: () => void;
 }) {
   const handle = PanResponder.create({
     onStartShouldSetPanResponder: () => !disabled,
@@ -112,8 +105,6 @@ function RankRow({ item, index, disabled, offset, active, canMoveUp, canMoveDown
       <Action title="↑" accessibilityLabel={`Move ${item.label} up`} disabled={disabled || !canMoveUp} onPress={onMoveUp} />
       <Action title="↓" accessibilityLabel={`Move ${item.label} down`} disabled={disabled || !canMoveDown} onPress={onMoveDown} />
       <Action title="Remove" accessibilityLabel={`Remove ${item.label} from selections`} disabled={disabled} onPress={onRemove} />
-      <Action title="Won’t read" accessibilityLabel={`Won’t read ${item.label}`} disabled={disabled} onPress={onDismiss} />
-      <Action title="Already read" accessibilityLabel={`Already read ${item.label}`} disabled={disabled} onPress={onRead} />
     </Actions>}>
     <View style={styles.heading}>
       {Platform.OS !== 'web' && dragHandle}

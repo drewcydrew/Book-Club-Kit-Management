@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { StyleSheet, View, useWindowDimensions, type DimensionValue } from 'react-native';
+import { StyleSheet, View, type DimensionValue } from 'react-native';
 import { indexKits, kitLabelSummary, preferenceMatches } from '../domain/kit-label-search';
 import type { Kit, KitLabel, Mark, Title } from '../domain/model';
+import { useGalleryColumns } from './gallery-columns';
 import { TitleCard } from './title-card';
 import { Action, Actions, Field, Label, Note } from './ui';
 
@@ -12,7 +13,6 @@ export function TitleGallery({ titles, kits, labels, marks, disabled, onMark, on
   onMark: (titleId: string, value: Mark | null) => void;
   onShowDetails: (titleId: string) => void;
 }) {
-  const { width } = useWindowDimensions();
   const [paletteOpen, setPaletteOpen] = useState(true);
   const [showWont, setShowWont] = useState(false);
   const [showRead, setShowRead] = useState(false);
@@ -22,7 +22,7 @@ export function TitleGallery({ titles, kits, labels, marks, disabled, onMark, on
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const [wontLimit, setWontLimit] = useState(PAGE_SIZE);
   const [readLimit, setReadLimit] = useState(PAGE_SIZE);
-  const columns = width >= 1000 ? 5 : width >= 700 ? 4 : width >= 480 ? 3 : 2;
+  const columns = useGalleryColumns();
   const cardWidth: DimensionValue = `${100 / columns}%`;
   const kitsByTitle = useMemo(() => indexKits(kits), [kits]);
   const labelById = useMemo(() => new Map(labels.map((label) => [label.id, label])), [labels]);
@@ -34,7 +34,8 @@ export function TitleGallery({ titles, kits, labels, marks, disabled, onMark, on
 
   function cards(values: Title[], hidden?: 'wont' | 'read') {
     return <View style={styles.grid}>
-      {values.map((title) => <TitleCard key={title.id} title={title} width={cardWidth} disabled={disabled} hidden={hidden}
+      {values.map((title, index) => <TitleCard key={title.id} title={title} width={cardWidth} disabled={disabled} hidden={hidden}
+        enterDelay={Math.min(index % PAGE_SIZE, 10) * 30}
         kitLabels={kitLabelSummary(kitsByTitle.get(title.id) ?? [], labelById)}
         onSelect={() => onMark(title.id, 'selected')} onDismiss={() => onMark(title.id, 'wont')} onRead={() => onMark(title.id, 'read')}
         onRestore={() => onMark(title.id, null)} onShowDetails={() => onShowDetails(title.id)} />)}
@@ -45,7 +46,7 @@ export function TitleGallery({ titles, kits, labels, marks, disabled, onMark, on
     <Action title={paletteOpen ? 'Hide add-title palette' : 'Add titles'} expanded={paletteOpen} onPress={() => setPaletteOpen(!paletteOpen)} />
     {paletteOpen && <>
       <Label>Add titles</Label>
-      <Note>Browse titles and add them to your ranked choices. Won’t read and Already read move titles to separate bins below.</Note>
+      <Note>Browse titles and add them to your ranked choices. Hover a cover for quick actions; titles you won’t read or have already read move to separate bins below.</Note>
       <Field label="Find a title" value={query} placeholder="Title, author, ISBN or kit label"
         onChangeText={(value) => { setQuery(value); setVisibleLimit(PAGE_SIZE); }} />
       {labels.length > 0 && <>

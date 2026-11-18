@@ -26,8 +26,8 @@ export function Page({ title, children, wide = false }: { title: string; childre
   </ScrollView>;
 }
 
-export function Card({ children }: { children: React.ReactNode }) {
-  return <View style={styles.card}>{children}</View>;
+export function Card({ children, soft = false }: { children: React.ReactNode; soft?: boolean }) {
+  return <View style={[styles.card, soft && Platform.OS === 'web' && styles.softCard]}>{children}</View>;
 }
 
 export function Label({ children }: { children: React.ReactNode }) {
@@ -62,6 +62,7 @@ export const styles = StyleSheet.create({
   heading: { fontSize: 30, fontWeight: '700', color: '#183a36', letterSpacing: -0.5 },
   label: { fontWeight: '700', color: '#183a36', fontSize: 16 },
   card: { backgroundColor: '#fffefa', paddingHorizontal: 16, paddingVertical: 18, borderLeftWidth: 3, borderLeftColor: '#75958a', gap: 12 },
+  softCard: { paddingHorizontal: 20, borderLeftWidth: 1, borderLeftColor: '#e1e8e3', borderWidth: 1, borderColor: '#e1e8e3', borderRadius: 12, boxShadow: '0 1px 3px rgba(24, 58, 54, 0.08)' },
   input: { borderWidth: 1, borderColor: '#718b82', paddingHorizontal: 10, paddingVertical: 9, color: '#173832', backgroundColor: '#fff', minHeight: 44 },
   multilineInput: { minHeight: 96, textAlignVertical: 'top' },
   button: { backgroundColor: '#fffefa', borderWidth: 1, borderColor: '#65877b', paddingHorizontal: 14, paddingVertical: 10, minHeight: 44, maxWidth: '100%', justifyContent: 'center' },

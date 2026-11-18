@@ -1,26 +1,8 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { Kit, KitLabel, Title } from '../domain/model';
 import { TitleCover } from './title-cover';
+import { titleDetailRows } from './title-details-rows';
 import { Action, Actions, Note } from './ui';
-
-function rows(title: Title): [string, string][] {
-  const flag = (value: boolean) => (value ? 'Yes' : 'No');
-  const entries: [string, string | number | null | undefined][] = [
-    ['Author', title.author],
-    ['ISBN', title.isbn],
-    ['Pages', title.pages || null],
-    ['Publisher', title.publisher],
-    ['Date published', title.datePublished],
-    ['Binding', title.binding],
-    ['Language', title.language],
-    ['Source genres', title.genres],
-    ['Large print', flag(title.largePrint)],
-    ['Audio', flag(title.audio)],
-  ];
-  return entries
-    .filter((entry): entry is [string, string | number] => entry[1] !== null && entry[1] !== undefined && entry[1] !== '')
-    .map(([label, value]) => [label, String(value)]);
-}
 
 export function TitleDetails({ title, kits, labels, onClose }: { title: Title; kits?: Kit[]; labels?: KitLabel[]; onClose: () => void }) {
   return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
@@ -43,7 +25,7 @@ function Details({ title, kits, labels, onClose }: { title: Title; kits?: Kit[];
         <Text style={styles.meta}>{title.author}</Text>
       </View>
     </View>
-    {rows(title).map(([label, value]) => <Text key={label} style={styles.row}>
+    {titleDetailRows(title).map(([label, value]) => <Text key={label} style={styles.row}>
       <Text style={styles.label}>{label}: </Text>{value}
     </Text>)}
     <Text style={styles.synopsisLabel}>Description</Text>

@@ -79,7 +79,7 @@ export default function Preferences() {
 
   return (
     <Page title="Preferences" wide={wide}>
-      <Card>
+      <Card soft={!staff}>
         <Label>{cycle.name}{club && !staff ? ` · ${club.name}` : ""}</Label>
         {staff && voting && (
           <Text
@@ -95,12 +95,17 @@ export default function Preferences() {
           </Text>
           <Note>{memberStatus.detail}</Note>
         </>}
-        {!staff && club && <Note>
-          {syncRefreshError ? `Unable to refresh choices: ${syncRefreshError}` :
+        {!staff && club && (() => {
+          const state = syncRefreshError ? "error" : sync.status.state;
+          const text = syncRefreshError ? `Unable to refresh choices: ${syncRefreshError}` :
             sync.status.state === "error" ? sync.status.message :
             sync.status.state === "saving" ? syncMessages.saving :
-              sync.status.state === "saved" ? syncMessages.saved : syncMessages.idle}
-        </Note>}
+              sync.status.state === "saved" ? syncMessages.saved : syncMessages.idle;
+          return <Text accessibilityRole="text" accessibilityLiveRegion="polite"
+            style={[styles.syncChip, state === "saving" && styles.syncSaving, state === "saved" && styles.syncSaved, state === "error" && styles.syncError]}>
+            {state === "saving" ? "⟳ " : state === "saved" ? "✓ " : state === "error" ? "⚠ " : ""}{text}
+          </Text>;
+        })()}
         <Actions>
           {data.cycles.length > 1 && <Action title={cycleOpen ? "Close cycles" : "Change cycle"} onPress={() => setCycleOpen(!cycleOpen)} />}
           {!staff && availableClubs.length > 1 && <Action title={clubOpen ? "Close clubs" : club ? "Change club" : "Choose club"} onPress={() => setClubOpen(!clubOpen)} />}
@@ -151,4 +156,8 @@ const styles = StyleSheet.create({
   memberStatus: { alignSelf: "flex-start", overflow: "hidden", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 4, fontWeight: "700" },
   memberEditable: { color: "#183f37", backgroundColor: "#dceee2" },
   memberClosed: { color: "#663d00", backgroundColor: "#fff0ce" },
+  syncChip: { alignSelf: "flex-start", overflow: "hidden", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, fontSize: 13, color: "#465c56", backgroundColor: "#eef2ef" },
+  syncSaving: { color: "#663d00", backgroundColor: "#fff0ce" },
+  syncSaved: { color: "#183f37", backgroundColor: "#dceee2" },
+  syncError: { color: "#862e27", backgroundColor: "#fbe4e0" },
 });

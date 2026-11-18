@@ -1,0 +1,97 @@
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin: -4px;
+}
+
+.cell {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  padding: 4px;
+  border-radius: 14px;
+}
+
+.dragging {
+  z-index: 40;
+}
+
+.target {
+  background: #e4f2e7;
+  outline: 2px dashed #245e51;
+  outline-offset: -2px;
+}
+
+.handle,
+.handleDisabled {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.handle {
+  cursor: grab;
+}
+
+.badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13px;
+  background: #ffffffe6;
+  color: #183a36;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 1px 4px #00000040;
+  pointer-events: none;
+}
+
+.top {
+  background: #245e51;
+  color: #fff;
+}
+
+.grip {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13px;
+  background: #ffffffc7;
+  color: #245e51;
+  font-size: 16px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cell:hover .grip,
+  .cell:focus-within .grip {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .grip {
+    transition: opacity 0.18s ease;
+  }
+
+  .cell {
+    transition: background 0.15s ease;
+  }
+}
