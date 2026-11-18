@@ -17,6 +17,11 @@ import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
 
+const strategyDescriptions = {
+  clubs: 'Fill meetings, then improve the lowest club fairness scores.',
+  utilisation: 'Fill meetings, then use fewer kits, favour popular titles and consider fairness.',
+};
+
 export default function Schedule() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -30,6 +35,8 @@ export default function Schedule() {
   const selectedCycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
   const editor = useScheduleWorkspace(data, selectedCycle);
   const hadModalConfirmation = useRef(false);
+  const discardTrigger = useRef<HTMLElement | null>(null);
+  const hadDiscardConfirmation = useRef(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [highlightTitleId, setHighlightTitleId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
@@ -78,11 +85,23 @@ export default function Schedule() {
     : null;
   const memberCalendar = staff ? [] : memberMeetingCalendar(data, gridClubs.map((club) => club.id));
   const kits = staff && mode === 'kits' && cycle ? scheduleByKit(viewData, cycle.id, gridClubs.map((club) => club.id)) : [];
-  const pendingConfirmation = editor.pendingAction && <Card>
+  const discardPending = editor.pendingAction?.kind === 'discard';
+  const pendingConfirmation = editor.pendingAction && !discardPending && <Card>
     <Note>{editor.pendingAction.description}</Note>
     <Actions><Action tone="danger" title={editor.pendingAction.confirmLabel} onPress={editor.confirmAction} />
       <Action title="Keep editing" onPress={editor.cancelAction} /></Actions>
   </Card>;
+  const discardConfirmation = discardPending && editor.pendingAction && <Modal transparent visible onRequestClose={editor.cancelAction} accessibilityLabel="Confirm discard">
+    <View style={scheduleStyles.modalBackdrop}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Cancel discard" onPress={editor.cancelAction} style={StyleSheet.absoluteFill} />
+      <View accessibilityViewIsModal style={scheduleStyles.modalDialog}>
+        <Label>Confirm discard</Label>
+        <Note>{editor.pendingAction.description}</Note>
+        <Actions><Action tone="danger" title={editor.pendingAction.confirmLabel} onPress={editor.confirmAction} />
+          <Action title="Keep editing" accessibilityLabel="Keep editing instead of discarding" onPress={editor.cancelAction} /></Actions>
+      </View>
+    </View>
+  </Modal>;
   const modalOpen = staff && !!editor.selectedSlotId;
   const modalSlot = editor.workspace?.cycle.slots.find((slot) => slot.id === editor.selectedSlotId);
   const modalClub = editor.workspace?.base.clubs.find((club) => club.id === modalSlot?.clubId);
@@ -98,7 +117,7 @@ export default function Schedule() {
   }
   useEffect(() => {
     if (Platform.OS !== 'web') return;
-    if (modalOpen && editor.pendingAction) {
+    if (modalOpen && editor.pendingAction && !discardPending) {
       hadModalConfirmation.current = true;
       const buttons = document.querySelectorAll<HTMLElement>('[role="dialog"] [role="button"]');
       [...buttons].find((button) => button.textContent === editor.pendingAction?.confirmLabel)?.focus();
@@ -109,13 +128,29 @@ export default function Schedule() {
         document.querySelector<HTMLElement>(selector)?.focus();
       }
     }
-  }, [modalOpen, editor.pendingAction, editor.activePicker]);
+  }, [modalOpen, editor.pendingAction, editor.activePicker, discardPending]);
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (discardPending) {
+      hadDiscardConfirmation.current = true;
+      document.querySelector<HTMLElement>('[aria-label="Keep editing instead of discarding"]')?.focus();
+    } else if (hadDiscardConfirmation.current) {
+      hadDiscardConfirmation.current = false;
+      const trigger = discardTrigger.current;
+      if (trigger?.isConnected && !(trigger instanceof HTMLButtonElement && trigger.disabled)) trigger.focus();
+      discardTrigger.current = null;
+    }
+  }, [discardPending]);
+  function requestDiscard() {
+    if (Platform.OS === 'web' && document.activeElement instanceof HTMLElement) discardTrigger.current = document.activeElement;
+    editor.requestDiscard();
+  }
   const discardUnavailableProposal = editor.dirty && <Card>
     <Note>Unsaved staff schedule changes are held on this device.</Note>
-    <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={editor.requestDiscard} />
+    <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={requestDiscard} />
   </Card>;
-  if (!person) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardUnavailableProposal}<Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
-  if (!cycle) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
+  if (!person) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}<Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
+  if (!cycle) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = viewData.assignments.filter((assignment) => assignment.cycleId === cycle.id);
 
   function updateStaffClubs(ids: string[]) {
@@ -191,7 +226,7 @@ export default function Schedule() {
   return <Page title="Schedule" wide={wide}>
     {!staff && editor.dirty && <Card>
       <Note>Unsaved staff schedule changes are still held on this device. Discard them before leaving or return to a staff user.</Note>
-      <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={editor.requestDiscard} />
+      <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={requestDiscard} />
     </Card>}
     <Card>
       <Label>{staff ? `${cycle.name} · ${cycle.status}` : `Your schedule${gridCycle ? ` · ${gridCycle.status}` : ''}`}</Label>
@@ -237,6 +272,7 @@ export default function Schedule() {
       </Actions>}
     </Card>
     {!modalOpen && pendingConfirmation}
+    {discardConfirmation}
     {modalOpen && <Modal transparent visible onRequestClose={editor.requestCloseSlot} accessibilityLabel={`Edit ${modalClub?.name ?? 'club'} meeting, ${modalSlot?.month ?? ''}`}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined} style={scheduleStyles.modalBackdrop}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close meeting editor" onPress={editor.requestCloseSlot} style={StyleSheet.absoluteFill} />
@@ -263,12 +299,14 @@ export default function Schedule() {
       {cycle.status === 'open' && <Note>Start collecting preferences on Cycles before editing this schedule.</Note>}
       {editor.stale && editor.dirty && <Text style={{ color: '#a22525' }}>Shared data has changed. Refresh if needed, then discard these changes and start again before saving.</Text>}
       <Actions>
-        <Action title="Prioritise clubs" selected={editor.generationMode === 'clubs'} accessibilityLabel="Generate by prioritising clubs (fairness)" disabled={editor.busy || validating} onPress={() => editor.setGenerationMode('clubs')} />
+        <Action title="Prioritise clubs" selected={editor.generationMode === 'clubs'} accessibilityLabel={`Prioritise clubs, ${editor.generationMode === 'clubs' ? 'selected' : 'not selected'}. ${strategyDescriptions.clubs}`} description={strategyDescriptions.clubs} disabled={editor.busy || validating} onPress={() => editor.setGenerationMode('clubs')} />
+        <Action title="Prioritise utilisation" selected={editor.generationMode === 'utilisation'} accessibilityLabel={`Prioritise utilisation, ${editor.generationMode === 'utilisation' ? 'selected' : 'not selected'}. ${strategyDescriptions.utilisation}`} description={strategyDescriptions.utilisation} disabled={editor.busy || validating} onPress={() => editor.setGenerationMode('utilisation')} />
       </Actions>
+      <Note>{strategyDescriptions[editor.generationMode]} Choose a strategy before generating; changing it does not regenerate the schedule.</Note>
       <Actions>
         <Action title={editor.dirty ? 'Regenerate locally' : 'Generate locally'} disabled={editor.busy || validating || !!publication || (editor.stale && editor.dirty) || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={editor.requestGenerate} />
         <Action tone="primary" title="Save draft" disabled={!editor.dirty || editor.busy || validating || editor.stale} onPress={() => { void editor.validate(); }} />
-        <Action title="Discard changes" disabled={!editor.dirty || editor.busy || validating} onPress={editor.requestDiscard} />
+        <Action title="Discard changes" disabled={!editor.dirty || editor.busy || validating} onPress={requestDiscard} />
       </Actions>
       {(!editor.stale || editor.dirty) && editor.workspace?.generationProblems.map((problem, index) => <Text key={`${problem}-${index}`} style={{ color: '#a22525' }}>{problem}</Text>)}
       {editor.validation && editor.workspace && <>

@@ -61,7 +61,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   const [generating, setGenerating] = useState(false);
   const [generationMode, setGenerationMode] = useState<DraftMode>('clubs');
   const generatingRef = useRef(false);
-  const [pendingAction, setPendingAction] = useState<{ description: string; confirmLabel: string; run: () => void } | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ description: string; confirmLabel: string; run: () => void; kind?: 'discard' } | null>(null);
   const [reconciliationRequired, setReconciliationRequired] = useState(false);
   const busy = generating || checking || shared.saving || !!pendingAction;
   const slotDiff = workspace ? slotDiffOf(workspace) : null;
@@ -165,7 +165,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
 
   function requestDiscard() {
     if (busy) return;
-    if (dirty || hasPending) setPendingAction({ description: 'Discard all unsaved schedule changes and unapplied selections?', confirmLabel: 'Confirm discard', run: reset });
+    if (dirty || hasPending) setPendingAction({ kind: 'discard', description: 'Discard all unsaved schedule changes and unapplied selections?', confirmLabel: 'Confirm discard', run: reset });
     else reset();
   }
 

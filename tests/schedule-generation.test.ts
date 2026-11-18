@@ -65,19 +65,21 @@ test('generates a representative 39-club, 12-month schedule cooperatively', asyn
     const month = `2027-${String(i + 1).padStart(2, '0')}`;
     return { id: `${club.id}-${month}`, clubId: club.id, month, meeting: null };
   }));
-  const started = performance.now();
-  const result = draft(data, cycle);
-  const elapsed = Math.round(performance.now() - started);
-  console.log(`39-club generation: ${result.assignments.length}/${cycle.slots.length} assigned in ${elapsed} ms`);
-  assert.equal(result.assignments.length, cycle.slots.length);
-  assert.ok(result.assignments.every((a) => assignmentProblem(data, a, result.assignments) === null));
-  let yielded = false;
-  const timer = setTimeout(() => { yielded = true; }, 0);
-  const asyncResult = await draftAsync(data, cycle);
-  clearTimeout(timer);
-  assert.equal(yielded, true);
-  assert.deepEqual(assignedTitles(data, asyncResult.assignments), assignedTitles(data, result.assignments));
-  assert.deepEqual(asyncResult.problems, result.problems);
+  for (const mode of ['clubs', 'utilisation'] as const) {
+    const started = performance.now();
+    const result = draft(data, cycle, false, undefined, mode);
+    const elapsed = Math.round(performance.now() - started);
+    console.log(`39-club ${mode} generation: ${result.assignments.length}/${cycle.slots.length} assigned in ${elapsed} ms`);
+    assert.equal(result.assignments.length, cycle.slots.length);
+    assert.ok(result.assignments.every((a) => assignmentProblem(data, a, result.assignments) === null));
+    let yielded = false;
+    const timer = setTimeout(() => { yielded = true; }, 0);
+    const asyncResult = await draftAsync(data, cycle, false, undefined, mode);
+    clearTimeout(timer);
+    assert.equal(yielded, true);
+    assert.deepEqual(assignedTitles(data, asyncResult.assignments), assignedTitles(data, result.assignments));
+    assert.deepEqual(asyncResult.problems, result.problems);
+  }
 });
 
 test('repairs a same-club title conflict across months while respecting another cycle', () => {
@@ -171,6 +173,19 @@ test('scoped generation falls back to unranked titles the club has not read', ()
   assert.equal(result.problems.length, 0);
 });
 
+test('scoped utilisation orders ranked choices by demand and retains unranked fallback', () => {
+  const data = scenario([['t2', 't1'], ['t1']]);
+  const cycle = data.cycles[0];
+  cycle.slots = [
+    { id: 'jan', clubId: 'c1', month: '2027-01', meeting: '2027-01-04' },
+    { id: 'apr', clubId: 'c1', month: '2027-04', meeting: '2027-04-05' },
+    { id: 'jul', clubId: 'c1', month: '2027-07', meeting: '2027-07-05' },
+    { id: 'other', clubId: 'c2', month: '2027-08', meeting: '2027-08-02' },
+  ];
+  const result = draft(data, cycle, false, { clubId: 'c1' }, 'utilisation');
+  assert.deepEqual(assignedTitles(data, result.assignments), { jan: 't1', apr: 't2', jul: 't3' });
+});
+
 test('scoped generation reports why a slot cannot be filled', () => {
   const data = scenario([['t1']]);
   const cycle = data.cycles[0];
@@ -195,10 +210,12 @@ test('reports bounded repair when a required displacement chain exceeds the limi
   const data = scenario([['t1', 't2'], ['t2', 't3'], ['t3', 't4'], ['t4', 't5'], ['t1']]);
   data.titles.push({ ...data.titles[0], id: 't5' });
   data.kits = data.titles.map((title) => ({ ...data.kits[0], id: `kit-${title.id}`, titleId: title.id }));
-  const result = draft(data, data.cycles[0]);
-  assert.equal(result.assignments.length, 4);
-  assert.ok(result.problems.some((message) => message.includes('search was limited')));
-  assert.ok(result.assignments.every((a) => assignmentProblem(data, a, result.assignments) === null));
+  for (const mode of ['clubs', 'utilisation'] as const) {
+    const result = draft(data, data.cycles[0], false, undefined, mode);
+    assert.equal(result.assignments.length, 4);
+    assert.ok(result.problems.some((message) => message.includes('search was limited')));
+    assert.ok(result.assignments.every((a) => assignmentProblem(data, a, result.assignments) === null));
+  }
 });
 
 test('does not generate dateless meetings on or before the deadline', () => {
@@ -252,10 +269,82 @@ test('prioritise utilisation lends a popular title to every club that ranks it',
   assert.deepEqual(assignedTitles(data, draft(data, data.cycles[0], false, undefined, 'utilisation').assignments), { s1: 't1', s2: 't1' });
 });
 
-test('prioritise utilisation weights demand by ranking position', () => {
-  // t1 is first for club 2 and last for club 1. t2 is second for both. Weighted demand favours t1, while raw counts tie.
+test('prioritise utilisation uses fairness to break equal kit and popularity scores', () => {
   const data = scenario([['t3', 't2', 't1'], ['t1', 't2']]);
-  assert.deepEqual(assignedTitles(data, draft(data, data.cycles[0], false, undefined, 'utilisation').assignments), { s1: 't1', s2: 't2' });
+  assert.deepEqual(assignedTitles(data, draft(data, data.cycles[0], false, undefined, 'utilisation').assignments), { s1: 't2', s2: 't1' });
+});
+
+test('prioritise utilisation reuses a physical kit rather than using another copy of the same title', () => {
+  const data = scenario([['t1'], ['t1']]);
+  const cycle = data.cycles[0];
+  data.clubs[1].branch = 'West';
+  data.kits.push({ ...data.kits[0], id: 'west-copy', branch: 'West' });
+  cycle.slots[1] = { ...cycle.slots[1], month: '2027-04', meeting: '2027-04-05' };
+  const clubs = draft(data, cycle, false, undefined, 'clubs');
+  const utilisation = draft(data, cycle, false, undefined, 'utilisation');
+  assert.equal(clubs.assignments.length, 2);
+  assert.equal(utilisation.assignments.length, 2);
+  assert.equal(new Set(clubs.assignments.map((a) => a.kitId)).size, 2);
+  assert.equal(new Set(utilisation.assignments.map((a) => a.kitId)).size, 1);
+  assert.ok(utilisation.assignments.every((a) => assignmentProblem(data, a, utilisation.assignments) === null));
+});
+
+test('utilisation counts only participating clubs in demand and weights their ranking positions', () => {
+  const data = scenario([['t2', 't1'], ['t1', 't2'], ['t2']]);
+  const cycle = data.cycles[0];
+  cycle.slots = cycle.slots.slice(0, 2);
+  cycle.slots[1] = { ...cycle.slots[1], month: '2027-04', meeting: '2027-04-05' };
+  const result = draft(data, cycle, false, undefined, 'utilisation');
+  assert.deepEqual(assignedTitles(data, result.assignments), { s1: 't2', s2: 't2' });
+  cycle.finalized.c2 = ['t1', 't3', 't2'];
+  const weighted = draft(data, cycle, false, undefined, 'utilisation');
+  assert.deepEqual(assignedTitles(data, weighted.assignments), { s1: 't1', s2: 't1' });
+});
+
+test('utilisation improves kit reuse after the initial popular choices without losing coverage', () => {
+  const data = scenario([['t1', 't2'], ['t2'], ['t1']]);
+  const cycle = data.cycles[0];
+  cycle.slots[1] = { ...cycle.slots[1], month: '2027-04', meeting: '2027-04-05' };
+  cycle.slots[2] = { ...cycle.slots[2], month: '2027-06', meeting: '2027-06-07' };
+  const locked = { id: 'locked', cycleId: cycle.id, slotId: 's3', clubId: 'c3', kitId: 'k4',
+    ready: '2027-05-17', meeting: '2027-06-07', due: '2027-06-14', locked: true };
+  data.assignments = [locked];
+  const result = draft(data, cycle, false, undefined, 'utilisation');
+  assert.deepEqual(assignedTitles(data, result.assignments), { s1: 't2', s2: 't2', s3: 't3' });
+  assert.equal(new Set(result.assignments.map((a) => a.kitId)).size, 2);
+  assert.deepEqual(result.assignments.find((a) => a.id === locked.id), locked);
+});
+
+test('utilisation keeps coverage and locked kits while respecting other cycles', () => {
+  const data = scenario([['t1', 't2'], ['t1'], ['t1']]);
+  const cycle = data.cycles[0];
+  cycle.slots[2] = { ...cycle.slots[2], month: '2027-04', meeting: '2027-04-05' };
+  const locked = { id: 'locked', cycleId: cycle.id, slotId: 's3', clubId: 'c3', kitId: 'k1',
+    ready: '2027-03-15', meeting: '2027-04-05', due: '2027-04-12', locked: true };
+  const otherCycle = { ...cycle, id: 'other', slots: [{ id: 'other-slot', clubId: 'c3', month: '2027-06', meeting: '2027-06-07' }] };
+  const other = { ...locked, id: 'other-assignment', cycleId: 'other', slotId: 'other-slot', kitId: 'k3',
+    ready: '2027-05-17', meeting: '2027-06-07', due: '2027-06-14', locked: false };
+  data.cycles.push(otherCycle);
+  data.assignments = [locked, other];
+  const result = draft(data, cycle, false, undefined, 'utilisation');
+  assert.deepEqual(assignedTitles(data, result.assignments), { s1: 't2', s2: 't1', s3: 't1' });
+  assert.deepEqual(result.assignments.find((a) => a.id === locked.id), locked);
+  assert.deepEqual(result.assignments.find((a) => a.id === other.id), other);
+  assert.ok(result.assignments.every((a) => assignmentProblem(data, a, result.assignments) === null));
+});
+
+test('utilisation async and repeated runs select the same assignments', async () => {
+  const data = scenario([['t2', 't1'], ['t1', 't3']]);
+  data.kits.push({ ...data.kits[0], id: 'k1b' });
+  const cycle = data.cycles[0];
+  const sync = draft(data, cycle, false, undefined, 'utilisation');
+  const repeat = draft(data, cycle, false, undefined, 'utilisation');
+  const asyncResult = await draftAsync(data, cycle, false, undefined, 'utilisation');
+  const selections = (assignments: typeof sync.assignments) =>
+    assignments.map(({ slotId, kitId }) => ({ slotId, kitId }));
+  assert.deepEqual(selections(repeat.assignments), selections(sync.assignments));
+  assert.deepEqual(selections(asyncResult.assignments), selections(sync.assignments));
+  assert.deepEqual(asyncResult.problems, sync.problems);
 });
 
 test('defaults to prioritising clubs when no mode is given', () => {

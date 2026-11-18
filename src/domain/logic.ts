@@ -115,7 +115,7 @@ type DraftResult = { assignments: Assignment[]; problems: string[] };
 // A scoped run only fills empty slots of one club. Existing assignments are kept, and no other club's assignment is displaced.
 export type DraftScope = { clubId: string };
 
-// 'clubs' maximises fairness across clubs. 'utilisation' prefers titles with high priority-weighted demand, so popular titles are lent out as often as possible.
+// Both modes preserve coverage; utilisation then favours kit reuse, popular titles and fairness.
 export type DraftMode = 'clubs' | 'utilisation';
 
 function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope, mode: DraftMode = 'clubs'): Generator<void, DraftResult, void> {
@@ -138,7 +138,9 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
   const preferenceByClub = new Map(data.clubs.map((club) => [club.id, preferences(data, cycle, club.id)]));
   // Each club's vote is weighted by position, so a first choice counts for more than a last choice.
   const demand = new Map<string, number>();
-  for (const preference of preferenceByClub.values()) {
+  const participatingClubs = new Set(slots.map((slot) => slot.clubId));
+  for (const [clubId, preference] of preferenceByClub) {
+    if (!participatingClubs.has(clubId)) continue;
     preference.forEach((titleId, index) => demand.set(titleId, (demand.get(titleId) ?? 0) + (preference.length - index) / preference.length));
   }
   for (const club of data.clubs) {
@@ -213,10 +215,17 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
   }
   for (const assignment of retained) insert(assignment);
 
+  function orderedChoices(slot: Slot): Kit[] {
+    const options = choices.get(slot.clubId) ?? [];
+    if (mode !== 'utilisation' || scope) return options;
+    const used = new Set([...current.values()].map((assignment) => assignment.kitId));
+    return [...options].sort((a, b) => Number(used.has(b.id)) - Number(used.has(a.id)));
+  }
+
   // Keep the original greedy solution as the lower bound on coverage.
   for (const slot of targets) {
     if (current.has(slot.id) || !windows.has(slot.id)) continue;
-    for (const kit of choices.get(slot.clubId) ?? []) {
+    for (const kit of orderedChoices(slot)) {
       yield;
       const value = candidate(slot, kit);
       if (!assignmentProblems(data, value, related(value), kits).length) { insert(value); break; }
@@ -231,7 +240,7 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
     if (!pending.length) return accept();
     const [slot, ...rest] = pending;
     if (!windows.has(slot.id)) return false;
-    for (const kit of choices.get(slot.clubId) ?? []) {
+    for (const kit of orderedChoices(slot)) {
       if (skipKit === kit.id) continue;
       if (budget.remaining <= 0) { budget.limited = true; return false; }
       budget.remaining--;
@@ -288,16 +297,6 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
     scoringSlots.set(slot.clubId, group);
   }
   function scores(): { sorted: number[]; byClub: Map<string, number> } {
-    if (mode === 'utilisation') {
-      let total = 0;
-      const byClub = new Map<string, number>();
-      for (const assignment of current.values()) {
-        const count = demand.get(kits.get(assignment.kitId)?.titleId ?? '') ?? 0;
-        total += count;
-        byClub.set(assignment.clubId, (byClub.get(assignment.clubId) ?? 0) + count);
-      }
-      return { sorted: [total], byClub };
-    }
     const result = new Map<string, number>();
     for (const [clubId, clubSlots] of scoringSlots) {
       const priority = priorities.get(clubId) ?? [];
@@ -313,7 +312,15 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
       }
       result.set(clubId, 100 * total / clubSlots.length);
     }
-    return { sorted: [...result.values()].sort((a, b) => a - b), byClub: result };
+    const fairnessScores = [...result.values()].sort((a, b) => a - b);
+    if (mode === 'utilisation') {
+      const assignments = [...current.values()];
+      const usedKits = new Set(assignments.map((assignment) => assignment.kitId));
+      const popularity = assignments.reduce((total, assignment) =>
+        total + (demand.get(kits.get(assignment.kitId)?.titleId ?? '') ?? 0), 0);
+      return { sorted: [-usedKits.size, popularity, ...fairnessScores], byClub: result };
+    }
+    return { sorted: fairnessScores, byClub: result };
   }
   function improves(next: number[], previous: number[]): boolean {
     for (let i = 0; i < next.length; i++) {
@@ -369,7 +376,9 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
   if ((repairBudget.limited || repairBudget.remaining <= 0) && targets.some((slot) => !current.has(slot.id) && windows.has(slot.id))) {
     problems.push('Schedule search was limited; further rearrangements may fill additional slots.');
   }
-  if (!scope && (qualityBudget.limited || qualityBudget.remaining <= 0)) problems.push('Fairness improvement was limited; further improvements may be possible.');
+  if (!scope && (qualityBudget.limited || qualityBudget.remaining <= 0)) {
+    problems.push(`${mode === 'clubs' ? 'Fairness' : 'Utilisation'} improvement was limited; further improvements may be possible.`);
+  }
   return { assignments, problems };
 }
 
