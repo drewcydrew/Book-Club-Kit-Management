@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
@@ -6,8 +6,9 @@ import { ScheduleGridView } from '../components/schedule-grid';
 import { SCHEDULE_DESKTOP_WIDTH } from '../components/schedule-layout';
 import { ScheduleInstructions } from '../components/schedule-instructions';
 import { useScheduleWorkspace } from '../components/schedule-workspace';
+import { MemberSchedule, type MemberView } from '../components/member-schedule';
 import { TitleCover } from '../components/title-cover';
-import { memberSchedule, memberVisibleCycle, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
+import { memberMeetingCalendar, memberVisibleCycle, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
 import { assignmentProblem, fairness } from '../domain/logic';
@@ -15,17 +16,6 @@ import type { Assignment } from '../domain/model';
 import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
-
-const TILE_WIDTH = 110;
-
-function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
-  const groups = new Map<string, T[]>();
-  for (const item of items) {
-    const group = key(item);
-    groups.set(group, [...(groups.get(group) ?? []), item]);
-  }
-  return groups;
-}
 
 export default function Schedule() {
   const { width, height } = useWindowDimensions();
@@ -43,8 +33,7 @@ export default function Schedule() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [highlightTitleId, setHighlightTitleId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
-  const [selectedClubId, setSelectedClubId] = useState('');
-  const [memberViewMode, setMemberViewMode] = useState<'upcoming' | 'past' | 'grid' | 'list'>('upcoming');
+  const [memberViewMode, setMemberViewMode] = useState<MemberView>('meetings');
   const [staffViewMode, setStaffViewMode] = useState<'grid' | 'meetings' | 'kits'>('grid');
   const [publication, setPublication] = useState<{ cycleId: string; revision: number; assignments: Assignment[]; validation: ScheduleValidation } | null>(null);
   const [validating, setValidating] = useState(false);
@@ -68,13 +57,9 @@ export default function Schedule() {
   const enrolledClubIds = data.memberships.filter((membership) => membership.personId === personId).map((membership) => membership.clubId);
   const cycleId = cycle?.id;
   const clubChoices = staff ? viewData.clubs : data.clubs.filter((club) => enrolledClubIds.includes(club.id));
-  const clubId = clubChoices.find((club) => club.id === selectedClubId)?.id ?? clubChoices[0]?.id;
   const visibleAssignments = viewData.assignments.filter((a) => staff
     ? a.cycleId === cycleId
     : enrolledClubIds.includes(a.clubId) && data.cycles.some((c) => c.id === a.cycleId && memberVisibleCycle(c)));
-  const assignments = visibleAssignments
-    .filter((a) => a.clubId === clubId)
-    .sort((a, b) => a.meeting.localeCompare(b.meeting) || a.cycleId.localeCompare(b.cycleId) || a.id.localeCompare(b.id));
   const kitById = new Map(viewData.kits.map((kit) => [kit.id, kit] as const));
   const titleById = new Map(viewData.titles.map((title) => [title.id, title] as const));
   const clubById = new Map(viewData.clubs.map((club) => [club.id, club] as const));
@@ -91,8 +76,7 @@ export default function Schedule() {
   const grid = mode === 'grid' && gridCycle
     ? scheduleGrid(viewData, gridCycle, gridClubKey ? gridClubKey.split('|') : [], viewData.assignments.filter((a) => a.cycleId === gridCycle.id))
     : null;
-  const memberMeetings = !staff && (mode === 'upcoming' || mode === 'past')
-    ? memberSchedule(data, gridClubKey ? gridClubKey.split('|') : [], today(), mode) : [];
+  const memberCalendar = staff ? [] : memberMeetingCalendar(data, gridClubs.map((club) => club.id));
   const kits = staff && mode === 'kits' && cycle ? scheduleByKit(viewData, cycle.id, gridClubs.map((club) => club.id)) : [];
   const pendingConfirmation = editor.pendingAction && <Card>
     <Note>{editor.pendingAction.description}</Note>
@@ -133,11 +117,6 @@ export default function Schedule() {
   if (!person) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardUnavailableProposal}<Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
   if (!cycle) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = viewData.assignments.filter((assignment) => assignment.cycleId === cycle.id);
-  const assignedSlotIds = new Set(assignments.map((assignment) => assignment.slotId));
-  const unassignedSlots = staff && clubId ? cycle.slots.filter((slot) => slot.clubId === clubId && !assignedSlotIds.has(slot.id)) : [];
-  const assignmentsByMonth = groupBy(assignments, (assignment) => assignment.meeting.slice(0, 7));
-  const unassignedByMonth = groupBy(unassignedSlots, (slot) => slot.month);
-  const monthKeys = [...new Set([...assignmentsByMonth.keys(), ...unassignedByMonth.keys()])].sort();
 
   function updateStaffClubs(ids: string[]) {
     setStaffClubIds(ids);
@@ -145,20 +124,6 @@ export default function Schedule() {
       setExpandedId(null);
     }
     if (editor.selectedSlotId && !cycle.slots.some((slot) => slot.id === editor.selectedSlotId && ids.includes(slot.clubId))) editor.closeSlot();
-  }
-
-  function renderTile(assignment: Assignment) {
-    const kit = kitById.get(assignment.kitId);
-    const title = kit ? titleById.get(kit.titleId) : undefined;
-    const problem = problems.get(assignment.id) ?? null;
-    const expanded = expandedId === assignment.id;
-    return <Pressable key={assignment.id} accessibilityRole="button" accessibilityLabel={`${title?.name ?? 'Unavailable title'}, ${assignment.meeting}`} accessibilityState={{ expanded }}
-      onPress={() => setExpandedId(expanded ? null : assignment.id)} style={{ width: TILE_WIDTH, marginRight: 12, marginBottom: 12 }}>
-      {title && <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ width: TILE_WIDTH, height: TILE_WIDTH * 1.5, marginRight: 0, marginBottom: 6 }} />}
-      <Text style={{ fontSize: 12, color: '#374151' }}>{assignment.meeting}</Text>
-      <Text numberOfLines={2} style={{ fontWeight: '600' }}>{expanded ? '▾ ' : ''}{title?.name ?? 'Unavailable title'}</Text>
-      {problem && <Text style={{ color: '#a22525', fontSize: 12 }}>Needs review</Text>}
-    </Pressable>;
   }
 
   function renderDetail(assignment: Assignment) {
@@ -193,6 +158,35 @@ export default function Schedule() {
       setMessage(error instanceof Error ? error.message : 'Unable to validate publication.');
     } finally { setValidating(false); }
   }
+
+  const gridContent = <>
+    {!staff && mode === 'grid' && gridCycle && <Card>
+      <Label>Published cycle · {gridCycle.name}</Label>
+      {memberCycles.length > 1 && <Actions>{memberCycles.map((value) => <Action key={value.id} selected={value.id === gridCycle.id} title={`${value.name} · ${value.status}`} onPress={() => { setSelectedId(value.id); setExpandedId(null); }} />)}</Actions>}
+    </Card>}
+    {staff && mode === 'grid' && <Note>Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
+    {mode === 'grid' && staff && highlightTitle && grid && <Card>
+      <Label>Highlighting · {highlightTitle.name}</Label>
+      <Note>{highlightCount} {highlightCount === 1 ? 'club' : 'clubs'} in {gridCycle?.name ?? 'this cycle'}. Other clubs are hidden.</Note>
+      <Actions><Action title="Clear highlight" onPress={() => setHighlight(null)} /></Actions>
+    </Card>}
+    {mode === 'grid' && (grid
+      ? (grid.rows.length === 0
+        ? (staff && clubChoices.length === 0 ? null : <Note>Select at least one club to show the grid.</Note>)
+        : <ScheduleGridView grid={grid} wide={wide} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
+          titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
+          sharedLayout={staff} highlightTitleId={staff ? highlightTitleId : null}
+          expandedId={expandedId} showProblems={staff} onToggle={(assignmentId) => setExpandedId(expandedId === assignmentId ? null : assignmentId)}
+          renderDetail={renderDetail}
+          selectedSlotId={staff ? editor.selectedSlotId : undefined}
+          onSelectSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.selectSlot : undefined}
+          onAddSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.toggleSlot : undefined}
+          onGenerateClub={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? (clubId) => editor.requestGenerateClub({ clubId }) : undefined}
+          clubResult={editor.clubResult}
+          clubSummaryFor={staff ? (clubId) => { const result = fairness(viewData, cycle, clubId, cycleAssignments); return `Fairness ${result.score === null ? 'N/A' : `${Math.round(result.score)}%`} · ${result.assigned}/${result.slots} assigned`; } : undefined}
+          onHideClub={staff ? (clubId) => updateStaffClubs(gridClubs.filter((club) => club.id !== clubId).map((club) => club.id)) : undefined} />)
+      : <Note>No drafted or published schedule is available for your clubs yet.</Note>)}
+  </>;
 
   return <Page title="Schedule" wide={wide}>
     {!staff && editor.dirty && <Card>
@@ -236,18 +230,11 @@ export default function Schedule() {
       {staff && messages.length > 5 && <Action title={showAllMessages ? 'Show fewer messages' : `Show all messages (${messages.length})`} onPress={() => setShowAllMessages(!showAllMessages)} />}
       {staff && message ? <Text>{message}</Text> : null}
       {staff && editor.message ? <Text>{editor.message}</Text> : null}
-      <Actions>
-        {staff ? <>
-          <Action selected={mode === 'grid'} title="Grid" onPress={() => { editor.closeSlot(); setStaffViewMode('grid'); }} />
-          <Action selected={mode === 'meetings'} title="Meetings" onPress={() => { editor.closeSlot(); setStaffViewMode('meetings'); }} />
-          <Action selected={mode === 'kits'} title="Kits" onPress={() => { editor.closeSlot(); setStaffViewMode('kits'); }} />
-        </> : <>
-          <Action selected={mode === 'upcoming'} title="Upcoming" onPress={() => setMemberViewMode('upcoming')} />
-          <Action selected={mode === 'past'} title="Past" onPress={() => setMemberViewMode('past')} />
-          <Action selected={mode === 'grid'} title="Grid" onPress={() => setMemberViewMode('grid')} />
-          <Action selected={mode === 'list'} title="List by club" onPress={() => setMemberViewMode('list')} />
-        </>}
-      </Actions>
+      {staff && <Actions>
+        <Action selected={mode === 'grid'} title="Grid" onPress={() => { editor.closeSlot(); setStaffViewMode('grid'); }} />
+        <Action selected={mode === 'meetings'} title="Meetings" onPress={() => { editor.closeSlot(); setStaffViewMode('meetings'); }} />
+        <Action selected={mode === 'kits'} title="Kits" onPress={() => { editor.closeSlot(); setStaffViewMode('kits'); }} />
+      </Actions>}
     </Card>
     {!modalOpen && pendingConfirmation}
     {modalOpen && <Modal transparent visible onRequestClose={editor.requestCloseSlot} accessibilityLabel={`Edit ${modalClub?.name ?? 'club'} meeting, ${modalSlot?.month ?? ''}`}>
@@ -305,7 +292,7 @@ export default function Schedule() {
           updateStaffClubs(current.includes(value.id) ? current.filter((id) => id !== value.id) : [...current, value.id]);
         }} />)}</Actions>
       </>}
-    </Card> : mode !== 'list' ? <Card>
+    </Card> : <Card>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: filtersOpen }} onPress={() => setFiltersOpen(!filtersOpen)}>
         <Label>{filtersOpen ? '▾' : '▸'} Your clubs · {gridClubs.length} of {clubChoices.length}</Label>
       </Pressable>
@@ -322,31 +309,10 @@ export default function Schedule() {
             setGridClubIds(current.includes(value.id) ? current.filter((id) => id !== value.id) : [...current, value.id]);
           }} />)}</Actions>
         </>}
-    </Card> : <Card><Label>Choose a club</Label>
-      {clubChoices.length === 0
-        ? <Note>{staff ? 'No clubs exist yet.' : 'You are not enrolled in any clubs. Enrol in a club on the My clubs tab.'}</Note>
-        : <Actions>{clubChoices.map((value) => <Action key={value.id} selected={value.id === clubId} title={value.name} onPress={() => {
-          setSelectedClubId(value.id); setExpandedId(null);
-        }} />)}</Actions>}
     </Card>}
-    {!staff && (mode === 'upcoming' || mode === 'past') && <Card>
-      <Label>{mode === 'upcoming' ? 'Upcoming meetings' : 'Past meetings'}</Label>
-      {clubChoices.length > 0 && gridClubs.length === 0 ? <Note>Select clubs to see meetings.</Note>
-        : clubChoices.length > 0 && memberCycles.length === 0 ? <Note>No drafted or published schedules are available for your clubs yet.</Note>
-          : clubChoices.length > 0 && memberMeetings.length === 0 ? <Note>No {mode} meetings for the selected clubs.</Note> : null}
-      <View style={wide ? scheduleStyles.columns : scheduleStyles.singleColumn}>{memberMeetings.map((assignment) => {
-        const kit = kitById.get(assignment.kitId);
-        const title = titleById.get(kit?.titleId ?? '');
-        const expanded = expandedId === assignment.id;
-        return <View key={assignment.id} style={wide ? scheduleStyles.column : undefined}>
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpandedId(expanded ? null : assignment.id)} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d6ddd9' }}>
-            <Text style={{ fontWeight: '700', color: '#183a36' }}>{assignment.meeting} · {title?.name ?? 'Unavailable title'}</Text>
-            <Text>{clubById.get(assignment.clubId)?.name ?? 'Unavailable club'} · Ready {assignment.ready} · Due {assignment.due}</Text>
-          </Pressable>
-          {expanded && renderDetail(assignment)}
-        </View>;
-      })}</View>
-    </Card>}
+    {!staff && <MemberSchedule view={memberViewMode} onViewChange={setMemberViewMode} calendar={memberCalendar} today={today()}
+      titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
+      clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'} renderDetail={renderDetail} gridContent={gridContent} />}
     {staff && mode === 'meetings' && <Card>
       <Label>Meetings</Label>
       {clubChoices.length > 0 && gridClubs.length === 0 && <Note>Select clubs to see meetings.</Note>}
@@ -376,32 +342,7 @@ export default function Schedule() {
         </View>;
       })}</View>
     </Card>}
-    {!staff && mode === 'grid' && gridCycle && <Card>
-      <Label>Published cycle · {gridCycle.name}</Label>
-      {memberCycles.length > 1 && <Actions>{memberCycles.map((value) => <Action key={value.id} selected={value.id === gridCycle.id} title={`${value.name} · ${value.status}`} onPress={() => { setSelectedId(value.id); setExpandedId(null); }} />)}</Actions>}
-    </Card>}
-    {staff && mode === 'grid' && <Note>Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
-    {mode === 'grid' && staff && highlightTitle && grid && <Card>
-      <Label>Highlighting · {highlightTitle.name}</Label>
-      <Note>{highlightCount} {highlightCount === 1 ? 'club' : 'clubs'} in {gridCycle?.name ?? 'this cycle'}. Other clubs are hidden.</Note>
-      <Actions><Action title="Clear highlight" onPress={() => setHighlight(null)} /></Actions>
-    </Card>}
-    {mode === 'grid' && (grid
-      ? (grid.rows.length === 0
-        ? (staff && clubChoices.length === 0 ? null : <Note>Select at least one club to show the grid.</Note>)
-        : <ScheduleGridView grid={grid} wide={wide} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
-          titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
-          sharedLayout={staff} highlightTitleId={staff ? highlightTitleId : null}
-          expandedId={expandedId} showProblems={staff} onToggle={(assignmentId) => setExpandedId(expandedId === assignmentId ? null : assignmentId)}
-          renderDetail={renderDetail}
-          selectedSlotId={staff ? editor.selectedSlotId : undefined}
-          onSelectSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.selectSlot : undefined}
-          onAddSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.toggleSlot : undefined}
-          onGenerateClub={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? (clubId) => editor.requestGenerateClub({ clubId }) : undefined}
-          clubResult={editor.clubResult}
-          clubSummaryFor={staff ? (clubId) => { const result = fairness(viewData, cycle, clubId, cycleAssignments); return `Fairness ${result.score === null ? 'N/A' : `${Math.round(result.score)}%`} · ${result.assigned}/${result.slots} assigned`; } : undefined}
-          onHideClub={staff ? (clubId) => updateStaffClubs(gridClubs.filter((club) => club.id !== clubId).map((club) => club.id)) : undefined} />)
-      : <Note>No drafted or published schedule is available for your clubs yet.</Note>)}
+    {staff && gridContent}
     {staff && mode === 'kits' && <Card>
       <Label>Kits</Label>
       {clubChoices.length > 0 && gridClubs.length === 0 ? <Note>Select clubs to see their assigned kits.</Note>
@@ -433,25 +374,6 @@ export default function Schedule() {
         </View>;
       })}</View>
     </Card>}
-    {mode === 'list' && <>
-    {clubId && assignments.length === 0 && unassignedSlots.length === 0 && <Note>{staff ? 'No assignments for this club in this cycle yet.' : 'No assignments for this club yet.'}</Note>}
-    {monthKeys.map((month) => <View key={month} style={{ marginTop: 8 }}>
-      <Label>{month}</Label>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-        {(assignmentsByMonth.get(month) ?? []).map((assignment) => <React.Fragment key={assignment.id}>
-          {renderTile(assignment)}
-          {expandedId === assignment.id && renderDetail(assignment)}
-        </React.Fragment>)}
-        {(unassignedByMonth.get(month) ?? []).map((slot) => <View key={slot.id} accessibilityLabel={`${month}, not yet assigned`}
-          style={{ width: TILE_WIDTH, marginRight: 12, marginBottom: 12 }}>
-          <View style={{ width: TILE_WIDTH, height: TILE_WIDTH * 1.5, marginBottom: 6, borderRadius: 6, borderWidth: 1, borderStyle: 'dashed', borderColor: '#9ca3af', alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 12 }}>Not assigned</Text>
-          </View>
-          <Text style={{ fontSize: 12, color: '#374151' }}>{slot.meeting ?? 'No meeting date set'}</Text>
-        </View>)}
-      </View>
-    </View>)}
-    </>}
   </Page>;
 }
 

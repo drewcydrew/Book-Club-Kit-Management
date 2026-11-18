@@ -9,7 +9,7 @@ import { emptyBallot, moveInRanking, setMark } from '../src/domain/ballot-draft'
 import { preferenceStatus, votingStatus } from '../src/domain/voting';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
-import { clubPriorities, clubStatuses, groupSlotsByMonth, memberSchedule, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
+import { clubPriorities, clubStatuses, groupSlotsByMonth, memberMeetingCalendar, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
 
 test('voting status explains whether member voting is open and why it is not', () => {
   const collecting = { status: 'collecting' as const, deadline: '2026-11-20' };
@@ -285,22 +285,26 @@ test('title demand counts each selected club once regardless of finalization', (
   assert.equal(titleDemand(data, 'cy', []).size, 0);
 });
 
-test('member schedule shows drafted and published enrolled assignments and orders upcoming and past', () => {
+test('member meeting calendar groups visible enrolled assignments by month and day in date order', () => {
   const data = {
     cycles: [{ id: 'cy1', status: 'published' }, { id: 'cy2', status: 'published' }, { id: 'draft', status: 'drafted' }, { id: 'collect', status: 'collecting' }],
     assignments: [
       { id: 'future', cycleId: 'cy2', clubId: 'c2', meeting: '2026-03-01' },
       { id: 'today', cycleId: 'cy1', clubId: 'c1', meeting: '2026-02-01' },
       { id: 'tie', cycleId: 'cy2', clubId: 'c1', meeting: '2026-02-01' },
-      { id: 'past', cycleId: 'cy1', clubId: 'c1', meeting: '2026-01-01' },
+      { id: 'past', cycleId: 'cy1', clubId: 'c1', meeting: '2026-01-15' },
       { id: 'drafted', cycleId: 'draft', clubId: 'c1', meeting: '2026-03-01' },
       { id: 'hidden', cycleId: 'collect', clubId: 'c1', meeting: '2026-03-01' },
       { id: 'other', cycleId: 'cy1', clubId: 'c3', meeting: '2026-03-01' },
     ],
   } as unknown as Data;
-  assert.deepEqual(memberSchedule(data, ['c1', 'c2'], '2026-02-01', 'upcoming').map((a) => a.id), ['today', 'tie', 'drafted', 'future']);
-  assert.deepEqual(memberSchedule(data, ['c1'], '2026-02-01', 'past').map((a) => a.id), ['past']);
-  assert.deepEqual(memberSchedule(data, [], '2026-02-01', 'upcoming'), []);
+  const calendar = memberMeetingCalendar(data, ['c1', 'c2']);
+  assert.deepEqual(calendar.map((m) => m.month), ['2026-01', '2026-02', '2026-03']);
+  assert.deepEqual(calendar[1].days.map((d) => d.day), ['2026-02-01']);
+  assert.deepEqual(calendar[1].days[0].assignments.map((a) => a.id), ['today', 'tie']);
+  assert.deepEqual(calendar[2].days[0].assignments.map((a) => a.id), ['drafted', 'future']);
+  assert.deepEqual(memberMeetingCalendar(data, ['c1']).flatMap((m) => m.days.map((d) => d.day)), ['2026-01-15', '2026-02-01', '2026-03-01']);
+  assert.deepEqual(memberMeetingCalendar(data, []), []);
 });
 
 test('staff kits group selected cycle assignments by physical kit in meeting order', () => {

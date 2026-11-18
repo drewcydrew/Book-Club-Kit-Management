@@ -217,14 +217,27 @@ export function memberVisibleCycle(cycle: Pick<Cycle, 'status'>): boolean {
   return cycle.status === 'drafted' || cycle.status === 'published';
 }
 
-export function memberSchedule(data: Data, clubIds: string[], day: string, period: 'upcoming' | 'past'): Assignment[] {
+export type MemberMeetingMonth = { month: string; days: { day: string; assignments: Assignment[] }[] };
+
+export function memberMeetingCalendar(data: Data, clubIds: string[]): MemberMeetingMonth[] {
   const clubs = new Set(clubIds);
   const visible = new Set(data.cycles.filter(memberVisibleCycle).map((cycle) => cycle.id));
-  return data.assignments
-    .filter((assignment) => clubs.has(assignment.clubId) && visible.has(assignment.cycleId)
-      && (period === 'upcoming' ? assignment.meeting >= day : assignment.meeting < day))
-    .sort((a, b) => (period === 'upcoming' ? a.meeting.localeCompare(b.meeting) : b.meeting.localeCompare(a.meeting))
-      || a.clubId.localeCompare(b.clubId) || a.cycleId.localeCompare(b.cycleId) || a.id.localeCompare(b.id));
+  const byDay = new Map<string, Assignment[]>();
+  for (const assignment of data.assignments) {
+    if (!clubs.has(assignment.clubId) || !visible.has(assignment.cycleId)) continue;
+    const group = byDay.get(assignment.meeting) ?? [];
+    group.push(assignment);
+    byDay.set(assignment.meeting, group);
+  }
+  const byMonth = new Map<string, MemberMeetingMonth>();
+  for (const day of [...byDay.keys()].sort()) {
+    const month = day.slice(0, 7);
+    const entry = byMonth.get(month) ?? { month, days: [] };
+    const assignments = (byDay.get(day) ?? []).sort((a, b) => a.clubId.localeCompare(b.clubId) || a.cycleId.localeCompare(b.cycleId) || a.id.localeCompare(b.id));
+    entry.days.push({ day, assignments });
+    byMonth.set(month, entry);
+  }
+  return [...byMonth.values()];
 }
 
 export function scheduleByKit(data: Data, cycleId: string, clubIds: string[]): { kitId: string; assignments: Assignment[] }[] {
