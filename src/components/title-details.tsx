@@ -1,60 +1,127 @@
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Dimensions, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Kit, KitLabel, Title } from '../domain/model';
+import { colors, radius, shadow } from './design';
+import { useReducedMotion } from './motion';
 import { TitleCover } from './title-cover';
 import { titleDetailRows } from './title-details-rows';
-import { Action, Actions, Note } from './ui';
+
+const HIDDEN = Dimensions.get('window').height;
 
 export function TitleDetails({ title, kits, labels, onClose }: { title: Title; kits?: Kit[]; labels?: KitLabel[]; onClose: () => void }) {
-  return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-    <View style={styles.overlay}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Dismiss details" />
-      <ScrollView style={styles.sheet} contentContainerStyle={styles.panel} accessibilityLabel={`Details for ${title.name}`}>
-        <Details title={title} kits={kits} labels={labels} onClose={onClose} />
-      </ScrollView>
+  const insets = useSafeAreaInsets();
+  const reduced = useReducedMotion();
+  const [offset] = useState(() => new Animated.Value(reduced ? 0 : HIDDEN));
+  const closing = useRef(false);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (reduced) {
+      offset.setValue(0);
+      return;
+    }
+    const animation = Animated.spring(offset, { toValue: 0, damping: 24, stiffness: 220, mass: 0.9, useNativeDriver: true });
+    animation.start();
+    return () => animation.stop();
+  }, [reduced, offset]);
+
+  const [dismiss] = useState(() => () => {
+    if (closing.current) return;
+    closing.current = true;
+    Animated.timing(offset, { toValue: HIDDEN, duration: 200, useNativeDriver: true }).start(() => onCloseRef.current());
+  });
+  // Dragging the handle down closes the sheet; a short drag springs back.
+  const [handlePan] = useState(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onPanResponderMove: (_event, state) => { if (state.dy > 0) offset.setValue(state.dy); },
+    onPanResponderRelease: (_event, state) => {
+      if (state.dy > 90 || state.vy > 0.8) dismiss();
+      else Animated.spring(offset, { toValue: 0, useNativeDriver: true }).start();
+    },
+    onPanResponderTerminate: () => { Animated.spring(offset, { toValue: 0, useNativeDriver: true }).start(); },
+  }));
+
+  const labelById = new Map((labels ?? []).map((label) => [label.id, label]));
+  const rows = titleDetailRows(title).filter(([label]) => label !== 'Author');
+  const backdrop = offset.interpolate({ inputRange: [0, HIDDEN], outputRange: [1, 0], extrapolate: 'clamp' });
+
+  return <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={dismiss}>
+    <View style={styles.root}>
+      <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: backdrop }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={dismiss} accessibilityLabel="Dismiss details" />
+      </Animated.View>
+      <Animated.View accessibilityViewIsModal accessibilityLabel={`Details for ${title.name}`} style={[styles.sheet, { transform: [{ translateY: offset }] }]}>
+        <View {...handlePan.panHandlers} style={styles.handleArea} accessibilityLabel="Drag down to close">
+          <View style={styles.handle} />
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close details" hitSlop={8} onPress={dismiss} style={styles.close}>
+          <Text style={styles.closeText}>×</Text>
+        </Pressable>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 20 + insets.bottom }]} showsVerticalScrollIndicator={false}>
+          <View style={styles.header}>
+            <View style={styles.cover}>
+              <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={styles.coverImage} />
+            </View>
+            <View style={styles.headerText}>
+              <Text style={styles.name}>{title.name}</Text>
+              {title.author ? <Text style={styles.author}>{title.author}</Text> : null}
+            </View>
+          </View>
+          {rows.length > 0 && <View style={styles.facts}>
+            {rows.map(([label, value]) => <View key={label} style={styles.fact}>
+              <Text style={styles.factLabel}>{label}</Text>
+              <Text style={styles.factValue}>{value}</Text>
+            </View>)}
+          </View>}
+          <Text style={styles.heading}>Description</Text>
+          <Text style={styles.synopsis}>{title.synopsis || 'No description stored for this title.'}</Text>
+          {kits && labels && <>
+            <Text style={styles.heading}>Kit labels</Text>
+            {kits.length === 0 ? <Text style={styles.muted}>No physical kits for this title.</Text> : kits.map((kit) => {
+              const names = kit.labelIds.map((id) => labelById.get(id)?.name).filter(Boolean) as string[];
+              return <View key={kit.id} style={styles.kit}>
+                <Text style={styles.kitName}>{kit.barcode} · {kit.branch}</Text>
+                <View style={styles.chips}>
+                  {names.length ? names.map((name) => <Text key={name} style={styles.chip}>{name}</Text>) : <Text style={styles.muted}>No labels</Text>}
+                </View>
+              </View>;
+            })}
+            <Text style={styles.muted}>Labels describe individual kits and do not reserve a kit or guarantee availability. Scheduling may assign any eligible kit for this title.</Text>
+          </>}
+        </ScrollView>
+      </Animated.View>
     </View>
   </Modal>;
 }
 
-function Details({ title, kits, labels, onClose }: { title: Title; kits?: Kit[]; labels?: KitLabel[]; onClose: () => void }) {
-  const labelById = new Map((labels ?? []).map((label) => [label.id, label]));
-  return <>
-    <View style={styles.header}>
-      <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={styles.cover} />
-      <View style={styles.headerText}>
-        <Text style={styles.name}>{title.name}</Text>
-        <Text style={styles.meta}>{title.author}</Text>
-      </View>
-    </View>
-    {titleDetailRows(title).map(([label, value]) => <Text key={label} style={styles.row}>
-      <Text style={styles.label}>{label}: </Text>{value}
-    </Text>)}
-    <Text style={styles.synopsisLabel}>Description</Text>
-    {title.synopsis
-      ? <Text style={styles.synopsis}>{title.synopsis}</Text>
-      : <Note>No description stored for this title.</Note>}
-    {kits && labels && <>
-      <Text style={styles.synopsisLabel}>Kit labels</Text>
-      {kits.length === 0 ? <Note>No physical kits for this title.</Note> : kits.map((kit) =>
-        <Note key={kit.id}>{kit.barcode} · {kit.branch}: {kit.labelIds.map((id) => labelById.get(id)?.name).filter(Boolean).join(', ') || 'No labels'}</Note>)}
-      <Note>Labels describe individual kits and do not reserve a kit or guarantee availability. Scheduling may assign any eligible kit for this title.</Note>
-    </>}
-    <Actions>
-      <Action title="Close details" onPress={onClose} />
-    </Actions>
-  </>;
-}
-
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(24, 58, 54, 0.45)', justifyContent: 'center', padding: 16 },
-  sheet: { maxHeight: '85%', backgroundColor: '#fffefa', borderWidth: 1, borderColor: '#d6ddd9', borderRadius: 4 },
-  panel: { gap: 8, padding: 14 },
-  header: { flexDirection: 'row', gap: 12, alignItems: 'center' },
-  cover: { width: 64, height: 96, borderRadius: 3, marginRight: 0 },
+  root: { flex: 1, justifyContent: 'flex-end' },
+  backdrop: { backgroundColor: 'rgba(24, 58, 54, 0.5)' },
+  sheet: { maxHeight: '88%', width: '100%', maxWidth: 640, alignSelf: 'center', backgroundColor: '#fffefa', borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, boxShadow: shadow.sheet },
+  handleArea: { height: 28, alignItems: 'center', justifyContent: 'center' },
+  handle: { width: 40, height: 5, borderRadius: 3, backgroundColor: '#c5d1cb' },
+  close: { position: 'absolute', top: 6, right: 12, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  closeText: { fontSize: 28, lineHeight: 30, color: colors.muted },
+  content: { paddingHorizontal: 20, gap: 8 },
+  header: { flexDirection: 'row', gap: 14, alignItems: 'center' },
+  cover: { width: 84, aspectRatio: 2 / 3, borderRadius: radius.media, overflow: 'hidden', backgroundColor: colors.coverBg },
+  coverImage: { width: '100%', height: '100%', borderRadius: 0, marginRight: 0 },
   headerText: { flex: 1, gap: 2 },
-  name: { fontSize: 17, fontWeight: '700', color: '#183a36' },
-  meta: { color: '#4b5b58' },
-  row: { color: '#183a36' },
-  label: { fontWeight: '600' },
-  synopsisLabel: { fontWeight: '600', color: '#183a36', marginTop: 4 },
-  synopsis: { color: '#183a36', lineHeight: 20 },
+  name: { fontSize: 20, fontWeight: '700', color: colors.ink },
+  author: { fontSize: 15, color: colors.muted },
+  facts: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 10, marginTop: 8 },
+  fact: { width: '50%', paddingRight: 8 },
+  factLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: '#65877b' },
+  factValue: { fontSize: 14, color: colors.ink },
+  heading: { marginTop: 12, fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: colors.accent },
+  synopsis: { color: colors.ink, lineHeight: 22 },
+  muted: { color: colors.muted, fontSize: 13, lineHeight: 19 },
+  kit: { gap: 4 },
+  kitName: { fontSize: 13, fontWeight: '600', color: colors.ink },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: { paddingHorizontal: 10, paddingVertical: 2, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.accentSoft, color: '#183f37', fontSize: 12 },
 });

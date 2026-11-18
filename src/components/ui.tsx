@@ -27,7 +27,7 @@ export function Page({ title, children, wide = false }: { title: string; childre
 }
 
 export function Card({ children, soft = false }: { children: React.ReactNode; soft?: boolean }) {
-  return <View style={[styles.card, soft && Platform.OS === 'web' && styles.softCard]}>{children}</View>;
+  return <View style={[styles.card, soft && styles.softCard]}>{children}</View>;
 }
 
 export function Label({ children }: { children: React.ReactNode }) {

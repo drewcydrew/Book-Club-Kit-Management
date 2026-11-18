@@ -1,138 +1,86 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { PanResponder, Platform, StyleSheet, Text, View } from 'react-native';
-import { Action, Actions, Note } from './ui';
-import { TitleCover } from './title-cover';
-import { RANKING_ROW_GAP, rankingDragTarget } from './ranking-layout';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { colors } from './design';
+import { useGalleryColumns } from './gallery-columns';
+import { animateLayout, useReducedMotion } from './motion';
 import { PreferenceSurface } from './preference-surface';
-import type { RankedItem, RankingListProps } from './ranking-types';
+import type { RankingListProps } from './ranking-types';
+import { TitleCover } from './title-cover';
 
-type Drag = { from: number; to: number; dy: number; height: number };
-type RowLayout = { height: number };
-
+// Native ranking: tap a card to select it, then use the pills over its cover to move, inspect or remove it.
 export function RankingList({ items, disabled, onReorder, onRemove, onShowDetails }: RankingListProps) {
-  const [drag, setDrag] = useState<Drag | null>(null);
-  const layouts = useRef<Record<string, RowLayout>>({});
-  const dragOrder = useRef<string[]>([]);
-  const currentItems = useRef(items);
-  const currentDisabled = useRef(disabled);
-  useLayoutEffect(() => {
-    currentItems.current = items;
-    currentDisabled.current = disabled;
-  }, [items, disabled]);
+  const columns = useGalleryColumns();
+  const reduced = useReducedMotion();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = items.some((item) => item.id === selectedId) ? selectedId : null;
 
-  function targetFor(index: number, dy: number): number {
-    return rankingDragTarget(items.map((item) => layouts.current[item.id]?.height), index, dy);
+  function move(from: number, to: number) {
+    animateLayout(reduced);
+    onReorder(from, to);
   }
 
-  function offsetFor(index: number): number {
-    if (!drag) return 0;
-    if (index === drag.from) return drag.dy;
-    if (drag.from < drag.to && index > drag.from && index <= drag.to) return -(drag.height + RANKING_ROW_GAP);
-    if (drag.to < drag.from && index >= drag.to && index < drag.from) return drag.height + RANKING_ROW_GAP;
-    return 0;
-  }
-
-  return <View style={styles.list}>
-    {items.map((item, index) => <RankRow
-      key={item.id} item={item} index={index} disabled={disabled}
-      offset={offsetFor(index)} active={drag?.from === index}
-      canMoveUp={index > 0} canMoveDown={index < items.length - 1}
-      onLayout={(layout) => { layouts.current[item.id] = layout; }}
-      onDragStart={() => {
-        dragOrder.current = items.map((value) => value.id);
-        setDrag({ from: index, to: index, dy: 0, height: layouts.current[item.id]?.height ?? 0 });
-      }}
-      onDragMove={(dy) => setDrag((current) => current && current.from === index
-        ? { ...current, dy, to: targetFor(index, dy) } : current)}
-      onDragEnd={(dy) => {
-        setDrag(null);
-        const currentOrder = currentItems.current.map((value) => value.id);
-        if (currentDisabled.current || currentOrder.length !== dragOrder.current.length || currentOrder.some((id, i) => id !== dragOrder.current[i])) return;
-        const to = targetFor(index, dy);
-        if (to !== index) onReorder(index, to);
-      }}
-      onDragCancel={() => setDrag(null)}
-      onMoveUp={() => onReorder(index, index - 1)} onMoveDown={() => onReorder(index, index + 1)}
-      onRemove={() => onRemove(item.id)} onShowDetails={() => onShowDetails(item.id)} />)}
+  return <View style={styles.grid}>
+    {items.map((item, index) => {
+      const isSelected = item.id === selected;
+      return <View key={item.id} style={[styles.cell, { width: `${100 / columns}%` }]}>
+        <PreferenceSurface kind="rank" active={isSelected} enterDelay={Math.min(index, 10) * 30} style={styles.card}
+          media={<View style={styles.coverWrap}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`${item.label}, choice ${index + 1}`}
+              accessibilityHint={isSelected ? 'Hide controls' : 'Show controls to reorder, view details or remove'}
+              accessibilityState={{ selected: isSelected }} onPress={() => setSelectedId(isSelected ? null : item.id)}
+              style={StyleSheet.absoluteFill}>
+              <TitleCover coverUrl={item.coverUrl} isbn={item.isbn} style={styles.cover} />
+            </Pressable>
+            <View pointerEvents="none" style={[styles.badge, index < 3 && styles.topBadge]}>
+              <Text style={[styles.badgeText, index < 3 && styles.topBadgeText]}>{index + 1}</Text>
+            </View>
+            {isSelected && <View style={styles.controls}>
+              <View style={styles.controlRow}>
+                <Pill label="←" accessibilityLabel={`Move ${item.label} earlier`} disabled={disabled || index === 0} onPress={() => move(index, index - 1)} />
+                <Pill label="→" accessibilityLabel={`Move ${item.label} later`} disabled={disabled || index === items.length - 1} onPress={() => move(index, index + 1)} />
+              </View>
+              <View style={styles.controlRow}>
+                <Pill label="Details" accessibilityLabel={`Show details for ${item.label}`} onPress={() => onShowDetails(item.id)} />
+                <Pill label="Remove" accessibilityLabel={`Remove ${item.label} from selections`} disabled={disabled} onPress={() => { animateLayout(reduced); onRemove(item.id); }} />
+              </View>
+            </View>}
+          </View>}>
+          <Text style={styles.name} numberOfLines={2}>{item.label}</Text>
+          {item.author ? <Text style={styles.author} numberOfLines={1}>{item.author}</Text> : null}
+          <Text style={styles.labels} numberOfLines={2}>{item.kitLabels}</Text>
+          {item.clubRead && <Text style={styles.history}>Already read by your club</Text>}
+        </PreferenceSurface>
+      </View>;
+    })}
   </View>;
 }
 
-function RankRow({ item, index, disabled, offset, active, canMoveUp, canMoveDown, onLayout, onDragStart, onDragMove, onDragEnd, onDragCancel, onMoveUp, onMoveDown, onRemove, onShowDetails }: {
-  item: RankedItem; index: number; disabled: boolean; offset: number; active: boolean; canMoveUp: boolean; canMoveDown: boolean;
-  onLayout: (layout: RowLayout) => void; onDragStart: () => void; onDragMove: (dy: number) => void;
-  onDragEnd: (dy: number) => void; onDragCancel: () => void; onMoveUp: () => void; onMoveDown: () => void;
-  onRemove: () => void; onShowDetails: () => void;
-}) {
-  const handle = PanResponder.create({
-    onStartShouldSetPanResponder: () => !disabled,
-    onMoveShouldSetPanResponder: () => !disabled,
-    onPanResponderGrant: onDragStart,
-    onPanResponderMove: (_event, state) => onDragMove(state.dy),
-    onPanResponderRelease: (_event, state) => onDragEnd(state.dy),
-    onPanResponderTerminate: onDragCancel,
-  });
-  const stopWebDrag = useRef<(() => void) | null>(null);
-  useEffect(() => () => stopWebDrag.current?.(), []);
-  const webHandle = {
-    onPointerDown: (event: { nativeEvent: unknown }) => {
-      if (disabled) return;
-      const startY = (event.nativeEvent as { clientY: number }).clientY;
-      const move = (moveEvent: PointerEvent) => onDragMove(moveEvent.clientY - startY);
-      const finish = (endEvent: PointerEvent) => { stop(); onDragEnd(endEvent.clientY - startY); };
-      const cancel = () => { stop(); onDragCancel(); };
-      function stop() {
-        window.removeEventListener('pointermove', move);
-        window.removeEventListener('pointerup', finish);
-        window.removeEventListener('pointercancel', cancel);
-        stopWebDrag.current = null;
-      }
-      stopWebDrag.current = stop;
-      onDragStart();
-      window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', finish);
-      window.addEventListener('pointercancel', cancel);
-    },
-  };
-  const handleProps = Platform.OS === 'web' ? webHandle : handle.panHandlers;
-  const dragHandle = <View {...handleProps} accessibilityLabel={`Drag ${item.label} to reorder`} style={[styles.handle, disabled && styles.handleDisabled, Platform.OS === 'web' && styles.webHandle]}>
-    <Text style={styles.handleText}>⠿</Text>
-  </View>;
-  return <PreferenceSurface kind="rank" onLayout={(event) => onLayout({ height: event.nativeEvent.layout.height })}
-    style={[styles.row, offset !== 0 && { transform: [{ translateY: offset }] }, active && styles.activeRow]}
-    actions={<Actions>
-      {Platform.OS === 'web' && dragHandle}
-      <Action title="Details" accessibilityLabel={`Show details for ${item.label}`} onPress={onShowDetails} />
-      <Action title="↑" accessibilityLabel={`Move ${item.label} up`} disabled={disabled || !canMoveUp} onPress={onMoveUp} />
-      <Action title="↓" accessibilityLabel={`Move ${item.label} down`} disabled={disabled || !canMoveDown} onPress={onMoveDown} />
-      <Action title="Remove" accessibilityLabel={`Remove ${item.label} from selections`} disabled={disabled} onPress={onRemove} />
-    </Actions>}>
-    <View style={styles.heading}>
-      {Platform.OS !== 'web' && dragHandle}
-      <Text style={styles.rank}>{index + 1}.</Text>
-      <View style={styles.coverSlot}><TitleCover coverUrl={item.coverUrl} isbn={item.isbn} style={styles.thumb} /></View>
-      <View style={styles.description}>
-        <Text style={styles.title}>{item.label}</Text>
-        {item.author ? <Note>{item.author}</Note> : null}
-        <Note>{item.kitLabels}</Note>
-        {item.clubRead && <Text style={styles.history}>Already read by your club</Text>}
-      </View>
-    </View>
-  </PreferenceSurface>;
+function Pill({ label, accessibilityLabel, disabled, onPress }: { label: string; accessibilityLabel: string; disabled?: boolean; onPress: () => void }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{ disabled: !!disabled }}
+    disabled={disabled} hitSlop={4} onPress={onPress}
+    style={({ pressed }) => [styles.pill, pressed && styles.pillPressed, disabled && styles.pillDisabled]}>
+    <Text style={styles.pillText}>{label}</Text>
+  </Pressable>;
 }
 
 const styles = StyleSheet.create({
-  list: { gap: RANKING_ROW_GAP },
-  row: { gap: 8, padding: 10, backgroundColor: '#f5faf5', borderWidth: 1, borderColor: '#cadccf', borderRadius: 6 },
-  activeRow: { zIndex: 10, backgroundColor: '#e4f2e7', elevation: 4 },
-  heading: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  handle: { minWidth: 34, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
-  handleDisabled: { opacity: 0.4 },
-  webHandle: { cursor: 'grab', userSelect: 'none', touchAction: 'none' } as object,
-  handleText: { fontSize: 20, color: '#245e51' },
-  rank: { minWidth: 24, paddingTop: 10, fontWeight: '700', color: '#183a36' },
-  coverSlot: { width: 42, minHeight: 60 },
-  thumb: { width: 42, height: 60, borderRadius: 3, marginRight: 0 },
-  description: { flex: 1, minWidth: 0, gap: 3 },
-  title: { fontWeight: '700', color: '#183a36', fontSize: 16 },
-  history: { color: '#7a4b00', fontWeight: '600' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', margin: -4 },
+  cell: { padding: 4 },
+  card: { flex: 1 },
+  coverWrap: { width: '100%', aspectRatio: 2 / 3 },
+  cover: { width: '100%', height: '100%', borderRadius: 0, marginRight: 0 },
+  badge: { position: 'absolute', top: 8, left: 8, minWidth: 26, height: 26, paddingHorizontal: 7, borderRadius: 13, backgroundColor: 'rgba(255, 255, 255, 0.92)', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 4px rgba(0, 0, 0, 0.3)' },
+  topBadge: { backgroundColor: colors.accent },
+  badgeText: { fontSize: 13, fontWeight: '700', color: colors.ink },
+  topBadgeText: { color: '#fff' },
+  controls: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 8, gap: 6 },
+  controlRow: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  pill: { minWidth: 44, minHeight: 36, paddingHorizontal: 10, borderRadius: 18, backgroundColor: 'rgba(255, 255, 255, 0.85)', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 4px rgba(0, 0, 0, 0.25)' },
+  pillPressed: { backgroundColor: 'rgba(255, 255, 255, 0.98)' },
+  pillDisabled: { opacity: 0.45 },
+  pillText: { color: colors.ink, fontWeight: '600', fontSize: 13 },
+  name: { fontWeight: '700', color: colors.ink, fontSize: 15 },
+  author: { color: colors.muted, fontSize: 13 },
+  labels: { color: colors.muted, fontSize: 12 },
+  history: { color: colors.warning, fontWeight: '600', fontSize: 12 },
 });

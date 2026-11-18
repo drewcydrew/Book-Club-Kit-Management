@@ -203,7 +203,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
         <Label>Your ranked choices · {selectedCount}</Label>
         <Note>{Platform.OS === "web"
           ? "Drag a cover, or use the ← → buttons, to rank your choices. Your first choice is top-left."
-          : "Drag ⠿ or use the arrows to rank your choices. Your first choice is at the top."}</Note>
+          : "Tap a cover to select it, then use ← → to rank your choices. Your first choice is top-left."}</Note>
         <Note>Labels describe individual kits and may vary. Details show the synopsis and each kit’s labels.</Note>
         {activeUndo && (
           <Toast>
