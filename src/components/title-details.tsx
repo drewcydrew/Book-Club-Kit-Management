@@ -1,5 +1,5 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import type { Title } from '../domain/model';
+import type { Kit, KitLabel, Title } from '../domain/model';
 import { TitleCover } from './title-cover';
 import { Action, Actions, Note } from './ui';
 
@@ -13,7 +13,7 @@ function rows(title: Title): [string, string][] {
     ['Date published', title.datePublished],
     ['Binding', title.binding],
     ['Language', title.language],
-    ['Genres', title.genres],
+    ['Source genres', title.genres],
     ['Large print', flag(title.largePrint)],
     ['Audio', flag(title.audio)],
   ];
@@ -22,18 +22,19 @@ function rows(title: Title): [string, string][] {
     .map(([label, value]) => [label, String(value)]);
 }
 
-export function TitleDetails({ title, onClose }: { title: Title; onClose: () => void }) {
+export function TitleDetails({ title, kits, labels, onClose }: { title: Title; kits?: Kit[]; labels?: KitLabel[]; onClose: () => void }) {
   return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
     <View style={styles.overlay}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Dismiss details" />
       <ScrollView style={styles.sheet} contentContainerStyle={styles.panel} accessibilityLabel={`Details for ${title.name}`}>
-        <Details title={title} onClose={onClose} />
+        <Details title={title} kits={kits} labels={labels} onClose={onClose} />
       </ScrollView>
     </View>
   </Modal>;
 }
 
-function Details({ title, onClose }: { title: Title; onClose: () => void }) {
+function Details({ title, kits, labels, onClose }: { title: Title; kits?: Kit[]; labels?: KitLabel[]; onClose: () => void }) {
+  const labelById = new Map((labels ?? []).map((label) => [label.id, label]));
   return <>
     <View style={styles.header}>
       <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={styles.cover} />
@@ -49,6 +50,12 @@ function Details({ title, onClose }: { title: Title; onClose: () => void }) {
     {title.synopsis
       ? <Text style={styles.synopsis}>{title.synopsis}</Text>
       : <Note>No description stored for this title.</Note>}
+    {kits && labels && <>
+      <Text style={styles.synopsisLabel}>Kit labels</Text>
+      {kits.length === 0 ? <Note>No physical kits for this title.</Note> : kits.map((kit) =>
+        <Note key={kit.id}>{kit.barcode} · {kit.branch}: {kit.labelIds.map((id) => labelById.get(id)?.name).filter(Boolean).join(', ') || 'No labels'}</Note>)}
+      <Note>Labels describe individual kits and do not reserve a kit or guarantee availability. Scheduling may assign any eligible kit for this title.</Note>
+    </>}
     <Actions>
       <Action title="Close details" onPress={onClose} />
     </Actions>

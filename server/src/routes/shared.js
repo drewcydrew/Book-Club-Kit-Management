@@ -11,6 +11,7 @@ router.get('/shared', async (_req,res) => {
     const people = (await c.query('SELECT id,name,role,revision FROM people ORDER BY id')).rows;
     const titles = (await c.query(`SELECT ${titleColumns} FROM titles ORDER BY id`)).rows;
     const kits = (await c.query(`${kitSelect} ORDER BY k.id`)).rows;
+    const kitLabels = (await c.query('SELECT id,category,name,revision FROM kit_labels ORDER BY category,lower(name),id')).rows;
     const clubs = (await c.query(`SELECT ${clubColumns} FROM clubs ORDER BY id`)).rows;
     const links = (await c.query(linksSelect)).rows;
     const memberships = (await c.query('SELECT person_id AS "personId",club_id AS "clubId",leader FROM memberships ORDER BY club_id,person_id')).rows;
@@ -31,7 +32,7 @@ router.get('/shared', async (_req,res) => {
     const historyMap = new Map(); for (const row of historyRows) { if (!historyMap.has(row.club_id)) historyMap.set(row.club_id,[]); historyMap.get(row.club_id).push(row.title_id); }
     const history = [...historyMap].map(([clubId,titles]) => ({ clubId,titles }));
     await c.query('COMMIT');
-    res.json({ people,titles,kits,clubs,links,memberships,membershipRevisions,cycles,ballots,assignments,library,events,history });
+    res.json({ people,titles,kits,kitLabels,clubs,links,memberships,membershipRevisions,cycles,ballots,assignments,library,events,history });
   } catch (e) { await c.query('ROLLBACK'); throw e; }
   finally { c.release(); }
 });

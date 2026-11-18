@@ -117,6 +117,12 @@ Reopening a published cycle removes its schedule from member views. Active-loan 
 
 In Catalog & kits, staff and admins can use **Add title** or **Add kit**, or an existing record's edit button, to open a dialog. Canceling a changed form asks before discarding it. If a save's outcome is uncertain or conflicts with another edit, refresh and inspect the shared catalog before reopening the form.
 
+The catalog lists titles first; search titles, authors, ISBNs, kit or copy barcodes, and controlled kit labels. Expand a title to see its kits. Staff can manage shared genre and book-club vibe lists and assign labels separately to each physical kit. These lists start empty and are independent of ISBNdb's source genres. Deleting a label requires confirmation and removes it from the affected kits, not the kits themselves.
+
+On Preferences, search kit labels or filter by genres and vibes. A title matches selected filters only when one of its kits has every selected label, regardless of that kit's current status. Labels are for discovery: a ballot still selects a title, not a specific kit, and scheduling may assign another eligible kit. A match does not guarantee availability.
+
+Before deploying this feature, back up the intended database and run `npm run migrate` in `server` to apply `008_kit_labels.sql`, then deploy the updated API and app. Existing titles, imported genres and kits are preserved; kits initially have no controlled labels. Older clients that omit labels when saving a kit preserve its assignments, but the updated app requires the updated API.
+
 The last administrator cannot be deleted or demoted. Memberships and users referenced by saved ballots cannot be removed; clearing individual marks does not remove a ballot record.
 
 Increasing the turnaround buffer is rejected if it would make existing assignments overlap. Existing assignments retain their original loan dates when the loan length changes.

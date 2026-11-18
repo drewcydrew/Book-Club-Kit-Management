@@ -27,12 +27,13 @@ export function seed(): Data {
       { personId: 'p6', clubId: 'c2', leader: false },
     ],
     titles,
+    kitLabels: [],
     kits: [
-      { id: 'k1', titleId: 't1', barcode: 'KIT-101', branch: 'Central', copies: 10, extras: 'Discussion guide', components: [], status: 'available' },
-      { id: 'k2', titleId: 't1', barcode: 'KIT-102', branch: 'West', copies: 10, extras: 'Tote', components: [], status: 'available' },
-      { id: 'k3', titleId: 't2', barcode: 'KIT-103', branch: 'Central', copies: 8, extras: '', components: [], status: 'available' },
-      { id: 'k4', titleId: 't3', barcode: 'KIT-104', branch: 'West', copies: 12, extras: '', components: [], status: 'available' },
-      { id: 'k5', titleId: 't4', barcode: 'KIT-105', branch: 'Central', copies: 10, extras: '', components: [], status: 'available' },
+      { id: 'k1', titleId: 't1', barcode: 'KIT-101', branch: 'Central', copies: 10, extras: 'Discussion guide', components: [], status: 'available', labelIds: [] },
+      { id: 'k2', titleId: 't1', barcode: 'KIT-102', branch: 'West', copies: 10, extras: 'Tote', components: [], status: 'available', labelIds: [] },
+      { id: 'k3', titleId: 't2', barcode: 'KIT-103', branch: 'Central', copies: 8, extras: '', components: [], status: 'available', labelIds: [] },
+      { id: 'k4', titleId: 't3', barcode: 'KIT-104', branch: 'West', copies: 12, extras: '', components: [], status: 'available', labelIds: [] },
+      { id: 'k5', titleId: 't4', barcode: 'KIT-105', branch: 'Central', copies: 10, extras: '', components: [], status: 'available', labelIds: [] },
     ],
     clubs: [
       { id: 'c1', name: 'Harbour Readers', branch: 'Central', leaderId: 'p3', size: 8, cadence: 'Monthly', pickup: 'pickup', address: '', history: ['t4'], revision: 1, membershipRevision: 1 },

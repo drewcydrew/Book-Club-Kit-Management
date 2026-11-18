@@ -26,6 +26,7 @@ export function combineData(local: LocalData, shared: SharedData): Data {
     memberships: shared.memberships,
     titles: shared.titles,
     kits: shared.kits,
+    kitLabels: shared.kitLabels,
     clubs,
     cycles: shared.cycles,
     ballots: shared.ballots,

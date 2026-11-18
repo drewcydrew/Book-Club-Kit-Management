@@ -43,6 +43,14 @@ export interface Kit {
   extras: string;
   components: string[];
   status: KitStatus;
+  labelIds: string[];
+}
+
+export interface KitLabel {
+  id: string;
+  category: 'genre' | 'vibe';
+  name: string;
+  revision: number;
 }
 
 export interface Club {
@@ -124,6 +132,7 @@ export interface Data {
   memberships: Membership[];
   titles: Title[];
   kits: Kit[];
+  kitLabels: KitLabel[];
   clubs: Club[];
   cycles: Cycle[];
   ballots: Ballot[];

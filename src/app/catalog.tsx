@@ -8,10 +8,9 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from "react-native";
-import { KitPanel } from "../components/kit-panel";
+import { KitLabelManager } from "../components/kit-label-manager";
 import { useNavigationGuard } from "../components/navigation-guard";
 import {
   PendingStatus,
@@ -60,6 +59,7 @@ const blankKit = (branch: string): Kit => ({
   extras: "",
   components: [],
   status: "available",
+  labelIds: [],
 });
 
 type TitleDraft = {
@@ -132,8 +132,10 @@ function titleSearchMessage(status: TitleSearchStatus, count: number): string {
 // Fills only empty fields so that text the user has already typed is never replaced.
 function applyLookup(draft: TitleDraft, found: IsbnLookup): TitleDraft {
   const { value } = draft;
-  const fillEmpty = (current: string | null | undefined, fromLookup: string | null) =>
-    current?.trim() ? current : (fromLookup ?? null);
+  const fillEmpty = (
+    current: string | null | undefined,
+    fromLookup: string | null,
+  ) => (current?.trim() ? current : (fromLookup ?? null));
   return {
     ...draft,
     pages:
@@ -159,11 +161,7 @@ export default function Catalog() {
   const { data } = useStore();
   const shared = useShared();
   const navigationGuard = useNavigationGuard();
-  const [kitQuery, setKitQuery] = useState("");
-  const [titleQuery, setTitleQuery] = useState("");
-  const [view, setView] = useState<"kits" | "titles">("kits");
-  const { width } = useWindowDimensions();
-  const wide = width >= 900;
+  const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [initial, setInitial] = useState("");
   const [pendingIsbn, setPendingIsbn] = useState("");
@@ -305,10 +303,17 @@ export default function Catalog() {
   // Uses a functional update because a title search resolves after the user may have edited other fields.
   function selectTitleIsbn(isbn: string) {
     const trimmed = isbn.trim();
-    if (!trimmed || (draft?.kind === "title" && draft.value.isbn.trim() === trimmed)) return;
+    if (
+      !trimmed ||
+      (draft?.kind === "title" && draft.value.isbn.trim() === trimmed)
+    )
+      return;
     setDraft((current) =>
       current?.kind === "title"
-        ? { ...current, value: { ...current.value, isbn: trimmed, coverUrl: null } }
+        ? {
+            ...current,
+            value: { ...current.value, isbn: trimmed, coverUrl: null },
+          }
         : current,
     );
     setPendingIsbn(trimmed);
@@ -500,8 +505,10 @@ export default function Catalog() {
   function addTitle() {
     open(titleDraft(blankTitle(), null));
   }
-  function addKit() {
-    open(kitDraft(blankKit(data.library.branches[0] ?? ""), null));
+  function addKit(titleId = "") {
+    open(
+      kitDraft({ ...blankKit(data.library.branches[0] ?? ""), titleId }, null),
+    );
   }
   function editTitle(id: string) {
     const record = shared.data.titles.find((title) => title.id === id);
@@ -542,32 +549,23 @@ export default function Catalog() {
       });
   }
 
-  const kitPanel = (
-    <KitPanel
-      kits={data.kits}
-      titles={data.titles}
-      query={kitQuery}
-      onQueryChange={setKitQuery}
-      staff={staff}
-      saving={shared.saving}
-      pendingFor={(id) => pendingFor("kits", id)}
-      onAdd={addKit}
-      onEdit={(kit) => editKit(kit.id)}
-      onDelete={(kit) => deleteKit(kit.id)}
-    />
-  );
   const titlePanel = (
     <TitlePanel
       titles={data.titles}
       kits={data.kits}
-      query={titleQuery}
-      onQueryChange={setTitleQuery}
+      labels={data.kitLabels}
+      query={query}
+      onQueryChange={setQuery}
       staff={staff}
       saving={shared.saving}
-      pendingFor={(id) => pendingFor("titles", id)}
-      onAdd={addTitle}
+      pendingTitleFor={(id) => pendingFor("titles", id)}
+      pendingKitFor={(id) => pendingFor("kits", id)}
+      onAddTitle={addTitle}
+      onAddKit={addKit}
       onEdit={(title) => editTitle(title.id)}
       onDelete={(title) => deleteTitle(title.id)}
+      onEditKit={(kit) => editKit(kit.id)}
+      onDeleteKit={(kit) => deleteKit(kit.id)}
     />
   );
 
@@ -585,28 +583,8 @@ export default function Catalog() {
         Titles, kits, kit status and circulation are shared across devices.
       </Note>
       {message ? <Text>{message}</Text> : null}
-      {wide ? (
-        <View style={layoutStyles.columns}>
-          <View style={layoutStyles.kitColumn}>{kitPanel}</View>
-          <View style={layoutStyles.titleColumn}>{titlePanel}</View>
-        </View>
-      ) : (
-        <>
-          <Actions>
-            <Action
-              selected={view === "kits"}
-              title="Kits"
-              onPress={() => setView("kits")}
-            />
-            <Action
-              selected={view === "titles"}
-              title="Titles"
-              onPress={() => setView("titles")}
-            />
-          </Actions>
-          {view === "kits" ? kitPanel : titlePanel}
-        </>
-      )}
+      {staff && <KitLabelManager labels={data.kitLabels} />}
+      {titlePanel}
       {draft && (
         <Modal
           transparent
@@ -691,15 +669,23 @@ export default function Catalog() {
                               )}
                             </Note>
                             {titleSearch.results.map((result) => {
-                              const year = result.datePublished?.match(/^\d{4}/)?.[0];
-                              const label = [result.title, result.author, year, result.isbn]
+                              const year =
+                                result.datePublished?.match(/^\d{4}/)?.[0];
+                              const label = [
+                                result.title,
+                                result.author,
+                                year,
+                                result.isbn,
+                              ]
                                 .filter(Boolean)
                                 .join(" · ");
                               return (
                                 <Action
                                   key={result.isbn}
                                   title={label}
-                                  selected={draft.value.isbn.trim() === result.isbn}
+                                  selected={
+                                    draft.value.isbn.trim() === result.isbn
+                                  }
                                   onPress={() => selectTitleIsbn(result.isbn)}
                                 />
                               );
@@ -746,7 +732,7 @@ export default function Catalog() {
                         />
                         <Field
                           editable={!shared.saving}
-                          label="Genres"
+                          label="Source genres (e.g. ISBNdb)"
                           value={draft.value.genres}
                           onChangeText={(genres) =>
                             setDraft({
@@ -919,6 +905,60 @@ export default function Catalog() {
                             setDraft({ ...draft, components })
                           }
                         />
+                        <Note>
+                          Controlled labels apply only to this physical kit.
+                          Manage the shared lists on the catalog page.
+                        </Note>
+                        {(["genre", "vibe"] as const).map((category) => (
+                          <View key={category} style={{ gap: 6 }}>
+                            <Label>
+                              {category === "genre"
+                                ? "Kit genres"
+                                : "Book-club vibes"}
+                            </Label>
+                            {data.kitLabels.filter(
+                              (label) => label.category === category,
+                            ).length === 0 ? (
+                              <Note>No labels in this list yet.</Note>
+                            ) : (
+                              <Actions>
+                                {data.kitLabels
+                                  .filter(
+                                    (label) => label.category === category,
+                                  )
+                                  .map((label) => (
+                                    <Action
+                                      key={label.id}
+                                      title={label.name}
+                                      selected={draft.value.labelIds.includes(
+                                        label.id,
+                                      )}
+                                      disabled={shared.saving}
+                                      onPress={() =>
+                                        setDraft({
+                                          ...draft,
+                                          value: {
+                                            ...draft.value,
+                                            labelIds:
+                                              draft.value.labelIds.includes(
+                                                label.id,
+                                              )
+                                                ? draft.value.labelIds.filter(
+                                                    (id) => id !== label.id,
+                                                  )
+                                                : [
+                                                    ...draft.value.labelIds,
+                                                    label.id,
+                                                  ],
+                                          },
+                                        })
+                                      }
+                                    />
+                                  ))}
+                              </Actions>
+                            )}
+                          </View>
+                        ))}
                       </>
                     )}
                     {formError ? (
@@ -1024,10 +1064,4 @@ const modalStyles = StyleSheet.create({
   content: { padding: 20, gap: 12 },
   preview: { width: 96, height: 144, borderRadius: 4, alignSelf: "flex-start" },
   error: { color: "#a22525", fontWeight: "600" },
-});
-
-const layoutStyles = StyleSheet.create({
-  columns: { flexDirection: "row", gap: 16, alignItems: "flex-start" },
-  kitColumn: { flex: 3, minWidth: 0 },
-  titleColumn: { flex: 2, minWidth: 0 },
 });

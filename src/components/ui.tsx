@@ -13,6 +13,7 @@ export function Page({ title, children, wide = false }: { title: string; childre
     data.memberships.some((membership) => !data.people.some((person) => person.id === membership.personId) || !data.clubs.some((club) => club.id === membership.clubId)) ||
     data.cycles.some((cycle) => cycle.slots.some((slot) => !data.clubs.some((club) => club.id === slot.clubId))) ||
     data.assignments.some((assignment) => !data.clubs.some((club) => club.id === assignment.clubId) || !data.kits.some((kit) => kit.id === assignment.kitId)) ||
+    data.kits.some((kit) => kit.labelIds.some((labelId) => !data.kitLabels.some((label) => label.id === labelId))) ||
     data.ballots.some((ballot) => !data.clubs.some((club) => club.id === ballot.clubId) || ballot.ranking.some((id) => !data.titles.some((title) => title.id === id))) ||
     data.events.some((event) => !data.kits.some((kit) => kit.id === event.kitId));
   return <ScrollView contentContainerStyle={[styles.page, wide && styles.widePage]} keyboardShouldPersistTaps="handled">

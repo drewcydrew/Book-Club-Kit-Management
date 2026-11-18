@@ -13,7 +13,21 @@ function validate(body) {
   const barcode = text(b.barcode, 'barcode', true, 200);
   const components = b.components.map((value) => text(value, 'component barcode', true, 200));
   if (new Set([barcode, ...components].map((value) => value.toLowerCase())).size !== components.length + 1) throw new HttpError(409, 'Kit and copy barcodes must be unique.');
-  return { titleId: text(b.titleId, 'titleId', true, 200), branch: text(b.branch, 'branch', true, 200), copies, extras: text(b.extras, 'extras'), barcode, components };
+  let labelIds;
+  if (b.labelIds !== undefined) {
+    if (!Array.isArray(b.labelIds) || b.labelIds.length > 1000) throw new HttpError(400, 'labelIds is invalid.');
+    labelIds = b.labelIds.map((value) => text(value, 'label ID', true, 200));
+    if (new Set(labelIds).size !== labelIds.length) throw new HttpError(400, 'Duplicate labels are not allowed.');
+  }
+  return { titleId: text(b.titleId, 'titleId', true, 200), branch: text(b.branch, 'branch', true, 200), copies, extras: text(b.extras, 'extras'), barcode, components, labelIds };
+}
+
+async function labels(client, id, labelIds) {
+  if (labelIds === undefined) return;
+  const found = await client.query('SELECT id FROM kit_labels WHERE id=ANY($1::text[])', [labelIds]);
+  if (found.rowCount !== labelIds.length) throw new HttpError(409, 'A selected label is no longer available. Refresh and retry.');
+  await client.query('DELETE FROM kit_label_assignments WHERE kit_id=$1', [id]);
+  for (const labelId of labelIds) await client.query('INSERT INTO kit_label_assignments(kit_id,label_id) VALUES($1,$2)', [id, labelId]);
 }
 
 async function identifiers(client, id, kit) {
@@ -41,6 +55,7 @@ router.post('/', async (req, res) => {
     if (!title.rowCount) throw new HttpError(404, 'Title not found.');
     await client.query('INSERT INTO kits(id,title_id,branch,copies,extras) VALUES($1,$2,$3,$4,$5)', [id, kit.titleId, kit.branch, kit.copies, kit.extras]);
     await identifiers(client, id, kit);
+    await labels(client, id, kit.labelIds);
     const result = await client.query(`${select} WHERE k.id=$1`, [id]);
     await client.query('COMMIT');
     res.status(201).json(result.rows[0]);
@@ -68,6 +83,7 @@ router.put('/:id', async (req, res) => {
     if (!updated.rowCount) await checkUpdated(client, 'kits', req.params.id);
     await client.query('DELETE FROM kit_identifiers WHERE kit_id=$1', [req.params.id]);
     await identifiers(client, req.params.id, kit);
+    await labels(client, req.params.id, kit.labelIds);
     const result = await client.query(`${select} WHERE k.id=$1`, [req.params.id]);
     await client.query('COMMIT');
     res.json(result.rows[0]);

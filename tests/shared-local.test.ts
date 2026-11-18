@@ -19,6 +19,7 @@ function sharedData(): SharedData {
     history: demo.clubs.filter((club) => club.history.length > 0).map((club) => ({ clubId: club.id, titles: club.history })),
     titles: demo.titles.map((title) => ({ ...title, revision: 1 })),
     kits: demo.kits.map((kit) => ({ ...kit, revision: 1 })),
+    kitLabels: demo.kitLabels,
     clubs: demo.clubs.map(({ leaderId: _leaderId, history: _history, membershipRevision: _membershipRevision, ...club }) => club),
     links: [],
   };
@@ -44,7 +45,7 @@ test('shared records never fall back to local fixtures when the server is empty'
   const empty: SharedData = {
     people: [], memberships: [], membershipRevisions: [], cycles: [], ballots: [], assignments: [],
     library: { name: 'Demo Library', branches: [], loanDays: 28, bufferDays: 3, revision: 0 },
-    events: [], history: [], titles: [], kits: [], clubs: [], links: [],
+    events: [], history: [], titles: [], kits: [], kitLabels: [], clubs: [], links: [],
   };
   const data = combineData(initialLocalData(), empty);
   assert.deepEqual(data.people, []);

@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const { randomBytes } = require('node:crypto');
 const { once } = require('node:events');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 const test = require('node:test');
 const { Pool } = require('pg');
 
@@ -47,10 +49,44 @@ test('shared records persist, enforce constraints and reject stale edits', { ski
   const titleId = created.json.id;
   const kitBody = { titleId, barcode: 'unique-kit', branch: 'Central', copies: 2, extras: '', components: ['copy-one'] };
   assert.equal((await request('/api/kits', 'POST', { ...kitBody, titleId: 'missing' })).status, 404);
-  const kit = await request('/api/kits', 'POST', kitBody);
+  let kit = await request('/api/kits', 'POST', kitBody);
   assert.equal(kit.status, 201);
   assert.equal((await request('/api/kits', 'POST', { ...kitBody, barcode: 'COPY-ONE' })).status, 409);
   assert.equal((await request('/api/kits', 'POST', { ...kitBody, barcode: 'another', components: ['a', 'b', 'c'] })).status, 400);
+  assert.equal((await request('/api/kit-labels', 'POST', { category: 'other', name: 'Mystery' })).status, 400);
+  assert.equal((await request('/api/kit-labels', 'POST', { category: 'genre', name: '  ' })).status, 400);
+  const genre = await request('/api/kit-labels', 'POST', { category: 'genre', name: ' Mystery ' });
+  const vibe = await request('/api/kit-labels', 'POST', { category: 'vibe', name: 'Mystery' });
+  assert.equal(genre.status, 201);
+  assert.equal(genre.json.name, 'Mystery');
+  assert.equal(vibe.status, 201);
+  assert.equal((await request('/api/kit-labels', 'POST', { category: 'genre', name: 'mYsTeRy' })).status, 409);
+  assert.equal((await request(`/api/kit-labels/${genre.json.id}`, 'PUT', { ...genre.json, category: 'vibe' })).status, 400);
+  assert.equal((await request(`/api/kits/${kit.json.id}`, 'PUT', { ...kitBody, revision: kit.json.revision, labelIds: [genre.json.id, genre.json.id] })).status, 400);
+  assert.equal((await request(`/api/kits/${kit.json.id}`, 'PUT', { ...kitBody, revision: kit.json.revision, labelIds: ['missing'] })).status, 409);
+  kit = await request(`/api/kits/${kit.json.id}`, 'PUT', { ...kitBody, revision: kit.json.revision, labelIds: [genre.json.id, vibe.json.id] });
+  assert.equal(kit.status, 200);
+  assert.deepEqual(new Set(kit.json.labelIds), new Set([genre.json.id, vibe.json.id]));
+  const snapshot = await request('/api/shared');
+  assert.ok(snapshot.json.kitLabels.some((label) => label.id === genre.json.id));
+  assert.deepEqual(new Set(snapshot.json.kits.find((item) => item.id === kit.json.id).labelIds), new Set(kit.json.labelIds));
+  kit = await request(`/api/kits/${kit.json.id}`, 'PUT', { ...kitBody, revision: kit.json.revision });
+  assert.equal(kit.status, 200);
+  assert.deepEqual(new Set(kit.json.labelIds), new Set([genre.json.id, vibe.json.id]));
+  kit = await request(`/api/kits/${kit.json.id}`, 'PUT', { ...kitBody, revision: kit.json.revision, labelIds: [] });
+  assert.deepEqual(kit.json.labelIds, []);
+  kit = await request(`/api/kits/${kit.json.id}`, 'PUT', { ...kitBody, revision: kit.json.revision, labelIds: [genre.json.id] });
+  const preview = await request(`/api/kit-labels/${genre.json.id}/deletion-preview`, 'POST', { revision: genre.json.revision });
+  assert.equal(preview.json.kitCount, 1);
+  const oldKitRevision = kit.json.revision;
+  kit = await request(`/api/kits/${kit.json.id}`, 'PUT', { ...kitBody, revision: kit.json.revision, labelIds: [genre.json.id] });
+  assert.equal((await request(`/api/kit-labels/${genre.json.id}`, 'DELETE', { token: preview.json.token, acknowledge: true }, genre.json.revision)).status, 409);
+  assert.equal((await request(`/api/kits/${kit.json.id}`, 'PUT', { ...kitBody, revision: oldKitRevision })).status, 409);
+  const freshPreview = await request(`/api/kit-labels/${genre.json.id}/deletion-preview`, 'POST', { revision: genre.json.revision });
+  assert.equal((await request(`/api/kit-labels/${genre.json.id}`, 'DELETE', { token: freshPreview.json.token, acknowledge: true }, genre.json.revision)).status, 204);
+  assert.equal((await request(`/api/kits/${kit.json.id}`, 'PUT', { ...kitBody, revision: kit.json.revision })).status, 409);
+  kit = await request(`/api/kits/${kit.json.id}`);
+  assert.deepEqual(kit.json.labelIds, []);
   const clubBody = { name: 'Test club', branch: 'Central', size: 5, cadence: 'Monthly', pickup: 'pickup', address: '' };
   const club = await request('/api/clubs', 'POST', clubBody);
   assert.equal(club.status, 201);
@@ -119,6 +155,30 @@ test('shared records persist, enforce constraints and reject stale edits', { ski
   assert.equal(deletionPreview.status, 200);
   assert.equal((await request(`/api/clubs/${club.json.id}`, 'DELETE', { token: deletionPreview.json.token, acknowledge: true }, club.json.revision)).status, 204);
   assert.equal((await request(`/api/titles/${titleId}`)).status, 404);
+});
+
+test('kit label migration preserves existing catalog data', { skip: !enabled, timeout: 30000 }, async (t) => {
+  const schema = `test_${randomBytes(8).toString('hex')}`;
+  const admin = new Pool({ connectionString: databaseUrl });
+  await admin.query(`CREATE SCHEMA "${schema}"`);
+  const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}` });
+  t.after(async () => { await pool.end(); await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin.end(); });
+  await pool.query('CREATE TABLE schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())');
+  const directory = path.join(__dirname, '..', 'migrations');
+  const previous = (await fs.readdir(directory)).filter((name) => /^\d+.*\.sql$/.test(name) && name < '008_kit_labels.sql').sort();
+  for (const name of previous) {
+    await pool.query(await fs.readFile(path.join(directory, name), 'utf8'));
+    await pool.query('INSERT INTO schema_migrations(name) VALUES($1)', [name]);
+  }
+  const { seed } = require('../src/seed');
+  await seed(pool);
+  await pool.query("UPDATE titles SET genres='ISBNdb genre' WHERE id='t1'");
+  const before = await pool.query('SELECT id,title_id,revision FROM kits ORDER BY id');
+  await require('../src/migrate').migrate(pool);
+  assert.deepEqual((await pool.query('SELECT id,title_id,revision FROM kits ORDER BY id')).rows, before.rows);
+  assert.equal((await pool.query("SELECT genres FROM titles WHERE id='t1'")).rows[0].genres, 'ISBNdb genre');
+  assert.equal((await pool.query('SELECT count(*)::int AS count FROM kit_labels')).rows[0].count, 0);
+  assert.equal((await pool.query('SELECT count(*)::int AS count FROM kit_label_assignments')).rows[0].count, 0);
 });
 
 test('conflicting seed rolls back without partial demo records', { skip: !enabled, timeout: 30000 }, async (t) => {

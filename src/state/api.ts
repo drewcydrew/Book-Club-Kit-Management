@@ -1,4 +1,4 @@
-import type { Assignment, Ballot, Club, Cycle, Event, Kit, Library, Mark, Membership, Person, Title } from '../domain/model';
+import type { Assignment, Ballot, Club, Cycle, Event, Kit, KitLabel, Library, Mark, Membership, Person, Title } from '../domain/model';
 
 export type SharedTitle = Title & { revision: number };
 export type SharedKit = Kit & { revision: number };
@@ -18,6 +18,7 @@ export type SharedData = {
   history: ClubHistory[];
   titles: SharedTitle[];
   kits: SharedKit[];
+  kitLabels: KitLabel[];
   clubs: SharedClub[];
   links: ClubKit[];
 };
@@ -44,8 +45,12 @@ function isTitle(value: unknown): value is SharedTitle {
 }
 function isKit(value: unknown): value is SharedKit {
   return isObject(value) && isString(value.id) && isString(value.titleId) && isString(value.barcode) &&
-    isString(value.branch) && isNumber(value.copies) && isString(value.extras) && isStringArray(value.components) &&
+    isString(value.branch) && isNumber(value.copies) && isString(value.extras) && isStringArray(value.components) && isStringArray(value.labelIds) &&
     ['available', 'reserved', 'out', 'inspection', 'unavailable'].includes(String(value.status)) && isNumber(value.revision);
+}
+function isKitLabel(value: unknown): value is KitLabel {
+  return isObject(value) && isString(value.id) && (value.category === 'genre' || value.category === 'vibe') &&
+    isString(value.name) && isNumber(value.revision);
 }
 function isClub(value: unknown): value is SharedClub {
   return isObject(value) && isString(value.id) && isString(value.name) && isString(value.branch) &&
@@ -142,6 +147,7 @@ export async function loadShared(): Promise<SharedData> {
       !Array.isArray(shared.history) || !shared.history.every(isHistory) ||
       !Array.isArray(shared.titles) || !shared.titles.every(isTitle) ||
       !Array.isArray(shared.kits) || !shared.kits.every(isKit) ||
+      !Array.isArray(shared.kitLabels) || !shared.kitLabels.every(isKitLabel) ||
       !Array.isArray(shared.clubs) || !shared.clubs.every(isClub) ||
       !Array.isArray(shared.links) || !shared.links.every(isLink)) {
     throw new Error('Server returned invalid data for /api/shared.');
@@ -149,7 +155,7 @@ export async function loadShared(): Promise<SharedData> {
   return {
     people: shared.people, memberships: shared.memberships, membershipRevisions: shared.membershipRevisions,
     cycles: shared.cycles, ballots: shared.ballots, assignments: shared.assignments, library: shared.library,
-    events: shared.events, history: shared.history, titles: shared.titles, kits: shared.kits,
+    events: shared.events, history: shared.history, titles: shared.titles, kits: shared.kits, kitLabels: shared.kitLabels,
     clubs: shared.clubs, links: shared.links,
   };
 }
@@ -165,6 +171,29 @@ export async function saveRecord(kind: 'titles' | 'kits' | 'clubs', record: Shar
 
 export async function deleteRecord(kind: 'titles' | 'kits', id: string, revision: number): Promise<void> {
   await request(`/api/${kind}/${encodeURIComponent(id)}`, 'DELETE', undefined, revision);
+}
+
+export async function saveKitLabel(value: Pick<KitLabel, 'category' | 'name'> | KitLabel): Promise<KitLabel> {
+  const editing = 'id' in value;
+  const result = await request(`/api/kit-labels${editing ? `/${encodeURIComponent(value.id)}` : ''}`, editing ? 'PUT' : 'POST', value);
+  if (!isKitLabel(result)) throw new Error('Server returned an invalid label; refresh before retrying.');
+  return result;
+}
+
+export type KitLabelDeletionPreview = { label: KitLabel; kitCount: number; token: string };
+
+export async function previewKitLabelDeletion(label: KitLabel): Promise<KitLabelDeletionPreview> {
+  const value = await request(`/api/kit-labels/${encodeURIComponent(label.id)}/deletion-preview`, 'POST', { revision: label.revision });
+  if (!isObject(value) || !isKitLabel(value.label) || value.label.id !== label.id || value.label.revision !== label.revision ||
+      !isCount(value.kitCount) || !isString(value.token) || !/^[a-f0-9]{64}$/.test(value.token)) {
+    throw new Error('Server returned an invalid label deletion preview. Refresh before retrying.');
+  }
+  return { label: value.label, kitCount: value.kitCount, token: value.token };
+}
+
+export async function deleteKitLabel(preview: KitLabelDeletionPreview): Promise<void> {
+  await request(`/api/kit-labels/${encodeURIComponent(preview.label.id)}`, 'DELETE',
+    { token: preview.token, acknowledge: true }, preview.label.revision);
 }
 
 export type ClubDeletionPreview = {

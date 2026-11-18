@@ -20,6 +20,7 @@ const payload = {
   history: [{ clubId: 'c1', titles: ['t4'] }],
   titles: demo.titles.map((title) => ({ ...title, revision: 1 })),
   kits: demo.kits.map((kit) => ({ ...kit, revision: 1 })),
+  kitLabels: demo.kitLabels,
   clubs: demo.clubs.map(({ leaderId: _leaderId, history: _history, membershipRevision: _membershipRevision, ...club }) => club),
   links: [],
 };

@@ -284,7 +284,7 @@ export default function Preferences() {
       {!staff && club && (
         <>
           {detailTitle && (
-            <TitleDetails title={detailTitle} onClose={() => setDetailTitleId(null)} />
+            <TitleDetails title={detailTitle} kits={data.kits.filter((kit) => kit.titleId === detailTitle.id)} labels={data.kitLabels} onClose={() => setDetailTitleId(null)} />
           )}
           <Card>
             <Pressable
@@ -314,6 +314,8 @@ export default function Preferences() {
                     titles={data.titles.filter(
                       (title) => !club.history.includes(title.id),
                     )}
+                    kits={data.kits}
+                    labels={data.kitLabels}
                     marks={ballot?.marks ?? {}}
                     disabled={!editable || !isMember}
                     lastDismissedId={lastDismissedId}

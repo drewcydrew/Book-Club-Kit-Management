@@ -25,6 +25,7 @@ app.get('/health', (_request, response) => {
 
 app.use('/api/titles', require('./routes/titles'));
 app.use('/api/kits', require('./routes/kits'));
+app.use('/api/kit-labels', require('./routes/kit-labels'));
 app.use('/api/clubs', require('./routes/clubs'));
 app.use('/api', require('./routes/club-kits'));
 app.use('/api', require('./routes/covers'));
