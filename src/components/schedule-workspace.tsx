@@ -1,7 +1,7 @@
 import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { assignmentProblems, draftAsync, id, meetingFor, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
+import { assignmentProblems, draftAsync, exclusionUnlockIds, id, meetingFor, prepareDraftExclusions, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
 import { scheduleHasChanges, slotChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
 import { scheduleSelectionPending } from '../domain/schedule-pending';
@@ -94,13 +94,13 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     : hasPending ? 'Discard the unapplied selection and leave?' : 'Discard unsaved schedule changes and leave?';
   const disablePrevention = usePreventRemove(dirty || hasPending || busy, ({ repeat }) => {
     if (busy) { setMessage('Wait for validation or saving to finish before leaving.'); return; }
-    setPendingAction({ description: leaveDescription, confirmLabel: 'Confirm discard', run: () => { reset(); repeat(); } });
+    setPendingAction({ kind: 'discard', description: leaveDescription, confirmLabel: 'Confirm discard', run: () => { reset(); repeat(); } });
   });
   useEffect(() => {
     if (!dirty && !hasPending && !busy) return;
     return navigationGuard.register((continueNavigation) => {
       if (busy) { setMessage('Wait for validation or saving to finish before leaving.'); return; }
-      setPendingAction({ description: leaveDescription, confirmLabel: 'Confirm discard', run: () => {
+      setPendingAction({ kind: 'discard', description: leaveDescription, confirmLabel: 'Confirm discard', run: () => {
         reset(); disablePrevention(); continueNavigation();
       } });
     });
@@ -176,16 +176,18 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     else changeCycle();
   }
 
-  async function regenerate(scope?: DraftScope) {
+  async function regenerate(scope?: DraftScope, excludedClubIds: readonly string[] = []) {
     if (!currentCycle || (stale && dirty) || generatingRef.current) return;
     const source = workspace && (dirty || !stale) ? workspace : createWorkspace(currentCycle);
     const allAssignments = [...source.base.assignments.filter((a) => a.cycleId !== source.cycle.id), ...source.assignments];
+    const input = prepareDraftExclusions({ ...source.base, assignments: allAssignments }, source.cycle, excludedClubIds);
     generatingRef.current = true;
     setGenerating(true); setMessage(scope ? 'Generating assignments...' : 'Generating schedule...');
     try {
-      const result = await draftAsync({ ...source.base, assignments: allAssignments }, source.cycle, true, scope, generationMode);
+      const result = await draftAsync(input.data, input.cycle, true, scope, generationMode);
       const generated = result.assignments.filter((a) => a.cycleId === source.cycle.id);
-      setWorkspace({ ...source, assignments: generated, generationProblems: result.problems });
+      const unlockIds = exclusionUnlockIds(source.base.assignments.filter((assignment) => assignment.cycleId === source.cycle.id), input.removed, source.unlockIds);
+      setWorkspace({ ...source, assignments: generated, unlockIds, generationProblems: result.problems });
       setValidation(null); closeSlot();
       if (scope) {
         const before = unassignedInScope(source.cycle, source.assignments, scope);
@@ -204,10 +206,18 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     }
   }
 
-  function requestGenerate() {
+  function requestGenerate(excludedClubIds: readonly string[] = []) {
     if (busy || generatingRef.current || (stale && dirty)) return;
-    if (dirty || hasPending) setPendingAction({ description: 'Regenerate and replace unlocked local assignments and unapplied selections?', confirmLabel: 'Confirm regenerate', run: () => { void regenerate(); } });
-    else void regenerate();
+    const excluded = [...excludedClubIds];
+    const source = workspace && (dirty || !stale) ? workspace : currentCycle ? createWorkspace(currentCycle) : null;
+    if (!source) return;
+    const removed = source.assignments.filter((assignment) => excluded.includes(assignment.clubId));
+    const removedIds = new Set(removed.map((assignment) => assignment.id));
+    const locked = removed.filter((assignment) => assignment.locked || source.base.assignments.some((item) => item.id === assignment.id && item.locked));
+    if (removedIds.size || dirty || hasPending) {
+      const removal = removed.length ? ` ${removed.length} assignment${removed.length === 1 ? '' : 's'} for excluded clubs will be removed locally${locked.length ? `, including ${locked.length} locked assignment${locked.length === 1 ? '' : 's'} that will be unlocked` : ''}. Their meeting slots and ballots will remain.` : '';
+      setPendingAction({ description: `Regenerate and replace unlocked local assignments and unapplied selections?${removal}`, confirmLabel: 'Confirm regenerate', run: () => { void regenerate(undefined, excluded); } });
+    } else void regenerate(undefined, excluded);
   }
 
   // Keeps every existing assignment and only fills empty slots of the scoped club.

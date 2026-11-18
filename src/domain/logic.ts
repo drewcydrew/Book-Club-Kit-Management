@@ -118,6 +118,24 @@ export type DraftScope = { clubId: string };
 // Both modes preserve coverage; utilisation then favours kit reuse, popular titles and fairness.
 export type DraftMode = 'clubs' | 'utilisation';
 
+export function prepareDraftExclusions(data: Data, cycle: Cycle, excludedClubIds: readonly string[]) {
+  const excluded = new Set(excludedClubIds);
+  if (!excluded.size) return { data, cycle, removed: [] as Assignment[] };
+  const removed = data.assignments.filter((assignment) => assignment.cycleId === cycle.id && excluded.has(assignment.clubId));
+  return {
+    data: { ...data, assignments: data.assignments.filter((assignment) => assignment.cycleId !== cycle.id || !excluded.has(assignment.clubId)) },
+    cycle: { ...cycle, slots: cycle.slots.filter((slot) => !excluded.has(slot.clubId)) },
+    removed,
+  };
+}
+
+export function exclusionUnlockIds(baseAssignments: Assignment[], removed: Assignment[], existingUnlockIds: string[]): string[] {
+  const removedIds = new Set(removed.map((assignment) => assignment.id));
+  return [...new Set([...existingUnlockIds, ...baseAssignments
+    .filter((assignment) => assignment.locked && removedIds.has(assignment.id))
+    .map((assignment) => assignment.id)])];
+}
+
 function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false, scope?: DraftScope, mode: DraftMode = 'clubs'): Generator<void, DraftResult, void> {
   const retained = scope ? [...data.assignments] : data.assignments.filter((a) => a.cycleId !== cycle.id || a.locked);
   const problems: string[] = [];

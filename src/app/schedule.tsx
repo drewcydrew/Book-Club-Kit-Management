@@ -11,7 +11,7 @@ import { TitleCover } from '../components/title-cover';
 import { memberMeetingCalendar, memberVisibleCycle, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
-import { assignmentProblem, fairness } from '../domain/logic';
+import { assignmentProblem, fairness, rankings } from '../domain/logic';
 import type { Assignment } from '../domain/model';
 import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
@@ -48,6 +48,8 @@ export default function Schedule() {
   const [staffClubIds, setStaffClubIds] = useState<string[] | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [staffFiltersOpen, setStaffFiltersOpen] = useState(false);
+  const [generationFiltersOpen, setGenerationFiltersOpen] = useState(false);
+  const [generationExclusions, setGenerationExclusions] = useState<{ cycleId: string; clubIds: string[] } | null>(null);
   const [cycleOpen, setCycleOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [expandedClubs, setExpandedClubs] = useState<string[]>([]);
@@ -63,6 +65,7 @@ export default function Schedule() {
   const personId = person?.id;
   const enrolledClubIds = data.memberships.filter((membership) => membership.personId === personId).map((membership) => membership.clubId);
   const cycleId = cycle?.id;
+  const excludedClubIds = generationExclusions?.cycleId === cycleId ? generationExclusions.clubIds : [];
   const clubChoices = staff ? viewData.clubs : data.clubs.filter((club) => enrolledClubIds.includes(club.id));
   const visibleAssignments = viewData.assignments.filter((a) => staff
     ? a.cycleId === cycleId
@@ -83,26 +86,33 @@ export default function Schedule() {
   const grid = mode === 'grid' && gridCycle
     ? scheduleGrid(viewData, gridCycle, gridClubKey ? gridClubKey.split('|') : [], viewData.assignments.filter((a) => a.cycleId === gridCycle.id))
     : null;
+  const gridPriorities = staff && mode === 'grid' && gridCycle
+    ? new Map(gridClubs.map((club) => [club.id, new Map((gridCycle.finalized[club.id] ?? rankings(viewData, gridCycle, club.id, true))
+      .map((titleId, index) => [titleId, index + 1] as const))] as const))
+    : null;
   const memberCalendar = staff ? [] : memberMeetingCalendar(data, gridClubs.map((club) => club.id));
   const kits = staff && mode === 'kits' && cycle ? scheduleByKit(viewData, cycle.id, gridClubs.map((club) => club.id)) : [];
   const discardPending = editor.pendingAction?.kind === 'discard';
+  const modalOpen = staff && !!editor.selectedSlotId;
   const pendingConfirmation = editor.pendingAction && !discardPending && <Card>
     <Note>{editor.pendingAction.description}</Note>
     <Actions><Action tone="danger" title={editor.pendingAction.confirmLabel} onPress={editor.confirmAction} />
       <Action title="Keep editing" onPress={editor.cancelAction} /></Actions>
   </Card>;
-  const discardConfirmation = discardPending && editor.pendingAction && <Modal transparent visible onRequestClose={editor.cancelAction} accessibilityLabel="Confirm discard">
+  const discardContent = discardPending && editor.pendingAction && <>
+    <Label>Confirm discard</Label>
+    <Note>{editor.pendingAction.description}</Note>
+    <Actions><Action tone="danger" title={editor.pendingAction.confirmLabel} onPress={editor.confirmAction} />
+      <Action title="Keep editing" accessibilityLabel="Keep editing instead of discarding" onPress={editor.cancelAction} /></Actions>
+  </>;
+  const discardConfirmation = discardPending && !modalOpen && <Modal transparent visible onRequestClose={editor.cancelAction} accessibilityLabel="Confirm discard">
     <View style={scheduleStyles.modalBackdrop}>
       <Pressable accessibilityRole="button" accessibilityLabel="Cancel discard" onPress={editor.cancelAction} style={StyleSheet.absoluteFill} />
       <View accessibilityViewIsModal style={scheduleStyles.modalDialog}>
-        <Label>Confirm discard</Label>
-        <Note>{editor.pendingAction.description}</Note>
-        <Actions><Action tone="danger" title={editor.pendingAction.confirmLabel} onPress={editor.confirmAction} />
-          <Action title="Keep editing" accessibilityLabel="Keep editing instead of discarding" onPress={editor.cancelAction} /></Actions>
+        {discardContent}
       </View>
     </View>
   </Modal>;
-  const modalOpen = staff && !!editor.selectedSlotId;
   const modalSlot = editor.workspace?.cycle.slots.find((slot) => slot.id === editor.selectedSlotId);
   const modalClub = editor.workspace?.base.clubs.find((club) => club.id === modalSlot?.clubId);
   const modalAssignment = editor.workspace?.assignments.find((item) => item.slotId === editor.selectedSlotId);
@@ -133,14 +143,16 @@ export default function Schedule() {
     if (Platform.OS !== 'web') return;
     if (discardPending) {
       hadDiscardConfirmation.current = true;
+      if (!discardTrigger.current && document.activeElement instanceof HTMLElement) discardTrigger.current = document.activeElement;
       document.querySelector<HTMLElement>('[aria-label="Keep editing instead of discarding"]')?.focus();
     } else if (hadDiscardConfirmation.current) {
       hadDiscardConfirmation.current = false;
       const trigger = discardTrigger.current;
       if (trigger?.isConnected && !(trigger instanceof HTMLButtonElement && trigger.disabled)) trigger.focus();
+      else if (modalOpen) document.querySelector<HTMLElement>('[aria-label="Close editor"]')?.focus();
       discardTrigger.current = null;
     }
-  }, [discardPending]);
+  }, [discardPending, modalOpen]);
   function requestDiscard() {
     if (Platform.OS === 'web' && document.activeElement instanceof HTMLElement) discardTrigger.current = document.activeElement;
     editor.requestDiscard();
@@ -152,6 +164,8 @@ export default function Schedule() {
   if (!person) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}<Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
   if (!cycle) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = viewData.assignments.filter((assignment) => assignment.cycleId === cycle.id);
+  const assignedSlots = new Set(cycleAssignments.map((assignment) => assignment.slotId));
+  const unassignedMeetings = cycle.slots.filter((slot) => !assignedSlots.has(slot.id)).length;
 
   function updateStaffClubs(ids: string[]) {
     setStaffClubIds(ids);
@@ -199,7 +213,7 @@ export default function Schedule() {
       <Label>Published cycle · {gridCycle.name}</Label>
       {memberCycles.length > 1 && <Actions>{memberCycles.map((value) => <Action key={value.id} selected={value.id === gridCycle.id} title={`${value.name} · ${value.status}`} onPress={() => { setSelectedId(value.id); setExpandedId(null); }} />)}</Actions>}
     </Card>}
-    {staff && mode === 'grid' && <Note>Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
+    {staff && mode === 'grid' && <Note>Cover badges show club priority; — means unranked. Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
     {mode === 'grid' && staff && highlightTitle && grid && <Card>
       <Label>Highlighting · {highlightTitle.name}</Label>
       <Note>{highlightCount} {highlightCount === 1 ? 'club' : 'clubs'} in {gridCycle?.name ?? 'this cycle'}. Other clubs are hidden.</Note>
@@ -217,6 +231,8 @@ export default function Schedule() {
           onSelectSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.selectSlot : undefined}
           onAddSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.toggleSlot : undefined}
           onGenerateClub={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? (clubId) => editor.requestGenerateClub({ clubId }) : undefined}
+          excludedClubIds={staff ? excludedClubIds : undefined}
+          priorityFor={staff ? (clubId, titleId) => gridPriorities?.get(clubId)?.get(titleId) ?? null : undefined}
           clubResult={editor.clubResult}
           clubSummaryFor={staff ? (clubId) => { const result = fairness(viewData, cycle, clubId, cycleAssignments); return `Fairness ${result.score === null ? 'N/A' : `${Math.round(result.score)}%`} · ${result.assigned}/${result.slots} assigned`; } : undefined}
           onHideClub={staff ? (clubId) => updateStaffClubs(gridClubs.filter((club) => club.id !== clubId).map((club) => club.id)) : undefined} />)
@@ -240,6 +256,7 @@ export default function Schedule() {
           editor.requestCycleChange(() => {
             setSelectedId(value.id); setMessages([]); setMessage('');
             setPublication(null); setExpandedId(null); setShowAllMessages(false); setCycleOpen(false);
+            setGenerationExclusions(null); setGenerationFiltersOpen(false);
           });
         } else {
           setCycleOpen(false);
@@ -273,10 +290,11 @@ export default function Schedule() {
     </Card>
     {!modalOpen && pendingConfirmation}
     {discardConfirmation}
-    {modalOpen && <Modal transparent visible onRequestClose={editor.requestCloseSlot} accessibilityLabel={`Edit ${modalClub?.name ?? 'club'} meeting, ${modalSlot?.month ?? ''}`}>
+    {modalOpen && <Modal transparent visible onRequestClose={discardPending ? editor.cancelAction : editor.requestCloseSlot} accessibilityLabel={discardPending ? 'Confirm discard' : `Edit ${modalClub?.name ?? 'club'} meeting, ${modalSlot?.month ?? ''}`}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined} style={scheduleStyles.modalBackdrop}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close meeting editor" onPress={editor.requestCloseSlot} style={StyleSheet.absoluteFill} />
+        <Pressable accessibilityRole="button" accessibilityLabel={discardPending ? 'Cancel discard' : 'Close meeting editor'} onPress={discardPending ? editor.cancelAction : editor.requestCloseSlot} style={StyleSheet.absoluteFill} />
         <View accessibilityViewIsModal style={[scheduleStyles.modalDialog, { maxHeight: Math.max(100, height - insets.top - insets.bottom - 32) }]}>
+          {discardPending ? discardContent : <>
           <View style={scheduleStyles.modalHeader}>
             <Label>Edit meeting · {modalClub?.name ?? 'Unavailable club'} · {modalSlot?.month}</Label>
             <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -287,6 +305,7 @@ export default function Schedule() {
           {editor.pendingAction ? pendingConfirmation : editor.activePicker
             ? editor.renderSelectedSlot()
             : <ScrollView keyboardShouldPersistTaps="handled" style={scheduleStyles.modalScroll}>{editor.renderSelectedSlot()}</ScrollView>}
+          </>}
         </View>
       </KeyboardAvoidingView>
     </Modal>}
@@ -297,14 +316,33 @@ export default function Schedule() {
         : (cycle.status === 'collecting' || cycle.status === 'drafted') && <Note>Select a meeting in Grid to edit it locally. Nothing changes for other users until you save a draft.</Note>}
       {cycle.status === 'published' && <Note>Published schedules are read-only here. Reopen or discard the schedule for this cycle on Cycles before editing; reopening affects member visibility and circulation.</Note>}
       {cycle.status === 'open' && <Note>Start collecting preferences on Cycles before editing this schedule.</Note>}
+      {unassignedMeetings > 0 && <Note>{unassignedMeetings} {unassignedMeetings === 1 ? 'meeting is' : 'meetings are'} unassigned. Every meeting must be assigned before publication.</Note>}
       {editor.stale && editor.dirty && <Text style={{ color: '#a22525' }}>Shared data has changed. Refresh if needed, then discard these changes and start again before saving.</Text>}
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: generationFiltersOpen, disabled: editor.busy || validating || !!publication }}
+        accessibilityLabel={`Generation exclusions, ${excludedClubIds.length} clubs excluded`} disabled={editor.busy || validating || !!publication}
+        onPress={() => setGenerationFiltersOpen(!generationFiltersOpen)} style={{ minHeight: 44, justifyContent: 'center' }}>
+        <Label>{generationFiltersOpen ? '▾' : '▸'} Clubs excluded from generation · {excludedClubIds.length}</Label>
+      </Pressable>
+      {generationFiltersOpen && <>
+        <Note>Exclusions apply to the next full regeneration, not the current schedule. They are separate from clubs shown and reset when you change cycles.</Note>
+        <Actions><Action title="Include all" disabled={!excludedClubIds.length || editor.busy || validating || !!publication}
+          onPress={() => setGenerationExclusions({ cycleId: cycle.id, clubIds: [] })} /></Actions>
+        {clubChoices.length === 0 ? <Note>No clubs exist yet.</Note> : <Actions>{clubChoices.map((club) => {
+          const excluded = excludedClubIds.includes(club.id);
+          return <Action key={club.id} title={`${club.name} · ${excluded ? 'Excluded' : 'Included'}`} selected={excluded}
+            accessibilityLabel={`${club.name}, ${excluded ? 'excluded' : 'included'} from generation`}
+            disabled={editor.busy || validating || !!publication}
+            onPress={() => setGenerationExclusions({ cycleId: cycle.id, clubIds: excluded ? excludedClubIds.filter((id) => id !== club.id) : [...excludedClubIds, club.id] })} />;
+        })}</Actions>}
+      </>}
+      {excludedClubIds.length > 0 && <Note>Regeneration removes excluded clubs&apos; assignments locally, including locked assignments after confirmation. Meetings and ballots remain; every meeting must be assigned before publication. Include the clubs and regenerate or assign their meetings manually.</Note>}
       <Actions>
         <Action title="Prioritise clubs" selected={editor.generationMode === 'clubs'} accessibilityLabel={`Prioritise clubs, ${editor.generationMode === 'clubs' ? 'selected' : 'not selected'}. ${strategyDescriptions.clubs}`} description={strategyDescriptions.clubs} disabled={editor.busy || validating} onPress={() => editor.setGenerationMode('clubs')} />
         <Action title="Prioritise utilisation" selected={editor.generationMode === 'utilisation'} accessibilityLabel={`Prioritise utilisation, ${editor.generationMode === 'utilisation' ? 'selected' : 'not selected'}. ${strategyDescriptions.utilisation}`} description={strategyDescriptions.utilisation} disabled={editor.busy || validating} onPress={() => editor.setGenerationMode('utilisation')} />
       </Actions>
       <Note>{strategyDescriptions[editor.generationMode]} Choose a strategy before generating; changing it does not regenerate the schedule.</Note>
       <Actions>
-        <Action title={editor.dirty ? 'Regenerate locally' : 'Generate locally'} disabled={editor.busy || validating || !!publication || (editor.stale && editor.dirty) || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={editor.requestGenerate} />
+        <Action title={editor.dirty ? 'Regenerate locally' : 'Generate locally'} disabled={editor.busy || validating || !!publication || (editor.stale && editor.dirty) || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => editor.requestGenerate(excludedClubIds)} />
         <Action tone="primary" title="Save draft" disabled={!editor.dirty || editor.busy || validating || editor.stale} onPress={() => { void editor.validate(); }} />
         <Action title="Discard changes" disabled={!editor.dirty || editor.busy || validating} onPress={requestDiscard} />
       </Actions>

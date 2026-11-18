@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assignmentProblem, draft, draftAsync, fairness } from '../src/domain/logic';
+import { assignmentProblem, draft, draftAsync, exclusionUnlockIds, fairness, prepareDraftExclusions } from '../src/domain/logic';
 import { seed } from '../src/domain/seed';
 import type { Data } from '../src/domain/model';
 
@@ -26,6 +26,51 @@ function assignedTitles(data: Data, assignments = draft(data, data.cycles[0]).as
   return Object.fromEntries(assignments.filter((a) => a.cycleId === data.cycles[0].id)
     .map((a) => [a.slotId, data.kits.find((kit) => kit.id === a.kitId)?.titleId]));
 }
+
+test('exclusion removes only current-cycle assignments, retains other-cycle conflicts and records shared unlocks', () => {
+  const data = scenario([['t1'], ['t1', 't2']]);
+  const cycle = data.cycles[0];
+  const sharedLock = { id: 'shared-lock', cycleId: cycle.id, slotId: 's1', clubId: 'c1', kitId: 'k1',
+    ready: '2026-12-14', meeting: '2027-01-04', due: '2027-01-11', locked: true };
+  const other = { ...sharedLock, id: 'other', cycleId: 'other-cycle', slotId: 'other-slot', kitId: 'k3', locked: false };
+  data.cycles.push({ ...cycle, id: 'other-cycle', slots: [{ id: 'other-slot', clubId: 'c1', month: '2027-01', meeting: '2027-01-04' }] });
+  data.assignments = [sharedLock, other];
+  const before = structuredClone(data);
+  const input = prepareDraftExclusions(data, cycle, ['c1']);
+  assert.deepEqual(data, before);
+  assert.deepEqual(input.removed, [sharedLock]);
+  assert.deepEqual(input.cycle.slots.map((slot) => slot.id), ['s2']);
+  assert.deepEqual(exclusionUnlockIds([sharedLock], input.removed, ['previous', 'shared-lock']), ['previous', 'shared-lock']);
+  assert.deepEqual(exclusionUnlockIds([sharedLock], [{ ...sharedLock, locked: false }], []), ['shared-lock']);
+  assert.deepEqual(exclusionUnlockIds([], input.removed, []), []);
+  for (const mode of ['clubs', 'utilisation'] as const) {
+    const result = draft(input.data, input.cycle, true, undefined, mode);
+    assert.deepEqual(assignedTitles(data, result.assignments), { s2: 't1' });
+    assert.deepEqual(result.assignments.find((assignment) => assignment.id === other.id), other);
+    assert.ok(!result.problems.some((problem) => problem.includes('Club 1')));
+    const none = prepareDraftExclusions(data, cycle, ['c1', 'c2']);
+    assert.deepEqual(draft(none.data, none.cycle, true, undefined, mode).assignments, [other]);
+  }
+});
+
+test('excluded clubs do not contribute to utilisation demand and all-excluded generates no assignments', () => {
+  const data = scenario([['t1', 't2'], ['t2']]);
+  const cycle = data.cycles[0];
+  cycle.slots[1] = { ...cycle.slots[1], month: '2027-04', meeting: '2027-04-05' };
+  const all = draft(data, cycle, false, undefined, 'utilisation');
+  assert.equal(assignedTitles(data, all.assignments).s1, 't2');
+  const input = prepareDraftExclusions(data, cycle, ['c2']);
+  for (const mode of ['clubs', 'utilisation'] as const) {
+    assert.deepEqual(assignedTitles(data, draft(input.data, input.cycle, false, undefined, mode).assignments), { s1: 't1' });
+    const none = prepareDraftExclusions(data, cycle, ['c1', 'c2']);
+    const result = draft(none.data, none.cycle, false, undefined, mode);
+    assert.deepEqual(result.assignments, []);
+    assert.deepEqual(result.problems, []);
+  }
+  const unchanged = prepareDraftExclusions(data, cycle, []);
+  assert.equal(unchanged.data, data);
+  assert.equal(unchanged.cycle, cycle);
+});
 
 test('repairs a scarce-kit conflict by reassigning an earlier slot', () => {
   const data = scenario([['t1', 't2'], ['t1']]);
