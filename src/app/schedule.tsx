@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
 import { ScheduleGridView } from '../components/schedule-grid';
+import { NativeScheduleGridView } from '../components/schedule-grid-native';
 import { SCHEDULE_DESKTOP_WIDTH } from '../components/schedule-layout';
 import { ScheduleInstructions } from '../components/schedule-instructions';
 import { ScheduleExportActions } from '../components/schedule-export';
 import { useScheduleWorkspace } from '../components/schedule-workspace';
 import { MemberSchedule, type MemberView } from '../components/member-schedule';
 import { TitleCover } from '../components/title-cover';
-import { memberScheduleMeetings, memberVisibleCycle, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
+import { focusedScheduleClub, memberScheduleMeetings, memberVisibleCycle, scheduleByKit, scheduleClubsMatchingTitle, scheduleGrid } from '../domain/cycle-overview';
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
 import { makeScheduleExport, type StaffScheduleView } from '../domain/schedule-export';
@@ -49,6 +50,7 @@ function ScheduleContent() {
   const [showAllMessages, setShowAllMessages] = useState(false);
   const [memberViewMode, setMemberViewMode] = useState<MemberView>('meetings');
   const [staffViewMode, setStaffViewMode] = useState<StaffScheduleView>('grid');
+  const [focusedClubId, setFocusedClubId] = useState('');
   const [publication, setPublication] = useState<{ cycleId: string; revision: number; assignments: Assignment[]; validation: ScheduleValidation } | null>(null);
   const [validating, setValidating] = useState(false);
   const [gridClubIds, setGridClubIds] = useState<string[] | null>(null);
@@ -80,17 +82,29 @@ function ScheduleContent() {
   const gridCycle = cycle;
   const selectedClubIds = staff ? staffClubIds : gridClubIds;
   const gridClubs = selectedClubIds ? clubChoices.filter((club) => selectedClubIds.includes(club.id)) : clubChoices;
-  const problemClubs = new Set(gridClubs.map((club) => club.id));
-  const problems = new Map((staff ? visibleAssignments.filter((assignment) => problemClubs.has(assignment.clubId)) : [])
-    .map((assignment) => [assignment.id, assignmentProblem(viewData, assignment, viewData.assignments) ?? null] as const));
   const gridClubKey = gridClubs.map((club) => club.id).join('|');
-  const grid = staff && mode === 'grid' && gridCycle
-    ? scheduleGrid(viewData, gridCycle, gridClubKey ? gridClubKey.split('|') : [], viewData.assignments.filter((a) => a.cycleId === gridCycle.id))
-    : null;
-  const gridPriorities = staff && mode === 'grid' && gridCycle
-    ? new Map(gridClubs.map((club) => [club.id, new Map((gridCycle.finalized[club.id] ?? rankings(viewData, gridCycle, club.id, true))
-      .map((titleId, index) => [titleId, index + 1] as const))] as const))
-    : null;
+  const nativeGrid = staff && mode === 'grid' && Platform.OS !== 'web';
+  const eligibleClubIds = useMemo(() => {
+    const ids = gridClubKey ? gridClubKey.split('|') : [];
+    return nativeGrid && gridCycle && highlightTitleId
+      ? scheduleClubsMatchingTitle(viewData, gridCycle, ids, viewData.assignments, highlightTitleId)
+      : ids;
+  }, [gridClubKey, gridCycle, highlightTitleId, nativeGrid, viewData]);
+  const focusedId = focusedScheduleClub(eligibleClubIds, focusedClubId);
+  if (nativeGrid && focusedClubId !== focusedId) setFocusedClubId(focusedId);
+  const grid = useMemo(() => staff && mode === 'grid' && gridCycle
+    ? scheduleGrid(viewData, gridCycle, nativeGrid ? (focusedId ? [focusedId] : []) : (gridClubKey ? gridClubKey.split('|') : []), viewData.assignments)
+    : null, [staff, mode, gridCycle, viewData, nativeGrid, focusedId, gridClubKey]);
+  const problemClubs = new Set(gridClubs.map((club) => club.id));
+  const problems = nativeGrid
+    ? new Map((grid?.rows[0]?.cells ?? []).flatMap((cell) => cell.assignment ? [[cell.assignment.id, cell.problem] as const] : []))
+    : new Map((staff ? visibleAssignments.filter((assignment) => problemClubs.has(assignment.clubId)) : [])
+      .map((assignment) => [assignment.id, assignmentProblem(viewData, assignment, viewData.assignments) ?? null] as const));
+  const gridPriorities = useMemo(() => staff && mode === 'grid' && gridCycle
+    ? new Map((nativeGrid ? (focusedId ? [focusedId] : []) : (gridClubKey ? gridClubKey.split('|') : [])).map((clubId) =>
+      [clubId, new Map((gridCycle.finalized[clubId] ?? rankings(viewData, gridCycle, clubId, true))
+        .map((titleId, index) => [titleId, index + 1] as const))] as const))
+    : null, [staff, mode, gridCycle, nativeGrid, focusedId, gridClubKey, viewData]);
   const memberMeetings = staff ? [] : memberScheduleMeetings(data, gridClubs.map((club) => club.id));
   const kits = staff && mode === 'kits' && cycle ? scheduleByKit(viewData, cycle.id, gridClubs.map((club) => club.id)) : [];
   const discardPending = editor.pendingAction?.kind === 'discard';
@@ -123,8 +137,10 @@ function ScheduleContent() {
   const modalAssignment = editor.workspace?.assignments.find((item) => item.slotId === editor.selectedSlotId);
   const modalTitleId = editor.workspace?.base.kits.find((kit) => kit.id === modalAssignment?.kitId)?.titleId;
   const highlightTitle = highlightTitleId ? titleById.get(highlightTitleId) : undefined;
-  const countTitleClubs = (titleId: string | null | undefined) => new Set(grid?.rows.filter((row) => row.cells.some((cell) => cell.assignment && kitById.get(cell.assignment.kitId)?.titleId === titleId)).map((row) => row.clubId)).size;
-  const highlightCount = countTitleClubs(highlightTitleId);
+  const countTitleClubs = (titleId: string | null | undefined) => nativeGrid && gridCycle && titleId
+    ? scheduleClubsMatchingTitle(viewData, gridCycle, gridClubs.map((club) => club.id), viewData.assignments, titleId).length
+    : new Set(grid?.rows.filter((row) => row.cells.some((cell) => cell.assignment && kitById.get(cell.assignment.kitId)?.titleId === titleId)).map((row) => row.clubId)).size;
+  const highlightCount = nativeGrid && highlightTitleId ? eligibleClubIds.length : countTitleClubs(highlightTitleId);
   const modalTitleCount = countTitleClubs(modalTitleId);
   function setHighlight(titleId: string | null) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -226,10 +242,10 @@ function ScheduleContent() {
     {staff && mode === 'grid' && <Note>Cover badges show club priority; — means unranked. Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
     {mode === 'grid' && staff && highlightTitle && grid && <Card>
       <Label>Highlighting · {highlightTitle.name}</Label>
-      <Note>{highlightCount} {highlightCount === 1 ? 'club' : 'clubs'} in {gridCycle?.name ?? 'this cycle'}. Other rows are temporarily hidden. Clubs shown still controls generation and CSV exports; the Grid PDF matches this highlight.</Note>
+      <Note>{highlightCount} {highlightCount === 1 ? 'club' : 'clubs'} in {gridCycle?.name ?? 'this cycle'}. {nativeGrid ? 'Choose a matching club below.' : 'Other rows are temporarily hidden.'} Clubs shown still controls generation and CSV exports; the Grid PDF matches this highlight.</Note>
       <Actions><Action title="Clear highlight" onPress={() => setHighlight(null)} /></Actions>
     </Card>}
-    {mode === 'grid' && (grid
+    {!nativeGrid && mode === 'grid' && (grid
       ? (grid.rows.length === 0
         ? (staff && clubChoices.length === 0 ? null : <Note>Select at least one club to show the grid.</Note>)
         : <ScheduleGridView grid={grid} wide={wide} clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'}
@@ -249,7 +265,7 @@ function ScheduleContent() {
       : <Note>No drafted or published schedule is available for your clubs yet.</Note>)}
   </>;
 
-  return <Page title="Schedule" wide={wide}>
+  const content = <>
     {!staff && editor.dirty && <Card>
       <Note>Unsaved staff schedule changes are still held on this device. Discard them before leaving or return to a staff user.</Note>
       <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={requestDiscard} />
@@ -389,8 +405,16 @@ function ScheduleContent() {
           <Action selected={mode === 'kits'} title="Kits" onPress={() => { editor.closeSlot(); setStaffViewMode('kits'); }} />
         </Actions>
       </>}
-      <ScheduleExportActions schedule={makeScheduleExport(viewData, gridClubs.map((club) => club.id), staff ? cycle : undefined, staff && editor.dirty, staff ? staffViewMode : undefined, staff && mode === 'grid' ? highlightTitleId : null)}
-        disabled={staff && (editor.busy || validating || !!publication)} staffClubCount={staff ? gridClubs.length : undefined} />
+      {nativeGrid
+        ? <ScheduleExportActions preview={{
+          mode: 'grid', label: `${cycle.name} · ${cycle.status}${editor.dirty ? ' · Unsaved local schedule' : ''}`,
+          hasMeetings: cycle.slots.some((slot) => gridClubs.some((club) => club.id === slot.clubId))
+            || cycleAssignments.some((assignment) => gridClubs.some((club) => club.id === assignment.clubId)),
+          highlight: highlightTitleId ? { title: highlightTitle?.name ?? 'Unavailable title', count: highlightCount } : undefined,
+        }} makeSchedule={() => makeScheduleExport(viewData, gridClubs.map((club) => club.id), cycle, editor.dirty, 'grid', highlightTitleId)}
+          disabled={editor.busy || validating || !!publication} staffClubCount={gridClubs.length} />
+        : <ScheduleExportActions schedule={makeScheduleExport(viewData, gridClubs.map((club) => club.id), staff ? cycle : undefined, staff && editor.dirty, staff ? staffViewMode : undefined, staff && mode === 'grid' ? highlightTitleId : null)}
+          disabled={staff && (editor.busy || validating || !!publication)} staffClubCount={staff ? gridClubs.length : undefined} />}
     </Card>
     {!staff && <MemberSchedule key={JSON.stringify([person.id, gridClubKey, memberMeetings.map((meeting) =>
       [meeting.key, meeting.assignment ? kitById.get(meeting.assignment.kitId)?.titleId : null,
@@ -462,6 +486,24 @@ function ScheduleContent() {
         </View>;
       })}</View>
     </Card>}
+  </>;
+
+  const focusedFairness = nativeGrid && focusedId ? fairness(viewData, cycle, focusedId, cycleAssignments) : null;
+  return <Page title="Schedule" wide={wide} scroll={!nativeGrid}>
+    {nativeGrid ? <NativeScheduleGridView header={content} row={grid?.rows[0]} clubIds={eligibleClubIds} focusedId={focusedId}
+      onFocus={(id) => { setFocusedClubId(id); setExpandedId(null); }}
+      clubNameFor={(id) => clubById.get(id)?.name ?? 'Unavailable club'}
+      titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
+      priorityFor={(titleId) => gridPriorities?.get(focusedId)?.get(titleId) ?? null}
+      summary={focusedFairness ? `Fairness ${focusedFairness.score === null ? 'N/A' : `${Math.round(focusedFairness.score)}%`} · ${focusedFairness.assigned}/${focusedFairness.slots} assigned` : ''}
+      highlightTitleId={highlightTitleId} selectedSlotId={editor.selectedSlotId} expandedId={expandedId}
+      onToggle={(id) => setExpandedId(expandedId === id ? null : id)} renderDetail={renderDetail}
+      onSelectSlot={(cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.selectSlot : undefined}
+      onAddSlot={(cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.toggleSlot : undefined}
+      onGenerateClub={(cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? (clubId) => editor.requestGenerateClub({ clubId }) : undefined}
+      onHideClub={(clubId) => updateStaffClubs(gridClubs.filter((club) => club.id !== clubId).map((club) => club.id))}
+      actionsDisabled={clubSelectionDisabled} clubResult={editor.clubResult} hasShownClubs={gridClubs.length > 0} />
+      : content}
   </Page>;
 }
 

@@ -3,7 +3,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 import { useStore } from '../state/store';
 import { useShared } from '../state/shared';
 
-export function Page({ title, children, wide = false }: { title: string; children: React.ReactNode; wide?: boolean }) {
+export function Page({ title, children, wide = false, scroll = true }: { title: string; children: React.ReactNode; wide?: boolean; scroll?: boolean }) {
   const { data, error } = useStore();
   const shared = useShared();
   const { refresh, scope } = shared;
@@ -17,14 +17,17 @@ export function Page({ title, children, wide = false }: { title: string; childre
     (hasLabels && data.titles.some((title) => title.labelIds.some((labelId) => !data.kitLabels.some((label) => label.id === labelId)))) ||
     data.ballots.some((ballot) => !data.clubs.some((club) => club.id === ballot.clubId) || ballot.ranking.some((id) => !data.titles.some((title) => title.id === id))) ||
     data.events.some((event) => !data.kits.some((kit) => kit.id === event.kitId));
-  return <ScrollView contentContainerStyle={[styles.page, wide && styles.widePage]} keyboardShouldPersistTaps="handled">
+  const content = <>
     <Text accessibilityRole="header" style={styles.heading}>{title}</Text>
     {error ? <Text style={styles.error}>Unable to save: {error}</Text> : null}
     {shared.error ? <Text style={styles.error}>{shared.error}</Text> : null}
     <Action title="Refresh page data" disabled={shared.saving} onPress={() => { void refresh().catch(() => undefined); }} />
     {missingSharedReferences ? <Text style={styles.error}>Some shared records reference unavailable users, clubs, titles or kits. Refresh or contact the demo administrator.</Text> : null}
     {children}
-  </ScrollView>;
+  </>;
+  return scroll
+    ? <ScrollView contentContainerStyle={[styles.page, wide && styles.widePage]} keyboardShouldPersistTaps="handled">{content}</ScrollView>
+    : <View style={[styles.page, wide && styles.widePage, styles.fixedPage]}>{content}</View>;
 }
 
 export function Card({ children, soft = false }: { children: React.ReactNode; soft?: boolean }) {
@@ -60,6 +63,7 @@ export function Note({ children }: { children: React.ReactNode }) {
 export const styles = StyleSheet.create({
   page: { paddingHorizontal: 20, paddingTop: 24, gap: 18, width: '100%', maxWidth: 1050, alignSelf: 'center', paddingBottom: 60 },
   widePage: { maxWidth: '100%' },
+  fixedPage: { flex: 1, paddingBottom: 0 },
   heading: { fontSize: 30, fontWeight: '700', color: '#183a36', letterSpacing: -0.5 },
   label: { fontWeight: '700', color: '#183a36', fontSize: 16 },
   card: { backgroundColor: '#fffefa', paddingHorizontal: 16, paddingVertical: 18, borderLeftWidth: 3, borderLeftColor: '#75958a', gap: 12 },

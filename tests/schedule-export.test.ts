@@ -6,6 +6,7 @@ import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber,
 import { seed } from '../src/domain/seed';
 import { makeScheduleExport, scheduleCsv } from '../src/domain/schedule-export';
 import { makeSchedulePdf } from '../src/domain/schedule-pdf';
+import { focusedScheduleClub, scheduleClubsMatchingTitle, scheduleGrid } from '../src/domain/cycle-overview';
 
 function fixture() {
   const data = seed();
@@ -27,6 +28,56 @@ function fixture() {
     slots: [{ id: 's5', clubId: 'c1', month: '2029-01', meeting: null }] });
   return data;
 }
+
+test('native club focus and highlight follow displayed slots and preserve export scope', () => {
+  const data = fixture();
+  const cycle = data.cycles[0];
+  cycle.startsOn = '2027-01-01';
+  cycle.endsOn = '2027-12-31';
+  cycle.slots.push({ id: 'duplicate', clubId: 'c1', month: '2027-01', meeting: null });
+  data.assignments.push({ ...data.assignments[0], id: 'duplicate-assignment', slotId: 'duplicate' });
+  data.assignments.push({ ...data.assignments[0], id: 'local-replacement', kitId: 'k3' });
+  const shown = ['c1', 'c2'];
+  const matching = scheduleClubsMatchingTitle(data, cycle, shown, data.assignments, 't1');
+  assert.deepEqual(matching, ['c2']);
+  assert.equal(focusedScheduleClub(matching, 'c1'), 'c2');
+  assert.equal(focusedScheduleClub([], 'c1'), '');
+  assert.equal(focusedScheduleClub(shown, 'c2'), 'c2');
+  const row = scheduleGrid(data, cycle, ['c1'], data.assignments).rows[0];
+  assert.equal(row.cells.length, 12);
+  assert.equal(row.cells[0].assignment?.id, 'local-replacement');
+  assert.equal(row.cells[1].slot?.id, 's2');
+  assert.equal(row.cells[2].slot, undefined);
+  const highlighted = makeScheduleExport(data, shown, cycle, true, 'grid', 't1');
+  assert.deepEqual(highlighted.highlight?.rows.map((entry) => entry.clubId), matching);
+  assert.deepEqual(highlighted.grid?.rows.map((entry) => entry.clubId), shown);
+  assert.equal(scheduleCsv(highlighted), scheduleCsv(makeScheduleExport(data, shown, cycle, true, 'grid')));
+  assert.deepEqual(scheduleClubsMatchingTitle(data, cycle, ['c1'], data.assignments, 't1'), []);
+  assert.deepEqual(scheduleClubsMatchingTitle(data, cycle, shown, data.assignments, 'missing'), []);
+});
+
+test('focused schedule derivation produces one row for a many-club cycle', () => {
+  const data = fixture();
+  const cycle = data.cycles[0];
+  cycle.startsOn = '2027-01-01';
+  cycle.endsOn = '2027-12-31';
+  cycle.slots = Array.from({ length: 30 }, (_, club) => Array.from({ length: 12 }, (_, month) => ({
+    id: `${club}-${month}`, clubId: `club-${club}`, month: `2027-${String(month + 1).padStart(2, '0')}`, meeting: null,
+  }))).flat();
+  const grid = scheduleGrid(data, cycle, ['club-17'], []);
+  assert.equal(grid.rows.length, 1);
+  assert.equal(grid.rows[0].cells.length, 12);
+  assert.equal(grid.rows[0].cells[0].slot?.clubId, 'club-17');
+});
+
+test('focused schedule retains conflicts with assignments outside the focused club and cycle', () => {
+  const data = fixture();
+  const cycle = data.cycles[0];
+  const assignment = data.assignments[0];
+  data.assignments = [assignment, { ...assignment, id: 'other-cycle', cycleId: 'published', slotId: 's4' }];
+  const row = scheduleGrid(data, cycle, ['c1'], data.assignments).rows[0];
+  assert.match(row.cells.find((cell) => cell.assignment?.id === assignment.id)?.problem ?? '', /Kit loan windows conflict/);
+});
 
 test('staff export uses selected clubs, local cycle slots and local assignments', () => {
   const data = fixture();

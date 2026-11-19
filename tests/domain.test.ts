@@ -11,7 +11,7 @@ import { reconcileBallot, saveStagedBallots, stageBallot, type StagedBallots } f
 import { memberCycleStatus, preferenceStatus, votingStatus } from '../src/domain/voting';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
-import { clubPriorities, clubStatuses, groupSlotsByMonth, memberMeetingCalendar, memberScheduleMeetings, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
+import { clubPriorities, clubStatuses, groupSlotsByMonth, memberMeetingCalendar, memberScheduleMeetings, memberVotes, monthsInRange, priorityCellsForTitle, priorityMatrix, priorityRowsForClub, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
 
 test('voting status explains whether member voting is open and why it is not', () => {
   const collecting = { status: 'collecting' as const, deadline: '2026-11-20' };
@@ -250,6 +250,64 @@ test('priority matrix ranks selected titles per club, flags contested titles and
   assert.equal(filtered.rows.find((row) => row.titleId === 't1')?.rankedClubCount, 1);
   assert.equal(filtered.rows.find((row) => row.titleId === 't1')?.contested, false);
   assert.deepEqual(priorityMatrix(data, cycle, [], [assignment]).rows, []);
+});
+
+test('priority matrix keeps the first matching assignment and ignores missing kits', () => {
+  const data = {
+    clubs: [{ id: 'c1', history: [] }], titles: [{ id: 't1' }],
+    kits: [{ id: 'k1', titleId: 't1' }, { id: 'k2', titleId: 't1' }], ballots: [],
+  } as unknown as Data;
+  const cycle = { id: 'cy', finalized: { c1: ['t1'] }, slots: [
+    { id: 's1', clubId: 'c1', month: '2027-01' },
+    { id: 's2', clubId: 'c1', month: '2027-02' },
+  ] } as unknown as Cycle;
+  const first = { id: 'a1', cycleId: 'cy', clubId: 'c1', slotId: 's1', kitId: 'k1' } as Assignment;
+  const second = { ...first, id: 'a2', slotId: 's2', kitId: 'k2' };
+  const missing = { ...first, id: 'a3', kitId: 'missing' };
+  const result = priorityMatrix(data, cycle, ['c1'], [missing, first, second]);
+  assert.equal(result.rows[0].cells[0].assignment, first);
+  assert.equal(result.rows[0].cells[0].month, '2027-01');
+  assert.equal(result.rows.length, 1);
+});
+
+test('priority matrix retains all ranks in a large selected-club grid', () => {
+  const clubs = Array.from({ length: 30 }, (_, index) => ({ id: `c${index}`, history: [] }));
+  const titles = Array.from({ length: 100 }, (_, index) => ({ id: `t${index}` }));
+  const data = { clubs, titles, kits: [], ballots: [] } as unknown as Data;
+  const cycle = { id: 'cy', slots: [], finalized: Object.fromEntries(clubs.map((club) =>
+    [club.id, titles.map((title) => title.id)])) } as unknown as Cycle;
+  const ids = clubs.map((club) => club.id);
+  const matrix = priorityMatrix(data, cycle, ids, []);
+  assert.equal(matrix.rows.length, 100);
+  assert.ok(matrix.rows.every((row) => row.cells.length === 30 && row.rankedClubCount === 30));
+  assert.equal(matrix.rows.find((row) => row.titleId === 't99')?.cells[29].rank, 100);
+  const selected = priorityMatrix(data, cycle, ids.slice(0, 2), []);
+  assert.equal(selected.rows[0].rankedClubCount, 2);
+  assert.deepEqual(selected.clubIds, ['c0', 'c1']);
+});
+
+test('native preference list orders titles for one club and compares all shown clubs', () => {
+  const matrix = {
+    clubIds: ['c1', 'c2', 'c3'],
+    rows: [
+      { titleId: 'a', rankedClubCount: 2, contested: true, cells: [
+        { clubId: 'c1', rank: 2, month: null }, { clubId: 'c2', rank: 1, month: '2027-01' }, { clubId: 'c3', rank: null, month: null },
+      ] },
+      { titleId: 'b', rankedClubCount: 1, contested: false, cells: [
+        { clubId: 'c1', rank: 1, month: null }, { clubId: 'c2', rank: null, month: null }, { clubId: 'c3', rank: null, month: null },
+      ] },
+      { titleId: 'c', rankedClubCount: 0, contested: false, cells: [
+        { clubId: 'c1', rank: null, month: null }, { clubId: 'c2', rank: null, month: null }, { clubId: 'c3', rank: null, month: null },
+      ] },
+    ],
+  };
+  assert.deepEqual(priorityRowsForClub(matrix, 'c1', [], 'ascending').map((row) => row.titleId), ['b', 'a', 'c']);
+  assert.deepEqual(priorityRowsForClub(matrix, 'c1', [], 'descending').map((row) => row.titleId), ['a', 'b', 'c']);
+  assert.deepEqual(priorityRowsForClub(matrix, 'c2', ['a'], 'ascending').map((row) => row.titleId), ['b', 'c']);
+  assert.deepEqual(priorityRowsForClub(matrix, 'hidden', [], 'ascending'), []);
+  assert.deepEqual(priorityCellsForTitle(matrix, matrix.rows[0], 'ascending').map((cell) => cell.clubId), ['c2', 'c1', 'c3']);
+  assert.deepEqual(priorityCellsForTitle(matrix, matrix.rows[0], 'descending').map((cell) => cell.clubId), ['c1', 'c2', 'c3']);
+  assert.equal(priorityCellsForTitle(matrix, matrix.rows[0], 'ascending')[0].month, '2027-01');
 });
 
 test('priority comparison sorts each axis by rank without losing cells or changing the default order', () => {

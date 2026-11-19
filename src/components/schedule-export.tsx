@@ -94,7 +94,24 @@ async function deliver(content: string | Uint8Array, filename: string, mimeType:
   });
 }
 
-export function ScheduleExportActions({ schedule, disabled, staffClubCount }: { schedule: ScheduleExport; disabled: boolean; staffClubCount?: number }) {
+type ScheduleExportPreview = {
+  label: string;
+  mode?: ScheduleExport['mode'];
+  hasMeetings: boolean;
+  highlight?: { title: string; count: number };
+};
+
+type ExportProps = { disabled: boolean; staffClubCount?: number } & (
+  | { schedule: ScheduleExport; preview?: never; makeSchedule?: never }
+  | { schedule?: never; preview: ScheduleExportPreview; makeSchedule: () => ScheduleExport }
+);
+
+export function ScheduleExportActions(props: ExportProps) {
+  const { disabled, staffClubCount } = props;
+  const preview: ScheduleExportPreview = props.schedule ? {
+    label: props.schedule.label, mode: props.schedule.mode, hasMeetings: props.schedule.meetings.length > 0,
+    highlight: props.schedule.highlight && { title: props.schedule.highlight.title, count: props.schedule.highlight.rows.length },
+  } : props.preview;
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -104,6 +121,7 @@ export function ScheduleExportActions({ schedule, disabled, staffClubCount }: { 
     setMessage('');
     setError('');
     try {
+      const schedule = props.schedule ?? props.makeSchedule();
       const date = new Date().toISOString().slice(0, 10);
       let content: string | Uint8Array;
       let missing = 0;
@@ -133,21 +151,21 @@ export function ScheduleExportActions({ schedule, disabled, staffClubCount }: { 
   }
 
   return <View style={{ gap: 8 }}>
-    <Label>{schedule.mode ? `Export ${schedule.mode === 'grid' ? 'Grid' : schedule.mode === 'meetings' ? 'Meetings' : 'Kits'}` : 'Export schedule'}</Label>
-    <Note>{schedule.highlight
+    <Label>{preview.mode ? `Export ${preview.mode === 'grid' ? 'Grid' : preview.mode === 'meetings' ? 'Meetings' : 'Kits'}` : 'Export schedule'}</Label>
+    <Note>{preview.highlight
       ? 'CSV includes all meetings for the clubs shown, including unassigned meetings.'
-      : schedule.mode === 'kits'
+      : preview.mode === 'kits'
       ? 'Exports include assigned meetings grouped by kit; unassigned meetings are not included.'
-      : 'Exports include all meetings for the clubs shown, including unassigned meetings.'} {schedule.label}.</Note>
-    {staffClubCount !== undefined && <Note>{staffClubCount} {staffClubCount === 1 ? 'club is' : 'clubs are'} selected in Clubs shown. {schedule.highlight
-      ? `PDF shows ${schedule.highlight.rows.length} ${schedule.highlight.rows.length === 1 ? 'club' : 'clubs'} matching ${schedule.highlight.title} on one page; CSV includes all selected clubs.`
+      : 'Exports include all meetings for the clubs shown, including unassigned meetings.'} {preview.label}.</Note>
+    {staffClubCount !== undefined && <Note>{staffClubCount} {staffClubCount === 1 ? 'club is' : 'clubs are'} selected in Clubs shown. {preview.highlight
+      ? `PDF shows ${preview.highlight.count} ${preview.highlight.count === 1 ? 'club' : 'clubs'} matching ${preview.highlight.title} on one page; CSV includes all selected clubs.`
       : 'Title highlighting does not change the CSV selection.'}</Note>}
     <Actions>
-      <Action title={busy ? 'Preparing export…' : 'Export CSV'} disabled={disabled || busy || !schedule.meetings.length} onPress={() => { void exportFile('csv'); }} />
-      <Action title={busy ? 'Preparing export…' : 'Export PDF'} disabled={disabled || busy || !schedule.meetings.length || (!!schedule.highlight && !schedule.highlight.rows.length)} onPress={() => { void exportFile('pdf'); }} />
+      <Action title={busy ? 'Preparing export…' : 'Export CSV'} disabled={disabled || busy || !preview.hasMeetings} onPress={() => { void exportFile('csv'); }} />
+      <Action title={busy ? 'Preparing export…' : 'Export PDF'} disabled={disabled || busy || !preview.hasMeetings || (!!preview.highlight && !preview.highlight.count)} onPress={() => { void exportFile('pdf'); }} />
     </Actions>
-    {!schedule.meetings.length && <Note>{schedule.mode === 'kits' ? 'No assigned kits are available to export for the clubs shown.' : 'No meetings are available to export for the clubs shown.'}</Note>}
-    {schedule.highlight && !schedule.highlight.rows.length && <Note>No shown clubs use this highlighted title. Select another title or clear the highlight to export a PDF.</Note>}
+    {!preview.hasMeetings && <Note>{preview.mode === 'kits' ? 'No assigned kits are available to export for the clubs shown.' : 'No meetings are available to export for the clubs shown.'}</Note>}
+    {preview.highlight && !preview.highlight.count && <Note>No shown clubs use this highlighted title. Select another title or clear the highlight to export a PDF.</Note>}
     {message ? <Text>{message}</Text> : null}
     {error ? <Text style={{ color: '#a22525' }}>Unable to export schedule: {error}</Text> : null}
   </View>;

@@ -1,33 +1,41 @@
-import { useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { Action, Actions, Card, Label, Note } from "./ui";
 import { PriorityGridView } from "./priority-grid";
+import { NativePriorityGridView } from "./priority-grid-native";
 import { priorityMatrix, titleDemand } from "../domain/cycle-overview";
 import { preferences as clubPreferences } from "../domain/logic";
 import type { Club, Cycle, Data } from "../domain/model";
 
-export function useStaffPreferences({ data, cycle, availableClubs }: {
-  data: Data; cycle: Cycle | undefined; availableClubs: Club[];
+export function useStaffPreferences({ data, cycle, availableClubs, enabled }: {
+  data: Data; cycle: Cycle | undefined; availableClubs: Club[]; enabled: boolean;
 }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [summariesOpen, setSummariesOpen] = useState(false);
   const [demandOpen, setDemandOpen] = useState(false);
   const [expandedClubs, setExpandedClubs] = useState<string[]>([]);
   const [reviewClubIds, setReviewClubIds] = useState<string[] | null>(null);
-  const shownClubIds = availableClubs
+  const shownClubIds = useMemo(() => availableClubs
     .filter((value) => reviewClubIds === null || reviewClubIds.includes(value.id))
-    .map((value) => value.id);
-  const demand = titleDemand(data, cycle?.id ?? "", shownClubIds);
+    .map((value) => value.id), [availableClubs, reviewClubIds]);
+  const demand = useMemo(() => enabled ? titleDemand(data, cycle?.id ?? "", shownClubIds) : new Map<string, number>(), [data, cycle?.id, shownClubIds, enabled]);
+  const matrix = useMemo(() => enabled && cycle ? priorityMatrix(data, cycle, shownClubIds, data.assignments) : null, [data, cycle, shownClubIds, enabled]);
+  const clubsById = useMemo(() => enabled ? new Map(data.clubs.map((club) => [club.id, club])) : new Map<string, Club>(), [data.clubs, enabled]);
+  const titlesById = useMemo(() => enabled ? new Map(data.titles.map((title) => [title.id, title])) : new Map<string, Data['titles'][number]>(), [data.titles, enabled]);
+  const clubNameFor = useCallback((id: string) => clubsById.get(id)?.name ?? "Unknown club", [clubsById]);
+  const titleFor = useCallback((id: string) => titlesById.get(id), [titlesById]);
+  const hideClub = useCallback((id: string) => setReviewClubIds(shownClubIds.filter((clubId) => clubId !== id)), [shownClubIds]);
   return { data, cycle, availableClubs, filtersOpen, setFiltersOpen, summariesOpen, setSummariesOpen,
-    demandOpen, setDemandOpen, expandedClubs, setExpandedClubs, setReviewClubIds, shownClubIds, demand };
+    demandOpen, setDemandOpen, expandedClubs, setExpandedClubs, setReviewClubIds, shownClubIds, demand,
+    matrix, clubNameFor, titleFor, hideClub };
 }
 
-export function StaffPreferences({ controller }: { controller: ReturnType<typeof useStaffPreferences> }) {
+export function StaffPreferences({ controller, nativeHeader }: { controller: ReturnType<typeof useStaffPreferences>; nativeHeader?: ReactNode }) {
   const { data, cycle, availableClubs, filtersOpen, setFiltersOpen, summariesOpen, setSummariesOpen,
-    demandOpen, setDemandOpen, expandedClubs, setExpandedClubs, setReviewClubIds, shownClubIds, demand } = controller;
+    demandOpen, setDemandOpen, expandedClubs, setExpandedClubs, setReviewClubIds, shownClubIds, demand,
+    matrix, clubNameFor, titleFor, hideClub } = controller;
   if (!cycle) return null;
-  return <>
-    <Card>
+  const filters = <Card>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: filtersOpen }}
         accessibilityLabel={`Clubs shown, ${shownClubIds.length} of ${availableClubs.length}`}
         onPress={() => setFiltersOpen(!filtersOpen)} style={styles.filterHeader}>
@@ -61,21 +69,16 @@ export function StaffPreferences({ controller }: { controller: ReturnType<typeof
           </Actions>
         </>
       ) : null}
-    </Card>
-    <Card>
+    </Card>;
+  const intro = <>
       <Label>Preferences · {cycle.name}</Label>
       <Note>
         Club rankings use the finalized order where available, otherwise
         the combined member rankings. Previously read titles are excluded. Contested counts include shown clubs that rank the title.
       </Note>
       {shownClubIds.length === 0 && <Note>Select clubs to see preferences.</Note>}
-      <PriorityGridView key={cycle.id}
-        matrix={priorityMatrix(data, cycle, shownClubIds, data.assignments)}
-        clubNameFor={(id) => data.clubs.find((value) => value.id === id)?.name ?? "Unknown club"}
-        titleFor={(id) => data.titles.find((value) => value.id === id)}
-        onHideClub={(id) => setReviewClubIds(shownClubIds.filter((clubId) => clubId !== id))}
-      />
-    </Card>
+    </>;
+  const footer = <>
     <Card>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: summariesOpen }}
         onPress={() => setSummariesOpen(!summariesOpen)} style={styles.filterHeader}>
@@ -117,6 +120,12 @@ export function StaffPreferences({ controller }: { controller: ReturnType<typeof
       </>}
     </Card>
   </>;
+  if (nativeHeader !== undefined && matrix) {
+    return <NativePriorityGridView key={cycle.id} matrix={matrix} clubNameFor={clubNameFor} titleFor={titleFor} onHideClub={hideClub}
+      header={<>{nativeHeader}{filters}<Card>{intro}</Card></>} footer={footer} />;
+  }
+  return <>{filters}<Card>{intro}{matrix && <PriorityGridView key={cycle.id} matrix={matrix}
+    clubNameFor={clubNameFor} titleFor={titleFor} onHideClub={hideClub} />}</Card>{footer}</>;
 }
 
 const styles = StyleSheet.create({

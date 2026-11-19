@@ -161,7 +161,23 @@ export interface PriorityMatrix {
 }
 
 export function priorityMatrix(data: Data, cycle: Cycle, clubIds: string[], assignments: Assignment[]): PriorityMatrix {
-  const cycleAssignments = assignments.filter((assignment) => assignment.cycleId === cycle.id && clubIds.includes(assignment.clubId));
+  const selectedClubs = new Set(clubIds);
+  const cycleAssignments = assignments.filter((assignment) => assignment.cycleId === cycle.id && selectedClubs.has(assignment.clubId));
+  const kitTitles = new Map<string, string>();
+  for (const kit of data.kits) if (!kitTitles.has(kit.id)) kitTitles.set(kit.id, kit.titleId);
+  const slots = new Map<string, Slot>();
+  for (const slot of cycle.slots) if (!slots.has(slot.id)) slots.set(slot.id, slot);
+  const assignmentsByClub = new Map<string, Map<string, Assignment>>();
+  for (const assignment of cycleAssignments) {
+    const titleId = kitTitles.get(assignment.kitId);
+    if (!titleId) continue;
+    let byTitle = assignmentsByClub.get(assignment.clubId);
+    if (!byTitle) {
+      byTitle = new Map();
+      assignmentsByClub.set(assignment.clubId, byTitle);
+    }
+    if (!byTitle.has(titleId)) byTitle.set(titleId, assignment);
+  }
   const ranks = new Map<string, Map<string, number>>();
   for (const clubId of clubIds) {
     const selected = preferences(data, cycle, clubId);
@@ -170,13 +186,13 @@ export function priorityMatrix(data: Data, cycle: Cycle, clubIds: string[], assi
   const titleIds = new Set<string>();
   for (const clubRanks of ranks.values()) for (const titleId of clubRanks.keys()) titleIds.add(titleId);
   for (const assignment of cycleAssignments) {
-    const titleId = data.kits.find((kit) => kit.id === assignment.kitId)?.titleId;
+    const titleId = kitTitles.get(assignment.kitId);
     if (titleId) titleIds.add(titleId);
   }
   const rows = [...titleIds].map((titleId): PriorityRow => {
     const cells = clubIds.map((clubId) => {
-      const assignment = cycleAssignments.find((item) => item.clubId === clubId && data.kits.find((kit) => kit.id === item.kitId)?.titleId === titleId);
-      const slot = assignment ? cycle.slots.find((item) => item.id === assignment.slotId) : undefined;
+      const assignment = assignmentsByClub.get(clubId)?.get(titleId);
+      const slot = assignment ? slots.get(assignment.slotId) : undefined;
       return { clubId, rank: ranks.get(clubId)?.get(titleId) ?? null, month: slot?.month ?? null, assignment };
     });
     const rankedClubCount = cells.filter((cell) => cell.rank !== null).length;
@@ -207,11 +223,23 @@ export function sortPriorityMatrix(matrix: PriorityMatrix, clubSort: PrioritySor
   const positions = new Map(clubIds.map((id, index) => [id, index]));
   return {
     clubIds,
-    rows: rows.map((row) => ({
-      ...row,
-      cells: [...row.cells].sort((a, b) => (positions.get(a.clubId) ?? clubIds.length) - (positions.get(b.clubId) ?? clubIds.length)),
-    })),
+    rows: rows.map((row) => {
+      if (row.cells.every((cell, index) => index === 0 ||
+        (positions.get(row.cells[index - 1].clubId) ?? clubIds.length) <= (positions.get(cell.clubId) ?? clubIds.length))) return row;
+      return { ...row, cells: [...row.cells].sort((a, b) => (positions.get(a.clubId) ?? clubIds.length) - (positions.get(b.clubId) ?? clubIds.length)) };
+    }),
   };
+}
+
+export function priorityRowsForClub(matrix: PriorityMatrix, clubId: string, hiddenTitleIds: readonly string[], direction: PrioritySort['direction']): PriorityRow[] {
+  if (!matrix.clubIds.includes(clubId)) return [];
+  const hidden = new Set(hiddenTitleIds);
+  const visible = { ...matrix, rows: matrix.rows.filter((row) => !hidden.has(row.titleId)) };
+  return sortPriorityMatrix(visible, { id: clubId, direction }, null).rows;
+}
+
+export function priorityCellsForTitle(matrix: PriorityMatrix, row: PriorityRow, direction: PrioritySort['direction']): PriorityCell[] {
+  return sortPriorityMatrix({ clubIds: matrix.clubIds, rows: [row] }, null, { id: row.titleId, direction }).rows[0].cells;
 }
 
 export function titleDemand(data: Data, cycleId: string, clubIds: string[]): Map<string, number> {
@@ -330,6 +358,29 @@ export function slotChanges(initial: Slot[], current: Slot[]): { newSlots: { id:
     newSlots: current.filter((slot) => !initialIds.has(slot.id)).map(({ id, clubId, month }) => ({ id, clubId, month })),
     removedSlotIds: initial.filter((slot) => !currentIds.has(slot.id)).map((slot) => slot.id),
   };
+}
+
+export function scheduleClubsMatchingTitle(data: Data, cycle: Cycle, clubIds: string[], assignments: Assignment[], titleId: string): string[] {
+  if (!data.titles.some((title) => title.id === titleId)) return [];
+  const selected = new Set(clubIds);
+  const assignmentBySlot = new Map(assignments.filter((assignment) => assignment.cycleId === cycle.id)
+    .map((assignment) => [assignment.slotId, assignment] as const));
+  const titleByKit = new Map(data.kits.map((kit) => [kit.id, kit.titleId] as const));
+  const seen = new Set<string>();
+  const matching = new Set<string>();
+  for (const slot of cycle.slots) {
+    if (!selected.has(slot.clubId)) continue;
+    const key = JSON.stringify([slot.clubId, slot.month]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const assignment = assignmentBySlot.get(slot.id);
+    if (assignment && titleByKit.get(assignment.kitId) === titleId) matching.add(slot.clubId);
+  }
+  return clubIds.filter((clubId) => matching.has(clubId));
+}
+
+export function focusedScheduleClub(clubIds: readonly string[], focusedId: string): string {
+  return clubIds.includes(focusedId) ? focusedId : clubIds[0] ?? '';
 }
 
 export function scheduleGrid(data: Data, cycle: Cycle, clubIds: string[], assignments: Assignment[]): ScheduleGrid {

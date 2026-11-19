@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { TitleCover } from './title-cover';
@@ -23,19 +23,19 @@ function nextSort(current: PrioritySort | null, id: string): PrioritySort {
   return { id, direction: current?.id === id && current.direction === 'ascending' ? 'descending' : 'ascending' };
 }
 
-export function PriorityGridView({ matrix, clubNameFor, titleFor, onHideClub }: PriorityGridProps) {
+export const PriorityGridView = React.memo(function PriorityGridView({ matrix, clubNameFor, titleFor, onHideClub }: PriorityGridProps) {
   const { width } = useWindowDimensions();
   const titleWidth = Math.min(220, Math.max(156, Math.floor(width * 0.42)));
   const [sortClub, setSortClub] = useState<PrioritySort | null>(null);
   const [sortTitle, setSortTitle] = useState<PrioritySort | null>(null);
   const [hiddenTitleIds, setHiddenTitleIds] = useState<string[]>([]);
   const [measurements, setMeasurements] = useState<Record<string, Record<string, number>>>({});
-  const visibleMatrix = { ...matrix, rows: matrix.rows.filter((row) => !hiddenTitleIds.includes(row.titleId)) };
+  const visibleMatrix = useMemo(() => ({ ...matrix, rows: matrix.rows.filter((row) => !hiddenTitleIds.includes(row.titleId)) }), [matrix, hiddenTitleIds]);
   const activeClub = sortClub && matrix.clubIds.includes(sortClub.id) ? sortClub : null;
   const activeTitle = sortTitle && visibleMatrix.rows.some((row) => row.titleId === sortTitle.id) ? sortTitle : null;
   if (sortClub && !activeClub) setSortClub(null);
   if (sortTitle && !activeTitle) setSortTitle(null);
-  const sorted = sortPriorityMatrix(visibleMatrix, activeClub, activeTitle);
+  const sorted = useMemo(() => sortPriorityMatrix(visibleMatrix, activeClub, activeTitle), [visibleMatrix, activeClub, activeTitle]);
 
   function measure(row: string, part: string, height: number) {
     const rounded = Math.ceil(height);
@@ -124,7 +124,7 @@ export function PriorityGridView({ matrix, clubNameFor, titleFor, onHideClub }: 
       </Text>}
     </>}
   </View>;
-}
+});
 
 function GridIconButton({ icon, label, direction, onPress }: {
   icon: 'sort' | 'hide';

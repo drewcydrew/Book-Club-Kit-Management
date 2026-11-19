@@ -54,7 +54,7 @@ function PreferencesContent() {
   const editable = !!voting?.editable;
 
   const member = useMemberPreferences({ data, shared, person, cycle, club, isMember, isLeader, editable });
-  const staffView = useStaffPreferences({ data, cycle, availableClubs });
+  const staffView = useStaffPreferences({ data, cycle, availableClubs, enabled: staff });
   const { sync, syncRefreshError, resetContext, mode, currentDraft, stagedCount, draftSaving } = member;
 
   function chooseClub(value: string) {
@@ -82,9 +82,8 @@ function PreferencesContent() {
       </Page>
     );
 
-  return (
-    <Page title="Preferences" wide={wide}>
-      <Card soft={!staff}>
+  const nativeStaff = staff && Platform.OS !== 'web';
+  const cycleCard = <Card soft={!staff}>
         <Label>{cycle.name}{club && !staff ? ` · ${club.name}` : ""}</Label>
         {staff && voting && (
           <Text
@@ -142,7 +141,11 @@ function PreferencesContent() {
             ))}
           </Actions>
         </>}
-      </Card>
+      </Card>;
+
+  return (
+    <Page title="Preferences" wide={wide} scroll={!nativeStaff}>
+      {!nativeStaff && cycleCard}
       {person.role === "member" && availableClubs.length === 0 && (
         <Note>
           This user has no club memberships. Manage enrolment on Home.
@@ -156,7 +159,7 @@ function PreferencesContent() {
       )}
 
       {!staff && club && <MemberPreferences controller={member} wide={wide} />}
-      {staff && <StaffPreferences controller={staffView} />}
+      {staff && <StaffPreferences controller={staffView} nativeHeader={nativeStaff ? cycleCard : undefined} />}
     </Page>
   );
 }
