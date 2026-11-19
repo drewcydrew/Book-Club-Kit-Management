@@ -8,8 +8,13 @@ import { memberCycleStatus, preferenceStatus } from "../domain/voting";
 import { today } from "../domain/dates";
 import { useShared } from "../state/shared";
 import { useStore } from "../state/store";
+import { ScreenGate } from "../components/screen-gate";
 
 export default function Preferences() {
+  return <ScreenGate><PreferencesContent /></ScreenGate>;
+}
+
+function PreferencesContent() {
   const { width } = useWindowDimensions();
   const { data } = useStore();
   const shared = useShared();
@@ -63,7 +68,7 @@ export default function Preferences() {
       <Page title="Preferences" wide={wide}>
         <Note>
           No demo user is selected on this device. Choose a shared user on the
-          User tab; no user is selected automatically.
+          Home; no user is selected automatically.
         </Note>
       </Page>
     );

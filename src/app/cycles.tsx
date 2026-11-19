@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import { today, validDate } from '../domain/dates';
@@ -8,8 +8,14 @@ import type { Club, Cycle, Data, Slot } from '../domain/model';
 import { deleteCycle, discardCycleSchedule, reopenCycle, saveCycle } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
+import { ScreenGate } from '../components/screen-gate';
+import { useDraftNavigationGuard } from '../components/navigation-guard';
 
 export default function Cycles() {
+  return <ScreenGate staffOnly><CyclesContent /></ScreenGate>;
+}
+
+function CyclesContent() {
   const { data } = useStore();
   const shared = useShared();
   const person = data.people.find((p) => p.id === data.selectedPersonId);
@@ -27,6 +33,14 @@ export default function Cycles() {
   const [reopenId, setReopenId] = useState('');
   const [discardId, setDiscardId] = useState('');
   const [editingSlotId, setEditingSlotId] = useState('');
+  const [editCycleDirty, setEditCycleDirty] = useState(false);
+  const [editSlotDirty, setEditSlotDirty] = useState(false);
+  const [createBaseline, setCreateBaseline] = useState({ deadline, startMonth, endMonth });
+  const [slotBaseline, setSlotBaseline] = useState({ slotMonth, clubId });
+  const dirty = !!name || deadline !== createBaseline.deadline || startMonth !== createBaseline.startMonth ||
+    endMonth !== createBaseline.endMonth || !!meeting || slotMonth !== slotBaseline.slotMonth || clubId !== slotBaseline.clubId ||
+    editCycleDirty || editSlotDirty;
+  const navigationConfirmation = useDraftNavigationGuard(dirty, shared.saving);
   const cycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
   const editable = cycle?.status === 'open' || cycle?.status === 'collecting';
   const [clubFilter, setClubFilter] = useState('');
@@ -56,7 +70,7 @@ export default function Cycles() {
       status: 'open' as const, slots: [], finalized: {},
     };
     void shared.mutate(() => saveCycle(newCycle)).then((created) => {
-      setSelectedId(created.id); setName(''); setMessage('Shared cycle created.');
+      setSelectedId(created.id); setName(''); setCreateBaseline({ deadline, startMonth, endMonth }); setMessage('Shared cycle created.');
     }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to create cycle.'));
   }
 
@@ -70,7 +84,7 @@ export default function Cycles() {
       return;
     }
     void persist({ ...cycle, slots: [...cycle.slots, { id: id(), clubId, month: slotMonth, meeting: meeting || null }] }, 'Kit slot added.')
-      .then((saved) => { if (saved) setMeeting(''); });
+      .then((saved) => { if (saved) { setMeeting(''); setSlotBaseline({ slotMonth, clubId }); } });
   }
 
   function fillMonths() {
@@ -83,8 +97,8 @@ export default function Cycles() {
     void persist({ ...cycle, slots: [...cycle.slots, ...added] }, `Added ${added.length} kit slots.`);
   }
 
-  if (!staff) return <Page title="Cycles"><Note>Staff manage shared planning cycles. Members can vote on Preferences. Switch to a demo staff/admin role on the User tab.</Note></Page>;
-  return <Page title="Cycles">
+  if (!staff) return <Page title="Cycles"><Note>Staff manage shared planning cycles. Members can vote on Preferences. Switch to a demo staff/admin role on Home.</Note></Page>;
+  return <Page title="Cycles">{navigationConfirmation}
     <Card><Label>Create a cycle</Label><Field label="Cycle name" value={name} onChangeText={setName} />
       <Field label="First month (YYYY-MM)" value={startMonth} onChangeText={setStartMonth} />
       <Field label="Last month (YYYY-MM)" value={endMonth} onChangeText={setEndMonth} />
@@ -130,7 +144,7 @@ export default function Cycles() {
         ? <PlanningOverview data={data} cycle={cycle} clubFilter={clubFilter} onFilter={setClubFilter} />
         : <ScheduleOverview data={data} cycle={cycle} clubFilter={clubFilter} onFilter={setClubFilter} />}
     <Card><Label>Manage cycle</Label>
-      {(cycle.status === 'open' || cycle.status === 'collecting') && <EditCycle key={cycle.id} cycle={cycle} saving={shared.saving} onSave={(value) => persist(value, 'Shared cycle saved.')} />}
+      {(cycle.status === 'open' || cycle.status === 'collecting') && <EditCycle key={cycle.id} cycle={cycle} saving={shared.saving} onDirtyChange={setEditCycleDirty} onSave={(value) => persist(value, 'Shared cycle saved.')} />}
       {cycle.status === 'open' && <Action title="Open member voting" disabled={shared.saving} onPress={() => { void persist({ ...cycle, status: 'collecting' }, 'Voting opened.'); }} />}
       {editable && <Label>Kit slots by month</Label>}
       {editable && data.assignments.some((assignment) => assignment.cycleId === cycle.id) && <Note>
@@ -152,6 +166,7 @@ export default function Cycles() {
                 }} />
               </Actions>
               {editingSlotId === slot.id && <EditSlot key={`${cycle.id}:${slot.id}`} data={data} cycle={cycle} slot={slot} saving={shared.saving}
+                onDirtyChange={setEditSlotDirty}
                 onCancel={() => setEditingSlotId('')} onSave={(value) => persist(value, 'Kit slot updated.').then((saved) => { if (saved) setEditingSlotId(''); })} />}
             </View>;
           })}
@@ -272,8 +287,8 @@ function monthLabel(month: string): string {
   return new Date(Date.UTC(year, monthNumber - 1, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 
-function EditSlot({ data, cycle, slot, saving, onSave, onCancel }: {
-  data: Data; cycle: Cycle; slot: Slot; saving: boolean; onSave: (value: Cycle) => Promise<void>; onCancel: () => void;
+function EditSlot({ data, cycle, slot, saving, onSave, onCancel, onDirtyChange }: {
+  data: Data; cycle: Cycle; slot: Slot; saving: boolean; onSave: (value: Cycle) => Promise<void>; onCancel: () => void; onDirtyChange: (dirty: boolean) => void;
 }) {
   const [clubId, setClubId] = useState(slot.clubId);
   const [month, setMonth] = useState(slot.month);
@@ -281,6 +296,8 @@ function EditSlot({ data, cycle, slot, saving, onSave, onCancel }: {
   const [revision] = useState(cycle.revision);
   const [message, setMessage] = useState('');
   const stale = revision !== cycle.revision;
+  const dirty = clubId !== slot.clubId || month !== slot.month || meeting !== (slot.meeting ?? '');
+  useEffect(() => { onDirtyChange(dirty); return () => onDirtyChange(false); }, [dirty, onDirtyChange]);
 
   function save() {
     if (!data.clubs.some((club) => club.id === clubId) || !validMonth(month)) {
@@ -312,7 +329,7 @@ function EditSlot({ data, cycle, slot, saving, onSave, onCancel }: {
   </View>;
 }
 
-function EditCycle({ cycle, saving, onSave }: { cycle: Cycle; saving: boolean; onSave: (value: Cycle) => Promise<Cycle | undefined> }) {
+function EditCycle({ cycle, saving, onSave, onDirtyChange }: { cycle: Cycle; saving: boolean; onSave: (value: Cycle) => Promise<Cycle | undefined>; onDirtyChange: (dirty: boolean) => void }) {
   const [name, setName] = useState(cycle.name);
   const [deadline, setDeadline] = useState(cycle.deadline);
   const [startMonth, setStartMonth] = useState(cycle.startsOn.slice(0, 7));
@@ -320,6 +337,8 @@ function EditCycle({ cycle, saving, onSave }: { cycle: Cycle; saving: boolean; o
   const [revision, setRevision] = useState(cycle.revision);
   const [message, setMessage] = useState('');
   const stale = revision !== cycle.revision;
+  const dirty = name !== cycle.name || deadline !== cycle.deadline || startMonth !== cycle.startsOn.slice(0, 7) || endMonth !== cycle.endsOn.slice(0, 7);
+  useEffect(() => { onDirtyChange(dirty); return () => onDirtyChange(false); }, [dirty, onDirtyChange]);
   function save() {
     if (!name.trim() || !validDate(deadline) || !validMonth(startMonth) || !validMonth(endMonth) || endMonth < startMonth) {
       setMessage('Enter a cycle name, a valid deadline (YYYY-MM-DD) and a start and end month (YYYY-MM).');
@@ -329,7 +348,7 @@ function EditCycle({ cycle, saving, onSave }: { cycle: Cycle; saving: boolean; o
     if (cycle.slots.some((slot) => !inRange.has(slot.month))) { setMessage('Every kit slot must fall within the new month range. Remove the slots outside it first.'); return; }
     if (cycle.slots.some((slot) => slot.meeting !== null && slot.meeting <= deadline)) { setMessage('The deadline must be before every meeting date.'); return; }
     void onSave({ ...cycle, name: name.trim(), deadline, startsOn: `${startMonth}-01`, endsOn: lastDayOfMonth(endMonth), revision }).then((saved) => {
-      if (saved) setRevision(saved.revision);
+      if (saved) { setRevision(saved.revision); setName(saved.name); }
     });
     setMessage('');
   }

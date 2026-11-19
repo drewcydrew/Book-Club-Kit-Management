@@ -1,4 +1,3 @@
-import { usePreventRemove } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -11,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useNavigationGuard } from "../components/navigation-guard";
+import { useDraftNavigationGuard } from "../components/navigation-guard";
 import { SearchPicker } from "../components/search-picker";
 import { TitleCover } from "../components/title-cover";
 import {
@@ -29,7 +28,6 @@ import type { PickerOption } from "../domain/search";
 import {
   ApiError,
   deleteClub,
-  loadShared,
   previewClubDeletion,
   saveHistory,
   saveMemberships,
@@ -38,6 +36,7 @@ import {
 } from "../state/api";
 import type { ClubDeletionPreview, SharedData } from "../state/api";
 import { useShared } from "../state/shared";
+import { ScreenGate } from "../components/screen-gate";
 import { useStore } from "../state/store";
 
 type Section = "details" | "members" | "history";
@@ -278,9 +277,12 @@ const idleStatus: Record<Section, SyncState> = {
 };
 
 export default function Clubs() {
+  return <ScreenGate staffOnly><ClubsContent /></ScreenGate>;
+}
+
+function ClubsContent() {
   const { data } = useStore();
   const shared = useShared();
-  const navigationGuard = useNavigationGuard();
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const staff = person?.role === "admin" || person?.role === "staff";
   const busy = shared.saving;
@@ -308,9 +310,6 @@ export default function Clubs() {
   const [titleQuery, setTitleQuery] = useState("");
   const [titleSelectedOnly, setTitleSelectedOnly] = useState(false);
   const [discardPrompt, setDiscardPrompt] = useState(false);
-  const [pendingNavigation, setPendingNavigation] = useState<
-    (() => void) | null
-  >(null);
   const draftRef = useRef<Draft | null>(null);
   const confirmedRef = useRef<Confirmed>({
     details: "",
@@ -330,24 +329,10 @@ export default function Clubs() {
       draft.club.address.trim() !== "" ||
       draft.sizeText !== "1");
 
-  const disablePrevention = usePreventRemove(
-    newDirty && formOpen,
-    ({ repeat }) => {
-      setPendingNavigation(() => repeat);
-      setDiscardPrompt(true);
-    },
-  );
-
-  useEffect(() => {
-    if (!formOpen || !newDirty) return;
-    return navigationGuard.register((continueNavigation) => {
-      setPendingNavigation(() => () => {
-        disablePrevention();
-        continueNavigation();
-      });
-      setDiscardPrompt(true);
-    });
-  }, [disablePrevention, formOpen, navigationGuard, newDirty]);
+  const states = Object.values(status);
+  const pendingSave = busy || states.some((state) => state.kind === "pending" || state.kind === "saving");
+  const unsaved = newDirty || states.some((state) => state.kind === "failed" || state.kind === "invalid");
+  const navigationConfirmation = useDraftNavigationGuard(unsaved, pendingSave);
 
   function unlinkedKitOptions(clubId: string): PickerOption[] {
     return data.kits
@@ -476,13 +461,13 @@ export default function Clubs() {
     const current = draftRef.current;
     if (!current) return;
     try {
-      await shared.refresh();
       const state = serverState(
-        await loadShared(),
+        await shared.refresh(),
         current.club.id,
         current.club.leaderId,
       );
-      if (state) revisionRef.current = state.revisions;
+      if (!state) throw new Error("Club is no longer available.");
+      revisionRef.current = state.revisions;
     } catch (error: unknown) {
       setSection(section, {
         kind: "failed",
@@ -498,7 +483,7 @@ export default function Clubs() {
     if (!current) return;
     try {
       const state = serverState(
-        await loadShared(),
+        await shared.refresh(),
         current.club.id,
         current.club.leaderId,
       );
@@ -538,11 +523,7 @@ export default function Clubs() {
     queueSync("details");
   }
 
-  const flushRef = useRef(flushDetails);
-  useEffect(() => {
-    flushRef.current = flushDetails;
-  });
-  useEffect(() => () => flushRef.current(), []);
+  useEffect(() => () => { if (detailsTimer.current) clearTimeout(detailsTimer.current); }, []);
 
   function edit(value: Club) {
     const current = draftRef.current;
@@ -579,7 +560,6 @@ export default function Clubs() {
     setTitleSelectedOnly(false);
     setMessage("");
     setDiscardPrompt(false);
-    setPendingNavigation(null);
     setFormOpen(true);
   }
 
@@ -679,7 +659,6 @@ export default function Clubs() {
   function closeModal() {
     flushDetails();
     setDiscardPrompt(false);
-    setPendingNavigation(null);
     setFormOpen(false);
   }
 
@@ -692,13 +671,10 @@ export default function Clubs() {
   }
 
   function discardNewClub() {
-    const navigate = pendingNavigation;
-    setPendingNavigation(null);
     setDiscardPrompt(false);
     draftRef.current = null;
     setDraft(null);
     setFormOpen(false);
-    navigate?.();
   }
 
   useEffect(() => {
@@ -795,6 +771,7 @@ export default function Clubs() {
 
   return (
     <Page title="Clubs">
+      {navigationConfirmation}
       <Actions>
         <Action
           title="Refresh shared clubs and memberships"
@@ -1066,7 +1043,6 @@ export default function Clubs() {
                           title="Keep editing"
                           onPress={() => {
                             setDiscardPrompt(false);
-                            setPendingNavigation(null);
                           }}
                         />
                       </Actions>

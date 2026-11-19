@@ -31,6 +31,7 @@ import {
 } from "../state/api";
 import { saveCatalogChange } from "../state/catalog-save";
 import { useShared } from "../state/shared";
+import { ScreenGate } from "../components/screen-gate";
 import { useStore } from "../state/store";
 
 const blankTitle = (): Title => ({
@@ -158,6 +159,10 @@ function applyLookup(draft: TitleDraft, found: IsbnLookup): TitleDraft {
 }
 
 export default function Catalog() {
+  return <ScreenGate staffOnly><CatalogContent /></ScreenGate>;
+}
+
+function CatalogContent() {
   const { data } = useStore();
   const shared = useShared();
   const navigationGuard = useNavigationGuard();

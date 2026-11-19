@@ -16,6 +16,7 @@ import type { Assignment } from '../domain/model';
 import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
+import { ScreenGate } from '../components/screen-gate';
 
 const strategyDescriptions = {
   clubs: 'Fill meetings, then improve the lowest club fairness scores.',
@@ -23,6 +24,10 @@ const strategyDescriptions = {
 };
 
 export default function Schedule() {
+  return <ScreenGate><ScheduleContent /></ScreenGate>;
+}
+
+function ScheduleContent() {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const wide = Platform.OS === 'web' && width >= SCHEDULE_DESKTOP_WIDTH;
@@ -161,7 +166,7 @@ export default function Schedule() {
     <Note>Unsaved staff schedule changes are held on this device.</Note>
     <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={requestDiscard} />
   </Card>;
-  if (!person) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}<Note>No demo user is selected on this device. Choose a user on the User tab.</Note></Page>;
+  if (!person) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}<Note>No demo user is selected. Choose a user on Home.</Note></Page>;
   if (!cycle) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
   const cycleAssignments = viewData.assignments.filter((assignment) => assignment.cycleId === cycle.id);
   const assignedSlots = new Set(cycleAssignments.map((assignment) => assignment.slotId));

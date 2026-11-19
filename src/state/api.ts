@@ -111,7 +111,7 @@ function isHistory(value: unknown): value is ClubHistory {
   return isObject(value) && isString(value.clubId) && isStringArray(value.titles);
 }
 
-async function request(path: string, method = 'GET', body?: unknown, revision?: number): Promise<unknown> {
+async function request(path: string, method = 'GET', body?: unknown, revision?: number, signal?: AbortSignal): Promise<unknown> {
   const configured = process.env.EXPO_PUBLIC_API_URL;
   if (!configured) throw new Error('EXPO_PUBLIC_API_URL is not configured.');
   let base: URL;
@@ -121,6 +121,7 @@ async function request(path: string, method = 'GET', body?: unknown, revision?: 
   try {
     response = await fetch(`${configured.replace(/\/+$/, '')}${path}`, {
       method,
+      signal,
       headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(revision === undefined ? {} : { 'If-Match': String(revision) }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
@@ -135,8 +136,7 @@ async function request(path: string, method = 'GET', body?: unknown, revision?: 
   return value;
 }
 
-export async function loadShared(): Promise<SharedData> {
-  const shared = await request('/api/shared');
+function parseShared(shared: unknown, path: string): SharedData {
   if (!isObject(shared) || !Array.isArray(shared.people) || !shared.people.every(isPerson) ||
       !Array.isArray(shared.memberships) || !shared.memberships.every(isMembership) ||
       !Array.isArray(shared.membershipRevisions) || !shared.membershipRevisions.every(isMembershipRevision) ||
@@ -150,7 +150,7 @@ export async function loadShared(): Promise<SharedData> {
       !Array.isArray(shared.kitLabels) || !shared.kitLabels.every(isKitLabel) ||
       !Array.isArray(shared.clubs) || !shared.clubs.every(isClub) ||
       !Array.isArray(shared.links) || !shared.links.every(isLink)) {
-    throw new Error('Server returned invalid data for /api/shared.');
+    throw new Error(`Server returned invalid data for ${path}.`);
   }
   return {
     people: shared.people, memberships: shared.memberships, membershipRevisions: shared.membershipRevisions,
@@ -158,6 +158,45 @@ export async function loadShared(): Promise<SharedData> {
     events: shared.events, history: shared.history, titles: shared.titles, kits: shared.kits, kitLabels: shared.kitLabels,
     clubs: shared.clubs, links: shared.links,
   };
+}
+
+export async function loadShared(): Promise<SharedData> {
+  return parseShared(await request('/api/shared'), '/api/shared');
+}
+
+export async function loadUsers(signal?: AbortSignal): Promise<Person[]> {
+  const users = await request('/api/users', 'GET', undefined, undefined, signal);
+  if (!Array.isArray(users) || !users.every(isPerson)) throw new Error('Server returned invalid data for /api/users.');
+  return users;
+}
+
+export type ViewScope = 'home' | 'preferences' | 'schedule' | 'catalog' | 'clubs' | 'cycles' | 'circulation' | 'admin';
+
+export async function loadView(personId: string, scope: ViewScope, signal?: AbortSignal): Promise<SharedData> {
+  const path = `/api/users/${encodeURIComponent(personId)}/views/${scope}`;
+  const data = parseShared(await request(path, 'GET', undefined, undefined, signal), path);
+  if (data.people.length !== 1 || data.people[0].id !== personId) throw new Error(`Server returned invalid user for ${path}.`);
+  return data;
+}
+
+export async function loadLeaderReview(personId: string, clubId: string, cycleId: string, signal?: AbortSignal): Promise<Ballot[]> {
+  const path = `/api/users/${encodeURIComponent(personId)}/clubs/${encodeURIComponent(clubId)}/cycles/${encodeURIComponent(cycleId)}/review`;
+  const value = await request(path, 'GET', undefined, undefined, signal);
+  if (!Array.isArray(value) || !value.every(isBallot) || value.some((ballot) => ballot.clubId !== clubId || ballot.cycleId !== cycleId)) {
+    throw new Error('Server returned invalid leader review data.');
+  }
+  return value;
+}
+
+export type EnrolmentClub = { id: string; name: string; revision: number; enrolled: boolean };
+export async function loadEnrolment(personId: string, signal?: AbortSignal): Promise<EnrolmentClub[]> {
+  const path = `/api/users/${encodeURIComponent(personId)}/enrolment`;
+  const value = await request(path, 'GET', undefined, undefined, signal);
+  if (!Array.isArray(value) || !value.every((club) => isObject(club) && isString(club.id) && isString(club.name) &&
+      Number.isSafeInteger(club.revision) && typeof club.revision === 'number' && club.revision >= 0 && typeof club.enrolled === 'boolean')) {
+    throw new Error('Server returned invalid enrolment data.');
+  }
+  return value;
 }
 
 export async function saveRecord(kind: 'titles' | 'kits' | 'clubs', record: SharedTitle | SharedClub |

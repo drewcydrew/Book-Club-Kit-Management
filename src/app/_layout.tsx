@@ -1,51 +1,57 @@
-import { Redirect, Link, router, Slot, usePathname } from 'expo-router';
+import { Link, router, Slot, usePathname } from 'expo-router';
 import type { Href } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { NavigationGuardProvider, useNavigationGuard } from '../components/navigation-guard';
-import { StoreProvider, useStore } from '../state/store';
-import { SharedProvider } from '../state/shared';
+import { SelectionProvider, useSelection } from '../state/selection';
+import { SharedProvider, useSharedStatus } from '../state/shared';
+import type { ViewScope } from '../state/api';
 
+const scopes: Record<string, ViewScope> = {
+  '/': 'home', '/catalog': 'catalog', '/clubs': 'clubs', '/cycles': 'cycles',
+  '/preferences': 'preferences', '/schedule': 'schedule', '/circulation': 'circulation', '/admin': 'admin',
+};
 const staffOnlyRoutes = ['/catalog', '/clubs', '/cycles', '/circulation', '/admin'];
 
-function matchesRoute(pathname: string, routes: string[]) {
-  return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+function NavigationLink({ href, children, disabled }: { href: Href; children: string; disabled: boolean }) {
+  const guard = useNavigationGuard();
+  return <Link href={href} style={styles.link} onPress={(event) => {
+    if (disabled || guard.intercept(() => router.navigate(href))) event.preventDefault();
+  }}>{children}</Link>;
 }
 
-function Shell() {
-  const { data } = useStore();
-  const pathname = usePathname();
-  const person = data.people.find((p) => p.id === data.selectedPersonId);
+function SelectedShell() {
+  const { person } = useSelection();
+  const { saving } = useSharedStatus();
   const member = person?.role === 'member';
-  const blocked = member && matchesRoute(pathname, staffOnlyRoutes);
-  const enrolled = data.memberships.filter((membership) => membership.personId === person?.id)
-    .map((membership) => data.clubs.find((club) => club.id === membership.clubId)?.name)
-    .filter((name): name is string => !!name);
   return <View style={styles.shell}>
     <View style={styles.header}>
-      <Text style={styles.brand}>{data.library.name} · Book club kits</Text>
-      <Text style={styles.context}>Public writable demo · {person ? `${person.name} · ${person.role}${member ? ` · ${enrolled.length > 0 ? enrolled.join(', ') : 'no clubs enrolled'}` : ''}` : 'no user selected'} · Users, clubs, voting and schedules shared</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.navigation}>
-        <NavigationLink href="/">Home</NavigationLink>
-        {!member && <NavigationLink href="/catalog">Catalog & kits</NavigationLink>}
-        {!member && <NavigationLink href="/clubs">Clubs</NavigationLink>}
-        {!member && <NavigationLink href="/cycles">Cycles</NavigationLink>}
-        <NavigationLink href="/preferences">Preferences</NavigationLink>
-        <NavigationLink href="/schedule">Schedule</NavigationLink>
-        {!member && <NavigationLink href="/circulation">Circulation</NavigationLink>}
-        {!member && <NavigationLink href="/admin">Admin</NavigationLink>}
-        <NavigationLink href="/user">User</NavigationLink>
-      </ScrollView>
+      <Text style={styles.brand}>Book club kits</Text>
+      <Text style={styles.context}>Public writable demo · {person ? `${person.name} · ${person.role}` : 'no user selected'}</Text>
+      {saving && <Text style={styles.context}>Saving changes; wait before changing pages or users.</Text>}
+      {person && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.navigation}>
+        <NavigationLink disabled={saving} href="/">Home</NavigationLink>
+        {!member && <NavigationLink disabled={saving} href="/catalog">Catalog & kits</NavigationLink>}
+        {!member && <NavigationLink disabled={saving} href="/clubs">Clubs</NavigationLink>}
+        {!member && <NavigationLink disabled={saving} href="/cycles">Cycles</NavigationLink>}
+        <NavigationLink disabled={saving} href="/preferences">Preferences</NavigationLink>
+        <NavigationLink disabled={saving} href="/schedule">Schedule</NavigationLink>
+        {!member && <NavigationLink disabled={saving} href="/circulation">Circulation</NavigationLink>}
+        {!member && <NavigationLink disabled={saving} href="/admin">Admin</NavigationLink>}
+      </ScrollView>}
     </View>
-    {blocked ? <Redirect href="/preferences" /> : <Slot />}
+    <Slot />
   </View>;
 }
 
-function NavigationLink({ href, children }: { href: Href; children: string }) {
-  const guard = useNavigationGuard();
-  return <Link href={href} style={styles.link} onPress={(event) => {
-    if (guard.intercept(() => router.navigate(href))) event.preventDefault();
-  }}>{children}</Link>;
+function Shell() {
+  const { person } = useSelection();
+  const pathname = usePathname();
+  const scope = person?.role === 'member' && staffOnlyRoutes.includes(pathname) ? 'preferences' : scopes[pathname] ?? 'home';
+  return <SharedProvider key={`${person?.id ?? ''}:${person?.role ?? ''}`} personId={person?.id ?? ''} scope={scope}
+    enabled={!(pathname === '/' && person && person.role !== 'member')}>
+    <SelectedShell />
+  </SharedProvider>;
 }
 
 const styles = StyleSheet.create({
@@ -58,5 +64,5 @@ const styles = StyleSheet.create({
 });
 
 export default function Layout() {
-  return <SharedProvider><StoreProvider><NavigationGuardProvider><Shell /></NavigationGuardProvider></StoreProvider></SharedProvider>;
+  return <SelectionProvider><NavigationGuardProvider><Shell /></NavigationGuardProvider></SelectionProvider>;
 }

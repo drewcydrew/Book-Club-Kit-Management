@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { seed } from '../src/domain/seed';
 import {
-  ApiError, deleteClub, deleteCycle, deleteUser, finalizeRanking, loadShared, previewClubDeletion, reopenCycle, saveBallot, saveCycle, saveEvent,
+  ApiError, deleteClub, deleteCycle, deleteUser, finalizeRanking, loadEnrolment, loadLeaderReview, loadShared, loadUsers, loadView, previewClubDeletion, reopenCycle, saveBallot, saveCycle, saveEvent,
   saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser, saveValidatedSchedule, validateSchedule,
 } from '../src/state/api';
 
@@ -24,6 +24,37 @@ const payload = {
   clubs: demo.clubs.map(({ leaderId: _leaderId, history: _history, membershipRevision: _membershipRevision, ...club }) => club),
   links: [],
 };
+
+test('bootstrap and scoped loaders request only the chosen resources and validate their identities', async () => {
+  const oldUrl = process.env.EXPO_PUBLIC_API_URL;
+  const oldFetch = globalThis.fetch;
+  process.env.EXPO_PUBLIC_API_URL = 'https://demo.example';
+  const paths: string[] = [];
+  globalThis.fetch = async (input) => {
+    const path = new URL(String(input)).pathname;
+    paths.push(path);
+    const result = path === '/api/users' ? demo.people :
+      path.endsWith('/enrolment') ? [{ id: 'c1', name: 'Club', revision: 0, enrolled: true }] :
+        path.endsWith('/review') ? [demo.ballots[0]] : { ...payload, people: [demo.people.find((person) => person.id === 'p3')] };
+    return new Response(JSON.stringify(result), { status: 200 });
+  };
+  try {
+    assert.equal((await loadUsers()).length, demo.people.length);
+    assert.equal((await loadView('p3', 'home')).people[0].id, 'p3');
+    assert.equal((await loadEnrolment('p3'))[0].enrolled, true);
+    const ballot = demo.ballots[0];
+    assert.deepEqual(await loadLeaderReview('p3', ballot.clubId, ballot.cycleId), [ballot]);
+    assert.deepEqual(paths, ['/api/users', '/api/users/p3/views/home', '/api/users/p3/enrolment',
+      `/api/users/p3/clubs/${ballot.clubId}/cycles/${ballot.cycleId}/review`]);
+    await assert.rejects(loadView('p4', 'home'), /invalid user/);
+    await assert.rejects(loadLeaderReview('p3', 'other', ballot.cycleId), /invalid leader review/);
+    globalThis.fetch = async () => new Response(JSON.stringify([{ id: 'c1', name: 'Club', revision: -1, enrolled: true }]), { status: 200 });
+    await assert.rejects(loadEnrolment('p3'), /invalid enrolment/);
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL; else process.env.EXPO_PUBLIC_API_URL = oldUrl;
+  }
+});
 
 test('shared loader validates shared users, memberships, cycles and catalog response shapes', async () => {
   const oldUrl = process.env.EXPO_PUBLIC_API_URL;

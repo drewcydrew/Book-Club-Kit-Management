@@ -1,26 +1,27 @@
-import React, { useCallback } from 'react';
+import React from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
 import { useStore } from '../state/store';
 import { useShared } from '../state/shared';
 
 export function Page({ title, children, wide = false }: { title: string; children: React.ReactNode; wide?: boolean }) {
   const { data, error } = useStore();
   const shared = useShared();
-  const { refresh } = shared;
-  useFocusEffect(useCallback(() => { void refresh().catch(() => undefined); }, [refresh]));
+  const { refresh, scope } = shared;
+  const member = data.people.find((person) => person.id === data.selectedPersonId)?.role === 'member';
+  const hasClubs = ['home', 'preferences', 'schedule', 'clubs', 'cycles'].includes(scope);
+  const hasLabels = scope === 'catalog' || (scope === 'preferences' && member);
   const missingSharedReferences =
-    data.memberships.some((membership) => !data.people.some((person) => person.id === membership.personId) || !data.clubs.some((club) => club.id === membership.clubId)) ||
-    data.cycles.some((cycle) => cycle.slots.some((slot) => !data.clubs.some((club) => club.id === slot.clubId))) ||
-    data.assignments.some((assignment) => !data.clubs.some((club) => club.id === assignment.clubId) || !data.kits.some((kit) => kit.id === assignment.kitId)) ||
-    data.kits.some((kit) => kit.labelIds.some((labelId) => !data.kitLabels.some((label) => label.id === labelId))) ||
+    (hasClubs && data.memberships.some((membership) => !data.people.some((person) => person.id === membership.personId) || !data.clubs.some((club) => club.id === membership.clubId))) ||
+    (hasClubs && data.cycles.some((cycle) => cycle.slots.some((slot) => !data.clubs.some((club) => club.id === slot.clubId)))) ||
+    (hasClubs && data.assignments.some((assignment) => !data.clubs.some((club) => club.id === assignment.clubId) || !data.kits.some((kit) => kit.id === assignment.kitId))) ||
+    (hasLabels && data.kits.some((kit) => kit.labelIds.some((labelId) => !data.kitLabels.some((label) => label.id === labelId)))) ||
     data.ballots.some((ballot) => !data.clubs.some((club) => club.id === ballot.clubId) || ballot.ranking.some((id) => !data.titles.some((title) => title.id === id))) ||
     data.events.some((event) => !data.kits.some((kit) => kit.id === event.kitId));
   return <ScrollView contentContainerStyle={[styles.page, wide && styles.widePage]} keyboardShouldPersistTaps="handled">
     <Text accessibilityRole="header" style={styles.heading}>{title}</Text>
     {error ? <Text style={styles.error}>Unable to save: {error}</Text> : null}
-    {shared.error ? <><Text style={styles.error}>{shared.error}</Text>
-      <Action title="Refresh shared data" disabled={shared.saving} onPress={() => { void refresh().catch(() => undefined); }} /></> : null}
+    {shared.error ? <Text style={styles.error}>{shared.error}</Text> : null}
+    <Action title="Refresh page data" disabled={shared.saving} onPress={() => { void refresh().catch(() => undefined); }} />
     {missingSharedReferences ? <Text style={styles.error}>Some shared records reference unavailable users, clubs, titles or kits. Refresh or contact the demo administrator.</Text> : null}
     {children}
   </ScrollView>;

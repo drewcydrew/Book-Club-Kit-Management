@@ -36,7 +36,7 @@ export function TitlePicker({ titles, selectedId, disabled, onSelect }: TitlePic
     <Pressable accessibilityRole="button" accessibilityLabel="Title" accessibilityHint="Opens the list of titles" disabled={disabled}
       onPress={() => setOpen(true)} style={({ pressed }) => [uiStyles.input, styles.field, pressed && uiStyles.pressed, disabled && uiStyles.disabled]}>
       <View style={styles.fieldRow}>
-        {selected && (selected.coverUrl || selected.isbn) && <TitleCover coverUrl={selected.coverUrl} isbn={selected.isbn} style={thumbStyle} />}
+        {selected && (selected.coverUrl || selected.isbn) ? <TitleCover coverUrl={selected.coverUrl} isbn={selected.isbn} style={thumbStyle} /> : null}
         <Text style={selected ? styles.value : styles.placeholder}>{selected ? selected.name : 'Select a title'}</Text>
       </View>
     </Pressable>
@@ -51,7 +51,7 @@ export function TitlePicker({ titles, selectedId, disabled, onSelect }: TitlePic
             renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityState={{ selected: item.id === selectedId }}
               onPress={() => choose(item.id)} style={({ pressed }) => [styles.row, item.id === selectedId && styles.rowSelected, pressed && uiStyles.pressed]}>
               <View style={styles.fieldRow}>
-                {(item.coverUrl || item.isbn) && <TitleCover coverUrl={item.coverUrl} isbn={item.isbn} style={thumbStyle} />}
+                {(item.coverUrl || item.isbn) ? <TitleCover coverUrl={item.coverUrl} isbn={item.isbn} style={thumbStyle} /> : null}
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={styles.rowName}>{item.name}{item.id === selectedId ? ' ✓' : ''}</Text>
                   <Note>{item.author}</Note>

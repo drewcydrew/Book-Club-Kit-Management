@@ -7,8 +7,14 @@ import type { Event } from '../domain/model';
 import { saveEvent } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
+import { ScreenGate } from '../components/screen-gate';
+import { useDraftNavigationGuard } from '../components/navigation-guard';
 
 export default function Circulation() {
+  return <ScreenGate staffOnly><CirculationContent /></ScreenGate>;
+}
+
+function CirculationContent() {
   const { data } = useStore();
   const shared = useShared();
   const person = data.people.find((p) => p.id === data.selectedPersonId);
@@ -20,6 +26,9 @@ export default function Circulation() {
   const [missing, setMissing] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const staff = person?.role === 'admin' || person?.role === 'staff';
+  const inspectedKit = data.kits.find((kit) => kit.id === inspectId);
+  const dirty = notes.trim() !== '' || (!!inspectId && (returned !== String(inspectedKit?.copies ?? '') || missing.length > 0 || !complete));
+  const navigationConfirmation = useDraftNavigationGuard(dirty, shared.saving);
 
   function record(kitId: string, action: Event['action']) {
     const kit = data.kits.find((item) => item.id === kitId);
@@ -42,11 +51,11 @@ export default function Circulation() {
     }
   }
 
-  if (!staff) return <Page title="Circulation"><Note>Switch to a staff or library-admin demo user on the User tab to manage shared kit status.</Note></Page>;
+  if (!staff) return <Page title="Circulation"><Note>Switch to a staff or library-admin demo user on Home to manage shared kit status.</Note></Page>;
   const search = query.trim().toLowerCase();
   const visibleKits = data.kits.filter((kit) =>
     `${kit.barcode} ${data.titles.find((title) => title.id === kit.titleId)?.name ?? ''}`.toLowerCase().includes(search));
-  return <Page title="Circulation"><Note>Kit status and append-only circulation history are shared across devices. The API validates each transition.</Note>
+  return <Page title="Circulation">{navigationConfirmation}<Note>Kit status and append-only circulation history are shared across devices. The API validates each transition.</Note>
     <Field label="Find a kit by barcode or title" value={query} onChangeText={setQuery} />
     {data.kits.length === 0 && <Note>No shared kits are available. Staff can create kits in the Catalog, or an administrator can run the demo seed.</Note>}
     <Field label="Event notes" value={notes} onChangeText={setNotes} />

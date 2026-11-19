@@ -61,9 +61,12 @@ export class BallotSync {
   }
 }
 
-export function useBallotSync(save: (ballot: Ballot) => Promise<Ballot>, onIdle: () => void) {
+export function useBallotSync(save: (ballot: Ballot) => Promise<Ballot>, onIdle: () => void, onFailure: () => void) {
   const [status, setStatus] = useState<SyncStatus>({ state: 'idle', message: null });
-  const [sync] = useState(() => new BallotSync(setStatus));
+  const [sync] = useState(() => new BallotSync((next) => {
+    setStatus(next);
+    if (next.state === 'error') onFailure();
+  }));
   useEffect(() => { sync.configure(save, onIdle); });
   return { status, enqueue: (ballot: Ballot) => sync.enqueue(ballot), flush: () => sync.flush() };
 }

@@ -32,6 +32,7 @@ app.use('/api', require('./routes/covers'));
 app.use('/api', require('./routes/isbn-lookup'));
 app.use('/api', require('./routes/isbn-search'));
 app.use('/api', require('./routes/users'));
+app.use('/api', require('./routes/scoped'));
 app.use('/api', require('./routes/cycles').router);
 app.use('/api', require('./routes/ballots').router);
 app.use('/api', require('./routes/schedules'));

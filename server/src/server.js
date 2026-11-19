@@ -22,3 +22,4 @@ if (configuredPort !== undefined && (!/^\d+$/.test(configuredPort) || !Number.is
     process.exitCode = 1;
   }
 }
+

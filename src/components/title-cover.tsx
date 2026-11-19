@@ -4,6 +4,10 @@ import { fetchIsbnCover } from '../state/api';
 
 const coverRequests = new Map<string, Promise<string | null>>();
 
+export function clearCoverCache() {
+  coverRequests.clear();
+}
+
 function loadCover(isbn: string): Promise<string | null> {
   let request = coverRequests.get(isbn);
   if (!request) {

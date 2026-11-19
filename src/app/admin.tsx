@@ -10,6 +10,7 @@ import type { PickerOption } from '../domain/search';
 import { deleteUser, saveSettings, saveUser } from '../state/api';
 import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
+import { ScreenGate } from '../components/screen-gate';
 
 const roles: Role[] = ['member', 'staff', 'admin'];
 const roleGroups = [{ value: 'all', label: 'All roles' }, ...roles.map((role) => ({ value: role, label: role }))];
@@ -19,6 +20,10 @@ function userSnapshot(name: string, role: Role) {
 }
 
 export default function Admin() {
+  return <ScreenGate staffOnly><AdminContent /></ScreenGate>;
+}
+
+function AdminContent() {
   const { data } = useStore();
   const shared = useShared();
   const [userName, setUserName] = useState('');
@@ -117,7 +122,7 @@ export default function Admin() {
   if (!canManage) return <Page title="Admin">
     <Card>
       <Label>Admin controls</Label>
-      <Note>{person ? 'Shared user management and library lending settings need the admin role. Choose an admin on the User tab to manage them.' : 'Choose a user on the User tab.'}</Note>
+      <Note>{person ? 'Shared user management and library lending settings need the admin role. Choose an admin on Home to manage them.' : 'Choose a user on Home.'}</Note>
     </Card>
     {message ? <Text>{message}</Text> : null}
   </Page>;

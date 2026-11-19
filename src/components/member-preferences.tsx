@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { usePreventRemove } from "expo-router";
+import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Action, Actions, Card, Label, Note } from "./ui";
 import { RankingList } from "./ranking-list";
 import { TitleDetails } from "./title-details";
@@ -8,9 +9,10 @@ import { ballotKey, emptyBallot, moveInRanking, setMark, undoDismissal } from ".
 import { indexKits, kitLabelSummary } from "../domain/kit-label-search";
 import { rankings } from "../domain/logic";
 import type { Ballot, Club, Cycle, Data, Mark, Person } from "../domain/model";
-import { finalizeRanking, saveBallot } from "../state/api";
+import { finalizeRanking, loadLeaderReview, saveBallot } from "../state/api";
 import { useBallotSync } from "../state/ballot-sync";
 import { useShared } from "../state/shared";
+import { useNavigationGuard } from "./navigation-guard";
 
 function moved(list: string[], index: number, direction: -1 | 1): string[] {
   const target = index + direction;
@@ -45,7 +47,14 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
   const [syncRefreshing, setSyncRefreshing] = useState(false);
   const [syncRefreshError, setSyncRefreshError] = useState<string | null>(null);
   const refreshCount = useRef(0);
+  const refreshSequence = useRef(0);
   const [leaderOpen, setLeaderOpen] = useState(false);
+  const [leaderResult, setLeaderResult] = useState<{ key: string; ballots: Ballot[]; error: null } | { key: string; ballots: null; error: string } | null>(null);
+  const [leaderRetry, setLeaderRetry] = useState(0);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  const [allowLeaving, setAllowLeaving] = useState(false);
+  const [navigationMessage, setNavigationMessage] = useState("");
+  const navigationGuard = useNavigationGuard();
   const [dismissalUndo, setDismissalUndo] = useState<{ key: string; titleId: string; dismissedAs: 'wont' | 'read'; previous: Mark | null; index: number } | null>(null);
   const [lastRemovedId, setLastRemovedId] = useState<string | null>(null);
   const [detailTitleId, setDetailTitleId] = useState<string | null>(null);
@@ -53,10 +62,12 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
     saveBallot,
     () => {
       const saved = draftRef.current;
+      shared.invalidateOtherScopes();
+      const request = ++refreshSequence.current;
       refreshCount.current += 1;
       setSyncRefreshing(true);
       void shared.refresh().then(() => {
-        setSyncRefreshError(null);
+        if (request === refreshSequence.current) setSyncRefreshError(null);
         const remaining = { ...draftRef.current };
         for (const [key, value] of Object.entries(saved)) {
           if (remaining[key] === value) delete remaining[key];
@@ -64,12 +75,13 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
         draftRef.current = remaining;
         setDrafts(remaining);
       }).catch((error: unknown) => {
-        setSyncRefreshError(error instanceof Error ? error.message : "Unable to refresh saved choices.");
+        if (request === refreshSequence.current) setSyncRefreshError(error instanceof Error ? error.message : "Unable to refresh saved choices.");
       }).finally(() => {
         refreshCount.current -= 1;
-        if (refreshCount.current === 0) setSyncRefreshing(false);
+        if (refreshCount.current === 0) { setSyncRefreshing(false); shared.setBackgroundSaving(false); }
       });
     },
+    () => { shared.invalidateOtherScopes(); shared.setBackgroundSaving(false); },
   );
 
   const serverBallot =
@@ -88,6 +100,36 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
   const ballot = drafts[currentKey] ?? serverBallot;
   const reviewKey = `${cycle?.id ?? ""}:${club?.id ?? ""}:${person?.id ?? ""}`;
   const reviewRanking = review?.key === reviewKey ? review.ranking : null;
+  const leaderKey = `${reviewKey}:${cycle?.revision ?? ""}:${leaderRetry}`;
+  const leaderReady = leaderResult?.key === leaderKey && leaderResult.ballots !== null;
+  const leaderError = leaderResult?.key === leaderKey ? leaderResult.error : null;
+  const reviewData = leaderReady ? { ...data, ballots: leaderResult.ballots } : data;
+  const personId = person?.id;
+  const clubId = club?.id;
+  const cycleId = cycle?.id;
+  useEffect(() => {
+    if (!leaderOpen || !isLeader || !personId || !clubId || !cycleId) return;
+    const controller = new AbortController();
+    void loadLeaderReview(personId, clubId, cycleId, controller.signal).then((ballots) => {
+      if (!controller.signal.aborted) setLeaderResult({ key: leaderKey, ballots, error: null });
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setLeaderResult({ key: leaderKey, ballots: null, error: error instanceof Error ? error.message : "Unable to load club rankings." });
+    });
+    return () => controller.abort();
+  }, [leaderOpen, isLeader, personId, clubId, cycleId, leaderKey]);
+  const busy = sync.status.state === "saving" || syncRefreshing || shared.saving;
+  const dirty = sync.status.state === "error" || !!syncRefreshError || reviewRanking !== null;
+  const disablePrevention = usePreventRemove(!allowLeaving && (busy || dirty), ({ repeat }) => {
+    if (busy) { setNavigationMessage("Wait for choices and shared changes to finish saving before leaving."); return; }
+    setPendingNavigation(() => repeat);
+  });
+  useEffect(() => {
+    if (!busy && !dirty) return;
+    return navigationGuard.register((continueNavigation) => {
+      if (busy) { setNavigationMessage("Wait for choices and shared changes to finish saving before leaving."); return; }
+      setPendingNavigation(() => () => { disablePrevention(); continueNavigation(); });
+    });
+  }, [busy, dirty, disablePrevention, navigationGuard]);
   const clubRead = club
     ? data.titles.filter((title) => club.history.includes(title.id))
     : [];
@@ -116,10 +158,12 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
     setDrafts(draftRef.current);
     setReview(null);
 
+    shared.setBackgroundSaving(true);
     sync.enqueue(withFreshRevision(next));
   }
 
   function saveChoices() {
+    shared.setBackgroundSaving(true);
     const failedKey = sync.status.key;
     if (sync.status.state === "error" && failedKey && drafts[failedKey]) {
       const failedDraft = drafts[failedKey];
@@ -130,9 +174,10 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
   }
 
   function refreshChoices() {
+    const request = ++refreshSequence.current;
     const saved = sync.status.state === "saved" ? draftRef.current : null;
     void shared.refresh().then(() => {
-      setSyncRefreshError(null);
+      if (request === refreshSequence.current) setSyncRefreshError(null);
       if (saved) {
         const remaining = { ...draftRef.current };
         for (const [key, value] of Object.entries(saved)) {
@@ -141,7 +186,7 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
         draftRef.current = remaining;
         setDrafts(remaining);
       }
-    }).catch((error: unknown) => setSyncRefreshError(error instanceof Error ? error.message : "Unable to refresh choices."));
+    }).catch((error: unknown) => { if (request === refreshSequence.current) setSyncRefreshError(error instanceof Error ? error.message : "Unable to refresh choices."); });
   }
 
   function mark(titleId: string, value: Mark | null) {
@@ -180,7 +225,8 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
   }
   return {
     data, shared, cycle, club, isMember, isLeader, editable, ballot, currentKey, reviewKey, reviewRanking, setReview,
-    sync, syncRefreshing, syncRefreshError, leaderOpen, setLeaderOpen, activeUndo, undoLastDismissal,
+    sync, syncRefreshing, syncRefreshError, leaderOpen, setLeaderOpen, leaderReady, leaderError, setLeaderRetry, reviewData,
+    pendingNavigation, setPendingNavigation, setAllowLeaving, navigationMessage, setNavigationMessage, activeUndo, undoLastDismissal,
     lastRemovedId, setLastRemovedId, detailTitle, setDetailTitleId, kitsByTitle, labelById,
     clubRead, selectedCount, changeBallot, saveChoices, refreshChoices, mark, removeSelection, resetContext,
   };
@@ -189,13 +235,23 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
 export function MemberPreferences({ controller }: { controller: ReturnType<typeof useMemberPreferences> }) {
   const {
     data, shared, cycle, club, isMember, isLeader, editable, ballot, currentKey, reviewKey, reviewRanking, setReview,
-    sync, syncRefreshing, syncRefreshError, leaderOpen, setLeaderOpen, activeUndo, undoLastDismissal,
+    sync, syncRefreshing, syncRefreshError, leaderOpen, setLeaderOpen, leaderReady, leaderError, setLeaderRetry, reviewData,
+    pendingNavigation, setPendingNavigation, setAllowLeaving, navigationMessage, setNavigationMessage, activeUndo, undoLastDismissal,
     lastRemovedId, setLastRemovedId, detailTitle, setDetailTitleId, kitsByTitle, labelById,
     clubRead, selectedCount, changeBallot, saveChoices, refreshChoices, mark, removeSelection,
   } = controller;
   if (!club || !cycle) return null;
   return (
     <>
+      {navigationMessage ? <Text accessibilityLiveRegion="polite" onPress={() => setNavigationMessage("")}>{navigationMessage}</Text> : null}
+      <Modal transparent visible={!!pendingNavigation} onRequestClose={() => setPendingNavigation(null)} accessibilityLabel="Discard unsaved choices">
+        <View style={styles.backdrop}><View style={styles.dialog}>
+          <Label>Discard unsaved changes?</Label>
+          <Note>Unsaved choices or ranking changes will be lost. Changes already saved on the server remain.</Note>
+          <Actions><Action tone="danger" title="Discard and leave" onPress={() => { const next = pendingNavigation; setAllowLeaving(true); setPendingNavigation(null); next?.(); }} />
+            <Action title="Keep editing" onPress={() => setPendingNavigation(null)} /></Actions>
+        </View></View>
+      </Modal>
       {detailTitle && (
         <TitleDetails title={detailTitle} kits={data.kits.filter((kit) => kit.titleId === detailTitle.id)} labels={data.kitLabels} onClose={() => setDetailTitleId(null)} />
       )}
@@ -298,6 +354,8 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
             <Note>{Object.prototype.hasOwnProperty.call(cycle.finalized, club.id) ? "Finalized" : "Not finalized"}</Note>
           </Pressable>
           {leaderOpen && <>
+          {leaderError ? <><Text>{leaderError}</Text><Action title="Retry club rankings" onPress={() => setLeaderRetry((value) => value + 1)} /></> :
+          !leaderReady ? <Note>Loading club rankings...</Note> : <>
           <Note>
             Member rankings are combined using points for each ranked
             position. Ties are resolved by title ID. Finalizing saves a
@@ -306,7 +364,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
           {(
             reviewRanking ??
             cycle.finalized[club.id] ??
-            rankings(data, cycle, club.id)
+            rankings(reviewData, cycle, club.id)
           ).map((titleId, index, list) => (
             <Actions key={titleId}>
               <Text>
@@ -348,7 +406,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
               const order =
                 reviewRanking ??
                 cycle.finalized[club.id] ??
-                rankings(data, cycle, club.id);
+                rankings(reviewData, cycle, club.id);
               void shared
                 .mutate(() =>
                   finalizeRanking(cycle.id, club.id, order, cycle.revision),
@@ -366,6 +424,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
             <Note>Save all choices and refresh successfully before finalizing.</Note>
           )}
           </>}
+          </>}
         </Card>
       )}
     </>
@@ -373,6 +432,8 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
 }
 
 const styles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", padding: 20 },
+  dialog: { backgroundColor: "#fffefa", padding: 20, gap: 12, maxWidth: 600, width: "100%", alignSelf: "center" },
   panelHeader: { gap: 4 },
   toast: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, padding: 10, borderRadius: 8, backgroundColor: "#eef5ef" },
   empty: { alignItems: "center", gap: 4, padding: 24, borderWidth: 1, borderStyle: "dashed", borderColor: "#9db8ac", borderRadius: 10, backgroundColor: "#f7fbf7" },
