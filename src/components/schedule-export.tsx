@@ -94,7 +94,7 @@ async function deliver(content: string | Uint8Array, filename: string, mimeType:
   });
 }
 
-export function ScheduleExportActions({ schedule, disabled }: { schedule: ScheduleExport; disabled: boolean }) {
+export function ScheduleExportActions({ schedule, disabled, staffClubCount }: { schedule: ScheduleExport; disabled: boolean; staffClubCount?: number }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -128,6 +128,7 @@ export function ScheduleExportActions({ schedule, disabled }: { schedule: Schedu
   return <View style={{ gap: 8 }}>
     <Label>Export schedule</Label>
     <Note>Exports include all meetings for the clubs shown, including unassigned meetings. {schedule.label}.</Note>
+    {staffClubCount !== undefined && <Note>{staffClubCount} {staffClubCount === 1 ? 'club is' : 'clubs are'} selected in Clubs shown. Title highlighting does not change the export selection.</Note>}
     <Actions>
       <Action title={busy ? 'Preparing export…' : 'Export CSV'} disabled={disabled || busy || !schedule.meetings.length} onPress={() => { void exportFile('csv'); }} />
       <Action title={busy ? 'Preparing export…' : 'Export PDF'} disabled={disabled || busy || !schedule.meetings.length} onPress={() => { void exportFile('pdf'); }} />

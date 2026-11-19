@@ -391,7 +391,7 @@ function ScheduleContent() {
     </Card>}
     <Card>
       <ScheduleExportActions schedule={makeScheduleExport(viewData, gridClubs.map((club) => club.id), staff ? cycle : undefined, staff && editor.dirty)}
-        disabled={staff && (editor.busy || validating || !!publication)} />
+        disabled={staff && (editor.busy || validating || !!publication)} staffClubCount={staff ? gridClubs.length : undefined} />
     </Card>
     {!staff && <MemberSchedule key={JSON.stringify([person.id, gridClubKey, memberMeetings.map((meeting) =>
       [meeting.key, meeting.assignment ? kitById.get(meeting.assignment.kitId)?.titleId : null,

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { decodePDFRawStream, PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { seed } from '../src/domain/seed';
 import { makeScheduleExport, scheduleCsv } from '../src/domain/schedule-export';
 import { makeSchedulePdf } from '../src/domain/schedule-pdf';
@@ -38,6 +39,37 @@ test('staff export uses selected clubs, local cycle slots and local assignments'
   assert.equal(result.meetings[0].barcode, 'KIT-101');
   assert.equal(result.meetings[1].assignmentId, '');
   assert.equal(makeScheduleExport(data, [], cycle).meetings.length, 0);
+});
+
+test('staff CSV and PDF contain only selected clubs, including their unassigned meetings', async () => {
+  const data = fixture();
+  const cycle = data.cycles[0];
+  const fontBytes = await readFile('node_modules/@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf');
+  const fontDoc = await PDFDocument.create();
+  fontDoc.registerFontkit(fontkit);
+  const font = await fontDoc.embedFont(fontBytes);
+
+  for (const [selectedId, excludedId] of [['c1', 'c2'], ['c2', 'c1']]) {
+    const selected = data.clubs.find((club) => club.id === selectedId)!;
+    const excluded = data.clubs.find((club) => club.id === excludedId)!;
+    const schedule = makeScheduleExport(data, [selectedId], cycle);
+    const csv = scheduleCsv(schedule);
+    assert.ok(csv.includes(`"${selected.name}"`));
+    assert.ok(!csv.includes(`"${excluded.name}"`));
+    assert.equal(csv.includes('"Unassigned"'), selectedId === 'c1');
+
+    const { bytes } = await makeSchedulePdf(schedule, fontBytes, new Map(), '2027-01-01');
+    const pdf = await PDFDocument.load(bytes);
+    const content = pdf.getPages().flatMap((page) => {
+      const streams = page.node.Contents();
+      assert.ok(streams instanceof PDFArray);
+      return Array.from({ length: streams.size() }, (_, index) =>
+        Buffer.from(decodePDFRawStream(streams.lookup(index, PDFRawStream)).decode()).toString('ascii'));
+    }).join('\n');
+    assert.ok(content.includes(`${font.encodeText(selected.name)} Tj`));
+    assert.ok(!content.includes(`${font.encodeText(excluded.name)} Tj`));
+    assert.equal(content.includes(`${font.encodeText('Not assigned')} Tj`), selectedId === 'c1');
+  }
 });
 
 test('member export includes selected clubs and visible cycles, including unassigned meetings', () => {
