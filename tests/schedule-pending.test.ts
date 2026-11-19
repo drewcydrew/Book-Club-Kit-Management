@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { scheduleSelectionPending } from '../src/domain/schedule-pending';
+import { generationConfirmation, scheduleSelectionPending } from '../src/domain/schedule-pending';
 import type { Assignment } from '../src/domain/model';
 
 const assignment: Assignment = {
@@ -24,4 +24,19 @@ test('unassigned and cleared meetings use their initial date as baseline', () =>
   assert.equal(check('kit', '2027-02-10').selection, true);
   assert.equal(check('', '2027-02-11').selection, true);
   assert.equal(check('', '2027-02-10').selection, false);
+});
+
+test('generation confirmation accounts for hidden and locked assignments', () => {
+  const shown = { ...assignment, id: 'shown', locked: true };
+  const hidden = { ...assignment, id: 'hidden', clubId: 'other' };
+  const base = [{ ...hidden, locked: true }, shown];
+  const message = generationConfirmation(1, ['other'], [shown, hidden], base, false, false);
+  assert.match(message ?? '', /1 shown club; 1 hidden club is excluded/);
+  assert.match(message ?? '', /1 hidden-club assignment will be removed locally, including 1 locked assignment/);
+  assert.match(message ?? '', /saving the draft shares these removals/);
+  assert.match(generationConfirmation(1, ['other'], [shown], base, false, false) ?? '', /0 hidden-club assignments/);
+  assert.equal(generationConfirmation(1, [], [shown], base, false, false), null);
+  assert.ok(generationConfirmation(1, [], [assignment], base, false, false));
+  assert.ok(generationConfirmation(1, [], [shown], base, true, false));
+  assert.ok(generationConfirmation(1, [], [shown], base, false, true));
 });

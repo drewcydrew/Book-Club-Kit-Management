@@ -22,7 +22,7 @@ interface ScheduleGridProps {
   onSelectSlot?: (slotId: string) => void;
   onAddSlot?: (clubId: string, month: string) => void;
   onGenerateClub?: (clubId: string) => void;
-  excludedClubIds?: readonly string[];
+  clubActionsDisabled?: boolean;
   priorityFor?: (clubId: string, titleId: string) => number | null;
   clubResult?: { clubId: string; text: string; problems: string[] } | null;
   clubSummaryFor?: (clubId: string) => string;
@@ -31,7 +31,7 @@ interface ScheduleGridProps {
   highlightTitleId?: string | null;
 }
 
-export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, onAddSlot, onGenerateClub, excludedClubIds = [], priorityFor, clubResult = null, clubSummaryFor, onHideClub, sharedLayout = false, highlightTitleId = null }: ScheduleGridProps) {
+export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, onAddSlot, onGenerateClub, clubActionsDisabled = false, priorityFor, clubResult = null, clubSummaryFor, onHideClub, sharedLayout = false, highlightTitleId = null }: ScheduleGridProps) {
   const [containerWidth, setContainerWidth] = useState(0);
   const reduceMotion = useReduceMotion();
   const { cellWidth, gap } = scheduleGridSizing(containerWidth, wide);
@@ -49,14 +49,14 @@ export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId
       onAddSlot={onAddSlot ? () => onAddSlot(row.clubId, cell.month) : undefined} clubName={clubNameFor(row.clubId)} />
   </FadeCell>);
   const clubColumn = (row: ScheduleGridData['rows'][number]) => <View style={{ width: SCHEDULE_CLUB_WIDTH, paddingRight: 8 }}>
-    <Text numberOfLines={3} style={{ fontWeight: '600' }}>{clubNameFor(row.clubId)}{excludedClubIds.includes(row.clubId) ? ' · Excluded' : ''}</Text>
+    <Text numberOfLines={3} style={{ fontWeight: '600' }}>{clubNameFor(row.clubId)}</Text>
     {clubSummaryFor && <Text>{clubSummaryFor(row.clubId)}</Text>}
     {onHideClub && <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-      <Action title="Hide" accessibilityLabel={`Hide ${clubNameFor(row.clubId)}`} onPress={() => onHideClub(row.clubId)} />
+      <Action title="Hide" accessibilityLabel={`Hide ${clubNameFor(row.clubId)}`} disabled={clubActionsDisabled} onPress={() => onHideClub(row.clubId)} />
     </View>}
     {onGenerateClub && <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
       <Action title="Generate assignments" accessibilityLabel={`Generate assignments for ${clubNameFor(row.clubId)}`}
-        disabled={excludedClubIds.includes(row.clubId)} onPress={() => onGenerateClub(row.clubId)} />
+        disabled={clubActionsDisabled} onPress={() => onGenerateClub(row.clubId)} />
     </View>}
     {clubResult?.clubId === row.clubId && <View style={{ marginTop: 6 }}>
       <Text style={{ color: '#111827' }}>{clubResult.text}</Text>

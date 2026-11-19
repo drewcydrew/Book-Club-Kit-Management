@@ -1,10 +1,10 @@
 import { usePreventRemove } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { assignmentProblems, draftAsync, exclusionUnlockIds, id, meetingFor, prepareDraftExclusions, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
+import { assignmentProblems, draftAsync, exclusionUnlockIds, generationClubScope, id, meetingFor, prepareDraftExclusions, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
 import { scheduleHasChanges, slotChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
-import { scheduleSelectionPending } from '../domain/schedule-pending';
+import { generationConfirmation, scheduleSelectionPending } from '../domain/schedule-pending';
 import type { Assignment, Cycle, Data, Title } from '../domain/model';
 import { saveValidatedSchedule, validateSchedule, type ScheduleBasis, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
@@ -61,8 +61,10 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   const [generating, setGenerating] = useState(false);
   const [generationMode, setGenerationMode] = useState<DraftMode>('clubs');
   const generatingRef = useRef(false);
-  const [pendingAction, setPendingAction] = useState<{ description: string; confirmLabel: string; run: () => void; kind?: 'discard' } | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ description: string; confirmLabel: string; run: () => void; kind?: 'discard' | 'regenerate' } | null>(null);
   const [reconciliationRequired, setReconciliationRequired] = useState(false);
+  const latest = useRef({ data, workspace, currentCycle });
+  useLayoutEffect(() => { latest.current = { data, workspace, currentCycle }; }, [data, workspace, currentCycle]);
   const busy = generating || checking || shared.saving || !!pendingAction;
   const slotDiff = workspace ? slotDiffOf(workspace) : null;
   const slotsChanged = !!slotDiff && (slotDiff.newSlots.length > 0 || slotDiff.removedSlotIds.length > 0);
@@ -206,18 +208,32 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     }
   }
 
-  function requestGenerate(excludedClubIds: readonly string[] = []) {
+  function requestGenerate(shownClubIds: readonly string[]) {
     if (busy || generatingRef.current || (stale && dirty)) return;
-    const excluded = [...excludedClubIds];
     const source = workspace && (dirty || !stale) ? workspace : currentCycle ? createWorkspace(currentCycle) : null;
     if (!source) return;
-    const removed = source.assignments.filter((assignment) => excluded.includes(assignment.clubId));
-    const removedIds = new Set(removed.map((assignment) => assignment.id));
-    const locked = removed.filter((assignment) => assignment.locked || source.base.assignments.some((item) => item.id === assignment.id && item.locked));
-    if (removedIds.size || dirty || hasPending) {
-      const removal = removed.length ? ` ${removed.length} assignment${removed.length === 1 ? '' : 's'} for excluded clubs will be removed locally${locked.length ? `, including ${locked.length} locked assignment${locked.length === 1 ? '' : 's'} that will be unlocked` : ''}. Their meeting slots and ballots will remain.` : '';
-      setPendingAction({ description: `Regenerate and replace unlocked local assignments and unapplied selections?${removal}`, confirmLabel: 'Confirm regenerate', run: () => { void regenerate(undefined, excluded); } });
-    } else void regenerate(undefined, excluded);
+    const scope = generationClubScope(source.base, source.cycle, source.assignments, shownClubIds);
+    if (scope.missingClubIds.length) {
+      setMessage('Some meetings or assignments reference unavailable clubs. Refresh the schedule before generating.');
+      return;
+    }
+    if (!scope.shownCount) {
+      setMessage('Show at least one club before generating a schedule.');
+      return;
+    }
+    const excluded = scope.excludedClubIds;
+    const description = generationConfirmation(scope.shownCount, excluded, source.assignments, source.base.assignments, dirty, hasPending);
+    const capturedData = snapshot(data);
+    const run = () => {
+      if (latest.current.workspace !== workspace || latest.current.currentCycle?.id !== currentCycle?.id || snapshot(latest.current.data) !== capturedData) {
+        setMessage('The schedule changed while confirmation was open. Review the current selection and generate again.');
+        return;
+      }
+      void regenerate(undefined, excluded);
+    };
+    if (description) {
+      setPendingAction({ kind: 'regenerate', description, confirmLabel: 'Confirm regenerate', run });
+    } else run();
   }
 
   // Keeps every existing assignment and only fills empty slots of the scoped club.

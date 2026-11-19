@@ -13,7 +13,7 @@ import { memberScheduleMeetings, memberVisibleCycle, scheduleByKit, scheduleGrid
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
 import { makeScheduleExport, type StaffScheduleView } from '../domain/schedule-export';
-import { assignmentProblem, fairness, rankings } from '../domain/logic';
+import { assignmentProblem, fairness, generationClubScope, rankings } from '../domain/logic';
 import type { Assignment } from '../domain/model';
 import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
@@ -42,8 +42,8 @@ function ScheduleContent() {
   const selectedCycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
   const editor = useScheduleWorkspace(data, selectedCycle);
   const hadModalConfirmation = useRef(false);
-  const discardTrigger = useRef<HTMLElement | null>(null);
-  const hadDiscardConfirmation = useRef(false);
+  const confirmationTrigger = useRef<HTMLElement | null>(null);
+  const hadDialogConfirmation = useRef(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [highlightTitleId, setHighlightTitleId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
@@ -55,8 +55,6 @@ function ScheduleContent() {
   const [staffClubIds, setStaffClubIds] = useState<string[] | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [staffFiltersOpen, setStaffFiltersOpen] = useState(false);
-  const [generationFiltersOpen, setGenerationFiltersOpen] = useState(false);
-  const [generationExclusions, setGenerationExclusions] = useState<{ cycleId: string; clubIds: string[] } | null>(null);
   const [cycleOpen, setCycleOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [expandedClubs, setExpandedClubs] = useState<string[]>([]);
@@ -72,7 +70,6 @@ function ScheduleContent() {
   const personId = person?.id;
   const enrolledClubIds = data.memberships.filter((membership) => membership.personId === personId).map((membership) => membership.clubId);
   const cycleId = cycle?.id;
-  const excludedClubIds = generationExclusions?.cycleId === cycleId ? generationExclusions.clubIds : [];
   const clubChoices = staff ? viewData.clubs : data.clubs.filter((club) => enrolledClubIds.includes(club.id));
   const visibleAssignments = viewData.assignments.filter((a) => staff
     ? a.cycleId === cycleId
@@ -97,23 +94,27 @@ function ScheduleContent() {
   const memberMeetings = staff ? [] : memberScheduleMeetings(data, gridClubs.map((club) => club.id));
   const kits = staff && mode === 'kits' && cycle ? scheduleByKit(viewData, cycle.id, gridClubs.map((club) => club.id)) : [];
   const discardPending = editor.pendingAction?.kind === 'discard';
+  const regeneratePending = editor.pendingAction?.kind === 'regenerate';
+  const dialogPending = discardPending || regeneratePending;
+  const dialogTitle = regeneratePending ? 'Confirm regeneration' : 'Confirm discard';
+  const cancelLabel = regeneratePending ? 'Keep editing instead of regenerating' : 'Keep editing instead of discarding';
   const modalOpen = staff && !!editor.selectedSlotId;
-  const pendingConfirmation = editor.pendingAction && !discardPending && <Card>
+  const pendingConfirmation = editor.pendingAction && !dialogPending && <Card>
     <Note>{editor.pendingAction.description}</Note>
     <Actions><Action tone="danger" title={editor.pendingAction.confirmLabel} onPress={editor.confirmAction} />
       <Action title="Keep editing" onPress={editor.cancelAction} /></Actions>
   </Card>;
-  const discardContent = discardPending && editor.pendingAction && <>
-    <Label>Confirm discard</Label>
-    <Note>{editor.pendingAction.description}</Note>
+  const dialogContent = dialogPending && editor.pendingAction && <>
+    <Label>{dialogTitle}</Label>
+    <ScrollView style={scheduleStyles.modalScroll}><Note>{editor.pendingAction.description}</Note></ScrollView>
     <Actions><Action tone="danger" title={editor.pendingAction.confirmLabel} onPress={editor.confirmAction} />
-      <Action title="Keep editing" accessibilityLabel="Keep editing instead of discarding" onPress={editor.cancelAction} /></Actions>
+      <Action title="Keep editing" accessibilityLabel={cancelLabel} onPress={editor.cancelAction} /></Actions>
   </>;
-  const discardConfirmation = discardPending && !modalOpen && <Modal transparent visible onRequestClose={editor.cancelAction} accessibilityLabel="Confirm discard">
+  const dialogConfirmation = dialogPending && !modalOpen && <Modal transparent visible onRequestClose={editor.cancelAction} accessibilityLabel={dialogTitle}>
     <View style={scheduleStyles.modalBackdrop}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Cancel discard" onPress={editor.cancelAction} style={StyleSheet.absoluteFill} />
-      <View accessibilityViewIsModal style={scheduleStyles.modalDialog}>
-        {discardContent}
+      <Pressable accessibilityRole="button" accessibilityLabel={regeneratePending ? 'Cancel regeneration' : 'Cancel discard'} onPress={editor.cancelAction} style={StyleSheet.absoluteFill} />
+      <View accessibilityViewIsModal style={[scheduleStyles.modalDialog, { maxHeight: Math.max(100, height - insets.top - insets.bottom - 32) }]}>
+        {dialogContent}
       </View>
     </View>
   </Modal>;
@@ -131,47 +132,56 @@ function ScheduleContent() {
   }
   useEffect(() => {
     if (Platform.OS !== 'web') return;
-    if (modalOpen && editor.pendingAction && !discardPending) {
+    if (modalOpen && editor.pendingAction && !dialogPending) {
       hadModalConfirmation.current = true;
       const buttons = document.querySelectorAll<HTMLElement>('[role="dialog"] [role="button"]');
       [...buttons].find((button) => button.textContent === editor.pendingAction?.confirmLabel)?.focus();
     } else if (hadModalConfirmation.current) {
       hadModalConfirmation.current = false;
-      if (modalOpen) {
+      if (modalOpen && !dialogPending) {
         const selector = editor.activePicker ? '[role="dialog"] input' : '[aria-label="Close editor"]';
         document.querySelector<HTMLElement>(selector)?.focus();
       }
     }
-  }, [modalOpen, editor.pendingAction, editor.activePicker, discardPending]);
+  }, [modalOpen, editor.pendingAction, editor.activePicker, dialogPending]);
   useEffect(() => {
     if (Platform.OS !== 'web') return;
-    if (discardPending) {
-      hadDiscardConfirmation.current = true;
-      if (!discardTrigger.current && document.activeElement instanceof HTMLElement) discardTrigger.current = document.activeElement;
-      document.querySelector<HTMLElement>('[aria-label="Keep editing instead of discarding"]')?.focus();
-    } else if (hadDiscardConfirmation.current) {
-      hadDiscardConfirmation.current = false;
-      const trigger = discardTrigger.current;
-      if (trigger?.isConnected && !(trigger instanceof HTMLButtonElement && trigger.disabled)) trigger.focus();
+    if (dialogPending) {
+      hadDialogConfirmation.current = true;
+      if (!confirmationTrigger.current && document.activeElement instanceof HTMLElement) confirmationTrigger.current = document.activeElement;
+      document.querySelector<HTMLElement>(`[aria-label="${cancelLabel}"]`)?.focus();
+    } else if (hadDialogConfirmation.current) {
+      hadDialogConfirmation.current = false;
+      const trigger = confirmationTrigger.current;
+      if (trigger?.isConnected && trigger.getAttribute('aria-disabled') !== 'true' && !(trigger instanceof HTMLButtonElement && trigger.disabled)) trigger.focus();
       else if (modalOpen) document.querySelector<HTMLElement>('[aria-label="Close editor"]')?.focus();
-      discardTrigger.current = null;
+      confirmationTrigger.current = null;
+    } else {
+      confirmationTrigger.current = null;
     }
-  }, [discardPending, modalOpen]);
+  }, [dialogPending, cancelLabel, modalOpen, editor.busy]);
   function requestDiscard() {
-    if (Platform.OS === 'web' && document.activeElement instanceof HTMLElement) discardTrigger.current = document.activeElement;
+    if (Platform.OS === 'web' && document.activeElement instanceof HTMLElement) confirmationTrigger.current = document.activeElement;
     editor.requestDiscard();
+  }
+  function requestGenerate() {
+    if (Platform.OS === 'web' && document.activeElement instanceof HTMLElement) confirmationTrigger.current = document.activeElement;
+    editor.requestGenerate(gridClubs.map((club) => club.id));
   }
   const discardUnavailableProposal = editor.dirty && <Card>
     <Note>Unsaved staff schedule changes are held on this device.</Note>
     <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={requestDiscard} />
   </Card>;
-  if (!person) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}<Note>No demo user is selected. Choose a user on Home.</Note></Page>;
-  if (!cycle) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>{!staff && !enrolledClubIds.length ? 'You are not enrolled in any clubs. Enrol in a club on Home.' : 'No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.'}</Note></Page>;
+  if (!person) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{dialogConfirmation}{discardUnavailableProposal}<Note>No demo user is selected. Choose a user on Home.</Note></Page>;
+  if (!cycle) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{dialogConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>{!staff && !enrolledClubIds.length ? 'You are not enrolled in any clubs. Enrol in a club on Home.' : 'No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.'}</Note></Page>;
   const cycleAssignments = viewData.assignments.filter((assignment) => assignment.cycleId === cycle.id);
+  const generationScope = generationClubScope(viewData, cycle, cycleAssignments, gridClubs.map((club) => club.id));
+  const clubSelectionDisabled = editor.busy || validating || !!publication;
   const assignedSlots = new Set(cycleAssignments.map((assignment) => assignment.slotId));
   const unassignedMeetings = cycle.slots.filter((slot) => !assignedSlots.has(slot.id)).length;
 
   function updateStaffClubs(ids: string[]) {
+    if (clubSelectionDisabled) return;
     setStaffClubIds(ids);
     if (expandedId && !viewData.assignments.some((assignment) => assignment.id === expandedId && ids.includes(assignment.clubId))) {
       setExpandedId(null);
@@ -216,7 +226,7 @@ function ScheduleContent() {
     {staff && mode === 'grid' && <Note>Cover badges show club priority; — means unranked. Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
     {mode === 'grid' && staff && highlightTitle && grid && <Card>
       <Label>Highlighting · {highlightTitle.name}</Label>
-      <Note>{highlightCount} {highlightCount === 1 ? 'club' : 'clubs'} in {gridCycle?.name ?? 'this cycle'}. Other clubs are hidden.</Note>
+      <Note>{highlightCount} {highlightCount === 1 ? 'club' : 'clubs'} in {gridCycle?.name ?? 'this cycle'}. Other rows are temporarily hidden; Clubs shown still controls generation and exports.</Note>
       <Actions><Action title="Clear highlight" onPress={() => setHighlight(null)} /></Actions>
     </Card>}
     {mode === 'grid' && (grid
@@ -231,7 +241,7 @@ function ScheduleContent() {
           onSelectSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.selectSlot : undefined}
           onAddSlot={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? editor.toggleSlot : undefined}
           onGenerateClub={staff && (cycle.status === 'collecting' || cycle.status === 'drafted') && !validating && !publication ? (clubId) => editor.requestGenerateClub({ clubId }) : undefined}
-          excludedClubIds={staff ? excludedClubIds : undefined}
+          clubActionsDisabled={clubSelectionDisabled}
           priorityFor={staff ? (clubId, titleId) => gridPriorities?.get(clubId)?.get(titleId) ?? null : undefined}
           clubResult={editor.clubResult}
           clubSummaryFor={staff ? (clubId) => { const result = fairness(viewData, cycle, clubId, cycleAssignments); return `Fairness ${result.score === null ? 'N/A' : `${Math.round(result.score)}%`} · ${result.assigned}/${result.slots} assigned`; } : undefined}
@@ -256,7 +266,6 @@ function ScheduleContent() {
           editor.requestCycleChange(() => {
             setSelectedId(value.id); setMessages([]); setMessage('');
             setPublication(null); setExpandedId(null); setShowAllMessages(false); setCycleOpen(false);
-            setGenerationExclusions(null); setGenerationFiltersOpen(false);
           });
         } else {
           setCycleOpen(false);
@@ -265,7 +274,7 @@ function ScheduleContent() {
       {staff && toolsOpen && <>
         <Note>Loans include a {viewData.library.bufferDays}-day turnaround buffer.</Note>
         {cycle.status === 'collecting' && cycleAssignments.length > 0 && <Note>
-          Existing assignments may be provisional. Generating a draft can replace unlocked assignments; locked assignments are retained and may need attention. Checked-out kits or reading history can prevent drafting or publication.
+          Existing assignments may be provisional. Generating a draft can replace unlocked assignments; shown clubs&apos; locked assignments are retained and may need attention. Checked-out kits or reading history can prevent drafting or publication.
         </Note>}
         <Actions>
           <Action tone="primary" title="Publish schedule" disabled={validating || editor.busy || editor.dirty || !!publication || cycle.status !== 'drafted'} onPress={() => { void publish(); }} />
@@ -284,12 +293,12 @@ function ScheduleContent() {
       {staff && editor.message ? <Text>{editor.message}</Text> : null}
     </Card>
     {!modalOpen && pendingConfirmation}
-    {discardConfirmation}
-    {modalOpen && <Modal transparent visible onRequestClose={discardPending ? editor.cancelAction : editor.requestCloseSlot} accessibilityLabel={discardPending ? 'Confirm discard' : `Edit ${modalClub?.name ?? 'club'} meeting, ${modalSlot?.month ?? ''}`}>
+    {dialogConfirmation}
+    {modalOpen && <Modal transparent visible onRequestClose={dialogPending ? editor.cancelAction : editor.requestCloseSlot} accessibilityLabel={dialogPending ? dialogTitle : `Edit ${modalClub?.name ?? 'club'} meeting, ${modalSlot?.month ?? ''}`}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined} style={scheduleStyles.modalBackdrop}>
-        <Pressable accessibilityRole="button" accessibilityLabel={discardPending ? 'Cancel discard' : 'Close meeting editor'} onPress={discardPending ? editor.cancelAction : editor.requestCloseSlot} style={StyleSheet.absoluteFill} />
+        <Pressable accessibilityRole="button" accessibilityLabel={dialogPending ? (regeneratePending ? 'Cancel regeneration' : 'Cancel discard') : 'Close meeting editor'} onPress={dialogPending ? editor.cancelAction : editor.requestCloseSlot} style={StyleSheet.absoluteFill} />
         <View accessibilityViewIsModal style={[scheduleStyles.modalDialog, { maxHeight: Math.max(100, height - insets.top - insets.bottom - 32) }]}>
-          {discardPending ? discardContent : <>
+          {dialogPending ? dialogContent : <>
           <View style={scheduleStyles.modalHeader}>
             <Label>Edit meeting · {modalClub?.name ?? 'Unavailable club'} · {modalSlot?.month}</Label>
             <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -313,31 +322,17 @@ function ScheduleContent() {
       {cycle.status === 'open' && <Note>Start collecting preferences on Cycles before editing this schedule.</Note>}
       {unassignedMeetings > 0 && <Note>{unassignedMeetings} {unassignedMeetings === 1 ? 'meeting is' : 'meetings are'} unassigned. Every meeting must be assigned before publication.</Note>}
       {editor.stale && editor.dirty && <Text style={{ color: '#a22525' }}>Shared data has changed. Refresh if needed, then discard these changes and start again before saving.</Text>}
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: generationFiltersOpen, disabled: editor.busy || validating || !!publication }}
-        accessibilityLabel={`Generation exclusions, ${excludedClubIds.length} clubs excluded`} disabled={editor.busy || validating || !!publication}
-        onPress={() => setGenerationFiltersOpen(!generationFiltersOpen)} style={{ minHeight: 44, justifyContent: 'center' }}>
-        <Label>{generationFiltersOpen ? '▾' : '▸'} Clubs excluded from generation · {excludedClubIds.length}</Label>
-      </Pressable>
-      {generationFiltersOpen && <>
-        <Note>Exclusions apply to the next full regeneration, not the current schedule. They are separate from clubs shown and reset when you change cycles.</Note>
-        <Actions><Action title="Include all" disabled={!excludedClubIds.length || editor.busy || validating || !!publication}
-          onPress={() => setGenerationExclusions({ cycleId: cycle.id, clubIds: [] })} /></Actions>
-        {clubChoices.length === 0 ? <Note>No clubs exist yet.</Note> : <Actions>{clubChoices.map((club) => {
-          const excluded = excludedClubIds.includes(club.id);
-          return <Action key={club.id} title={`${club.name} · ${excluded ? 'Excluded' : 'Included'}`} selected={excluded}
-            accessibilityLabel={`${club.name}, ${excluded ? 'excluded' : 'included'} from generation`}
-            disabled={editor.busy || validating || !!publication}
-            onPress={() => setGenerationExclusions({ cycleId: cycle.id, clubIds: excluded ? excludedClubIds.filter((id) => id !== club.id) : [...excludedClubIds, club.id] })} />;
-        })}</Actions>}
-      </>}
-      {excludedClubIds.length > 0 && <Note>Regeneration removes excluded clubs&apos; assignments locally, including locked assignments after confirmation. Meetings and ballots remain; every meeting must be assigned before publication. Include the clubs and regenerate or assign their meetings manually.</Note>}
+      <Note>Full-cycle generation includes {generationScope.shownCount} of {clubChoices.length} clubs selected in Clubs shown. Hiding a club does not change its assignments until you regenerate.</Note>
+      {generationScope.excludedClubIds.length > 0 && <Note>After confirmation, regeneration clears hidden clubs&apos; assignments locally, including locked assignments. Their meetings and ballots remain. Saving shares these removals; every meeting must be assigned before publication.</Note>}
+      {generationScope.shownCount === 0 && <Note>Show at least one club before generating a schedule.</Note>}
+      {generationScope.missingClubIds.length > 0 && <Text style={{ color: '#a22525' }}>Some meetings or assignments reference unavailable clubs. Refresh the schedule before generating.</Text>}
       <Actions>
         <Action title="Prioritise clubs" selected={editor.generationMode === 'clubs'} accessibilityLabel={`Prioritise clubs, ${editor.generationMode === 'clubs' ? 'selected' : 'not selected'}. ${strategyDescriptions.clubs}`} description={strategyDescriptions.clubs} disabled={editor.busy || validating} onPress={() => editor.setGenerationMode('clubs')} />
         <Action title="Prioritise utilisation" selected={editor.generationMode === 'utilisation'} accessibilityLabel={`Prioritise utilisation, ${editor.generationMode === 'utilisation' ? 'selected' : 'not selected'}. ${strategyDescriptions.utilisation}`} description={strategyDescriptions.utilisation} disabled={editor.busy || validating} onPress={() => editor.setGenerationMode('utilisation')} />
       </Actions>
       <Note>{strategyDescriptions[editor.generationMode]} Choose a strategy before generating; changing it does not regenerate the schedule.</Note>
       <Actions>
-        <Action title={editor.dirty ? 'Regenerate locally' : 'Generate locally'} disabled={editor.busy || validating || !!publication || (editor.stale && editor.dirty) || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={() => editor.requestGenerate(excludedClubIds)} />
+        <Action title={editor.dirty ? 'Regenerate locally' : 'Generate locally'} disabled={editor.busy || validating || !!publication || !generationScope.shownCount || !!generationScope.missingClubIds.length || (editor.stale && editor.dirty) || (cycle.status !== 'collecting' && cycle.status !== 'drafted')} onPress={requestGenerate} />
         <Action tone="primary" title="Save draft" disabled={!editor.dirty || editor.busy || validating || editor.stale} onPress={() => { void editor.validate(); }} />
         <Action title="Discard changes" disabled={!editor.dirty || editor.busy || validating} onPress={requestDiscard} />
       </Actions>
@@ -358,10 +353,10 @@ function ScheduleContent() {
       </Pressable>
       {clubChoices.length === 0 ? <Note>No clubs exist yet.</Note> : staffFiltersOpen && <>
         <Actions>
-          <Action title="Show all" disabled={gridClubs.length === clubChoices.length} onPress={() => updateStaffClubs(clubChoices.map((club) => club.id))} />
-          <Action title="Hide all" disabled={gridClubs.length === 0} onPress={() => updateStaffClubs([])} />
+          <Action title="Show all" disabled={clubSelectionDisabled || gridClubs.length === clubChoices.length} onPress={() => updateStaffClubs(clubChoices.map((club) => club.id))} />
+          <Action title="Hide all" disabled={clubSelectionDisabled || gridClubs.length === 0} onPress={() => updateStaffClubs([])} />
         </Actions>
-        <Actions>{clubChoices.map((value) => <Action key={value.id} selected={gridClubs.some((club) => club.id === value.id)} title={value.name} onPress={() => {
+        <Actions>{clubChoices.map((value) => <Action key={value.id} selected={gridClubs.some((club) => club.id === value.id)} title={value.name} disabled={clubSelectionDisabled} onPress={() => {
           const current = gridClubs.map((club) => club.id);
           updateStaffClubs(current.includes(value.id) ? current.filter((id) => id !== value.id) : [...current, value.id]);
         }} />)}</Actions>

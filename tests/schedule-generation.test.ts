@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assignmentProblem, draft, draftAsync, exclusionUnlockIds, fairness, prepareDraftExclusions } from '../src/domain/logic';
+import { assignmentProblem, draft, draftAsync, exclusionUnlockIds, fairness, generationClubScope, prepareDraftExclusions } from '../src/domain/logic';
 import { seed } from '../src/domain/seed';
 import type { Data } from '../src/domain/model';
 
@@ -26,6 +26,17 @@ function assignedTitles(data: Data, assignments = draft(data, data.cycles[0]).as
   return Object.fromEntries(assignments.filter((a) => a.cycleId === data.cycles[0].id)
     .map((a) => [a.slotId, data.kits.find((kit) => kit.id === a.kitId)?.titleId]));
 }
+
+test('full generation scope follows the shown clubs and detects unavailable references', () => {
+  const data = scenario([['t1'], ['t2']]);
+  const cycle = data.cycles[0];
+  const scope = (shown: string[]) => generationClubScope(data, cycle, data.assignments, shown);
+  assert.deepEqual(scope(['c1']), { shownCount: 1, excludedClubIds: ['c2'], missingClubIds: [] });
+  assert.deepEqual(scope([]), { shownCount: 0, excludedClubIds: ['c1', 'c2'], missingClubIds: [] });
+  assert.deepEqual(scope(['c1', 'c2']), { shownCount: 2, excludedClubIds: [], missingClubIds: [] });
+  cycle.slots.push({ id: 'missing', clubId: 'missing-club', month: '2027-01', meeting: null });
+  assert.deepEqual(scope(['c1']).missingClubIds, ['missing-club']);
+});
 
 test('exclusion removes only current-cycle assignments, retains other-cycle conflicts and records shared unlocks', () => {
   const data = scenario([['t1'], ['t1', 't2']]);

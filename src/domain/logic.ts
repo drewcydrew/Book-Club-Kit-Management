@@ -118,6 +118,20 @@ export type DraftScope = { clubId: string };
 // Both modes preserve coverage; utilisation then favours kit reuse, popular titles and fairness.
 export type DraftMode = 'clubs' | 'utilisation';
 
+export function generationClubScope(data: Data, cycle: Cycle, assignments: readonly Assignment[], shownClubIds: readonly string[]) {
+  const known = new Set(data.clubs.map((club) => club.id));
+  const shown = new Set(shownClubIds);
+  const missing = new Set([
+    ...cycle.slots.map((slot) => slot.clubId),
+    ...assignments.filter((assignment) => assignment.cycleId === cycle.id).map((assignment) => assignment.clubId),
+  ].filter((clubId) => !known.has(clubId)));
+  return {
+    shownCount: data.clubs.filter((club) => shown.has(club.id)).length,
+    excludedClubIds: data.clubs.filter((club) => !shown.has(club.id)).map((club) => club.id),
+    missingClubIds: [...missing],
+  };
+}
+
 export function prepareDraftExclusions(data: Data, cycle: Cycle, excludedClubIds: readonly string[]) {
   const excluded = new Set(excludedClubIds);
   if (!excluded.size) return { data, cycle, removed: [] as Assignment[] };
