@@ -107,8 +107,15 @@ function drawHighlightedGrid(
         borderColor: blue, borderWidth: 1.5 * scale, opacity: 0, borderOpacity: 1 });
       if (meeting?.assignmentId) {
         const badge = priority === null ? '—' : `#${priority}`;
-        text(badge, x + 2 * scale, y - 10 * scale, 7 * scale, (cellWidth - 4) * scale, opacity);
-        if (problem) text('!', x + (cellWidth - 8) * scale, y - 10 * scale, 8 * scale, 7 * scale, opacity, rgb(0.64, 0.15, 0.15));
+        const badgeWidth = Math.max(14, font.widthOfTextAtSize(badge, 7) + 4);
+        const badgeX = x + (cellWidth - badgeWidth - 2) * scale;
+        page.drawRectangle({ x: badgeX, y: y - 13 * scale, width: badgeWidth * scale, height: 10 * scale, color: green, opacity });
+        text(badge, badgeX + 2 * scale, y - 11 * scale, 7 * scale, (badgeWidth - 4) * scale, opacity, white);
+        if (problem) {
+          page.drawRectangle({ x: x + 2 * scale, y: y - 13 * scale, width: 10 * scale, height: 10 * scale,
+            color: rgb(0.64, 0.15, 0.15), opacity });
+          text('!', x + 5 * scale, y - 11 * scale, 8 * scale, 5 * scale, opacity, white);
+        }
         const titleLines = wrap(meeting.title || 'Unavailable title', font, 7.5, cellWidth);
         titleLines.slice(0, 2).forEach((line, index) => text(index === 1 && titleLines.length > 2 ? `${line}…` : line,
           x, y - (84 + index * 9) * scale, 7.5 * scale, cellWidth * scale, opacity));

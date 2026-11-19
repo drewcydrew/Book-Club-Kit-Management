@@ -227,6 +227,20 @@ test('highlighted PDF fits all months and matching clubs onto one landscape page
   assert.equal(smallText, true);
   assert.equal(invalidCovers, 0);
   assert.ok(Buffer.from(bytes).includes(Buffer.from('/Subtype /Image')));
+  const fontDoc = await PDFDocument.create();
+  fontDoc.registerFontkit(fontkit);
+  const embeddedFont = await fontDoc.embedFont(font);
+  const streams = pdf.getPage(0).node.Contents();
+  assert.ok(streams instanceof PDFArray);
+  const content = Buffer.from(decodePDFRawStream(streams.lookup(0, PDFRawStream)).decode()).toString('ascii');
+  for (const month of schedule.highlight!.months) assert.ok(content.includes(`${embeddedFont.encodeText(month)} Tj`));
+  for (const club of data.clubs) assert.ok(content.includes(embeddedFont.encodeText(club.name.split(' Long name')[0]).toString().slice(1, -1)));
+  const textPositions = [...content.matchAll(/1 0 0 1 ([\d.]+) ([\d.]+) Tm/g)];
+  assert.ok(textPositions.every(([, x, y]) => Number(x) >= 0 && Number(x) <= 842 && Number(y) >= 0 && Number(y) <= 595));
+  const lines = [...content.matchAll(/0\.145 0\.388 0\.922 RG\n[^\n]+ w\n\[\] 0 d\n([\d.]+) ([\d.]+) m\n\1 \2 m\n([\d.]+) ([\d.]+) l\nS/g)];
+  assert.equal(lines.length, 39);
+  assert.ok(lines.every((line) => line.slice(1).map(Number).every((coordinate, index) =>
+    coordinate >= 0 && coordinate <= (index % 2 === 0 ? 842 : 595))));
 });
 
 test('one highlighted match draws a single-page PDF and reports invalid covers', async () => {
@@ -242,7 +256,12 @@ test('one highlighted match draws a single-page PDF and reports invalid covers',
   const pdf = await makeSchedulePdf(schedule, font, new Map([['t1', new Uint8Array([0xff, 0xd8, 0])]]), '2027-01-01');
   assert.equal(pdf.invalidCovers, 1);
   assert.equal(pdf.smallText, false);
-  assert.equal((await PDFDocument.load(pdf.bytes)).getPageCount(), 1);
+  const document = await PDFDocument.load(pdf.bytes);
+  assert.equal(document.getPageCount(), 1);
+  const streams = document.getPage(0).node.Contents();
+  assert.ok(streams instanceof PDFArray);
+  const content = Buffer.from(decodePDFRawStream(streams.lookup(0, PDFRawStream)).decode()).toString('ascii');
+  assert.ok(!/0\.145 0\.388 0\.922 RG\n[^\n]+ w\n\[\] 0 d\n([\d.]+) ([\d.]+) m\n\1 \2 m\n([\d.]+) ([\d.]+) l\nS/.test(content));
 });
 
 test('CSV quotes fields, protects spreadsheet formulas and identifies unsaved scope', () => {
