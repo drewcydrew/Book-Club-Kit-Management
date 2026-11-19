@@ -1,5 +1,6 @@
 /// <reference types="expo/types" />
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { KitLabel, Title } from '../domain/model';
 import { TitleCover } from './title-cover';
 import { titleDetailRows } from './title-details-rows';
@@ -45,7 +46,8 @@ export function TitleDetails({ title, labels, onClose, children }: { title: Titl
 
   const labelById = new Map((labels ?? []).map((label) => [label.id, label]));
   const rows = titleDetailRows(title).filter(([label]) => label !== 'Author');
-  return <div className={styles.scrim} onClick={onClose}>
+  if (typeof document === 'undefined') return null;
+  return createPortal(<div className={styles.scrim} onClick={onClose}>
     <div ref={dialog} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="title-details-name" tabIndex={-1}
       onClick={(event) => event.stopPropagation()} onKeyDown={trapFocus}>
       <button type="button" className={styles.close} aria-label="Close details" onClick={onClose}>×</button>
@@ -77,5 +79,5 @@ export function TitleDetails({ title, labels, onClose, children }: { title: Titl
         </div>
       </div>
     </div>
-  </div>;
+  </div>, document.body);
 }
