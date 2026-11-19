@@ -9,7 +9,7 @@ export function Page({ title, children, wide = false }: { title: string; childre
   const { refresh, scope } = shared;
   const member = data.people.find((person) => person.id === data.selectedPersonId)?.role === 'member';
   const hasClubs = ['home', 'preferences', 'schedule', 'clubs', 'cycles'].includes(scope);
-  const hasLabels = scope === 'catalog' || (scope === 'preferences' && member);
+  const hasLabels = scope === 'catalog' || ((scope === 'preferences' || scope === 'schedule') && member);
   const missingSharedReferences =
     (hasClubs && data.memberships.some((membership) => !data.people.some((person) => person.id === membership.personId) || !data.clubs.some((club) => club.id === membership.clubId))) ||
     (hasClubs && data.cycles.some((cycle) => cycle.slots.some((slot) => !data.clubs.some((club) => club.id === slot.clubId)))) ||

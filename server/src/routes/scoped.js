@@ -98,6 +98,10 @@ async function loadView(c, personId, view) {
     data.titles = (await c.query(`SELECT ${titleColumns} FROM titles${titleIds ? ' WHERE id=ANY($1::text[])' : ''} ORDER BY id`, titleIds ? [titleIds] : [])).rows;
     if (view === 'catalog' || (member && view === 'preferences')) {
       data.kitLabels = (await c.query('SELECT id,category,name,revision FROM kit_labels ORDER BY category,lower(name),id')).rows;
+    } else if (member && view === 'schedule') {
+      data.kitLabels = (await c.query(`SELECT id,category,name,revision FROM kit_labels
+        WHERE id IN (SELECT label_id FROM title_label_assignments WHERE title_id=ANY($1::text[]))
+        ORDER BY category,lower(name),id`, [titleIds])).rows;
     }
   }
   if (needsHistory) {

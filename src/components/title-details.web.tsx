@@ -1,5 +1,5 @@
 /// <reference types="expo/types" />
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { KitLabel, Title } from '../domain/model';
 import { TitleCover } from './title-cover';
 import { titleDetailRows } from './title-details-rows';
@@ -7,7 +7,7 @@ import styles from './title-details.module.css';
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-export function TitleDetails({ title, labels, onClose }: { title: Title; labels?: KitLabel[]; onClose: () => void }) {
+export function TitleDetails({ title, labels, onClose, children }: { title: Title; labels?: KitLabel[]; onClose: () => void; children?: ReactNode }) {
   const dialog = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
@@ -70,8 +70,10 @@ export function TitleDetails({ title, labels, onClose }: { title: Title; labels?
               {title.labelIds.length ? title.labelIds.map((id) => labelById.get(id)).filter((label): label is KitLabel => !!label)
                 .map((label) => <span key={label.id} className={styles.chip}>{label.name}</span>) : <span className={styles.muted}>No labels</span>}
             </span>
+            {title.labelIds.some((id) => !labelById.has(id)) && <p className={styles.muted}>Some title labels are unavailable. Refresh or contact staff.</p>}
             <p className={styles.muted}>Labels do not reserve a kit or guarantee availability.</p>
           </>}
+          {children}
         </div>
       </div>
     </div>

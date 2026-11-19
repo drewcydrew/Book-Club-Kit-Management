@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Animated, Dimensions, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { KitLabel, Title } from '../domain/model';
@@ -9,7 +9,7 @@ import { titleDetailRows } from './title-details-rows';
 
 const HIDDEN = Dimensions.get('window').height;
 
-export function TitleDetails({ title, labels, onClose }: { title: Title; labels?: KitLabel[]; onClose: () => void }) {
+export function TitleDetails({ title, labels, onClose, children }: { title: Title; labels?: KitLabel[]; onClose: () => void; children?: ReactNode }) {
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
   const [offset] = useState(() => new Animated.Value(reduced ? 0 : HIDDEN));
@@ -85,8 +85,10 @@ export function TitleDetails({ title, labels, onClose }: { title: Title; labels?
               {title.labelIds.length ? title.labelIds.map((id) => labelById.get(id)).filter((label): label is KitLabel => !!label)
                 .map((label) => <Text key={label.id} style={styles.chip}>{label.name}</Text>) : <Text style={styles.muted}>No labels</Text>}
             </View>
+            {title.labelIds.some((id) => !labelById.has(id)) && <Text style={styles.muted}>Some title labels are unavailable. Refresh or contact staff.</Text>}
             <Text style={styles.muted}>Labels do not reserve a kit or guarantee availability.</Text>
           </>}
+          {children}
         </ScrollView>
       </Animated.View>
     </View>

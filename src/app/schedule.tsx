@@ -8,7 +8,7 @@ import { ScheduleInstructions } from '../components/schedule-instructions';
 import { useScheduleWorkspace } from '../components/schedule-workspace';
 import { MemberSchedule, type MemberView } from '../components/member-schedule';
 import { TitleCover } from '../components/title-cover';
-import { memberMeetingCalendar, memberVisibleCycle, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
+import { memberScheduleMeetings, memberVisibleCycle, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
 import { assignmentProblem, fairness, rankings } from '../domain/logic';
@@ -78,24 +78,21 @@ function ScheduleContent() {
   const kitById = new Map(viewData.kits.map((kit) => [kit.id, kit] as const));
   const titleById = new Map(viewData.titles.map((title) => [title.id, title] as const));
   const clubById = new Map(viewData.clubs.map((club) => [club.id, club] as const));
-  const memberCycles = data.cycles.filter((c) => memberVisibleCycle(c) &&
-    (c.slots.some((slot) => enrolledClubIds.includes(slot.clubId)) ||
-      data.assignments.some((a) => a.cycleId === c.id && enrolledClubIds.includes(a.clubId))));
-  const gridCycle = staff ? cycle : memberCycles.find((c) => c.id === selectedId) ?? memberCycles[0];
+  const gridCycle = cycle;
   const selectedClubIds = staff ? staffClubIds : gridClubIds;
   const gridClubs = selectedClubIds ? clubChoices.filter((club) => selectedClubIds.includes(club.id)) : clubChoices;
   const problemClubs = new Set(gridClubs.map((club) => club.id));
   const problems = new Map((staff ? visibleAssignments.filter((assignment) => problemClubs.has(assignment.clubId)) : [])
     .map((assignment) => [assignment.id, assignmentProblem(viewData, assignment, viewData.assignments) ?? null] as const));
   const gridClubKey = gridClubs.map((club) => club.id).join('|');
-  const grid = mode === 'grid' && gridCycle
+  const grid = staff && mode === 'grid' && gridCycle
     ? scheduleGrid(viewData, gridCycle, gridClubKey ? gridClubKey.split('|') : [], viewData.assignments.filter((a) => a.cycleId === gridCycle.id))
     : null;
   const gridPriorities = staff && mode === 'grid' && gridCycle
     ? new Map(gridClubs.map((club) => [club.id, new Map((gridCycle.finalized[club.id] ?? rankings(viewData, gridCycle, club.id, true))
       .map((titleId, index) => [titleId, index + 1] as const))] as const))
     : null;
-  const memberCalendar = staff ? [] : memberMeetingCalendar(data, gridClubs.map((club) => club.id));
+  const memberMeetings = staff ? [] : memberScheduleMeetings(data, gridClubs.map((club) => club.id));
   const kits = staff && mode === 'kits' && cycle ? scheduleByKit(viewData, cycle.id, gridClubs.map((club) => club.id)) : [];
   const discardPending = editor.pendingAction?.kind === 'discard';
   const modalOpen = staff && !!editor.selectedSlotId;
@@ -167,7 +164,7 @@ function ScheduleContent() {
     <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={requestDiscard} />
   </Card>;
   if (!person) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}<Note>No demo user is selected. Choose a user on Home.</Note></Page>;
-  if (!cycle) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.</Note></Page>;
+  if (!cycle) return <Page title="Schedule" wide={wide}>{pendingConfirmation}{discardConfirmation}{discardUnavailableProposal}{staff && <Actions><ScheduleInstructions /></Actions>}<Note>{!staff && !enrolledClubIds.length ? 'You are not enrolled in any clubs. Enrol in a club on Home.' : 'No shared cycle is available. Staff can create one, or an administrator can run the explicit server demo seed.'}</Note></Page>;
   const cycleAssignments = viewData.assignments.filter((assignment) => assignment.cycleId === cycle.id);
   const assignedSlots = new Set(cycleAssignments.map((assignment) => assignment.slotId));
   const unassignedMeetings = cycle.slots.filter((slot) => !assignedSlots.has(slot.id)).length;
@@ -214,10 +211,6 @@ function ScheduleContent() {
   }
 
   const gridContent = <>
-    {!staff && mode === 'grid' && gridCycle && <Card>
-      <Label>Published cycle · {gridCycle.name}</Label>
-      {memberCycles.length > 1 && <Actions>{memberCycles.map((value) => <Action key={value.id} selected={value.id === gridCycle.id} title={`${value.name} · ${value.status}`} onPress={() => { setSelectedId(value.id); setExpandedId(null); }} />)}</Actions>}
-    </Card>}
     {staff && mode === 'grid' && <Note>Cover badges show club priority; — means unranked. Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
     {mode === 'grid' && staff && highlightTitle && grid && <Card>
       <Label>Highlighting · {highlightTitle.name}</Label>
@@ -250,7 +243,7 @@ function ScheduleContent() {
       <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={requestDiscard} />
     </Card>}
     <Card>
-      <Label>{staff ? `${cycle.name} · ${cycle.status}` : `Your schedule${gridCycle ? ` · ${gridCycle.status}` : ''}`}</Label>
+      <Label>{staff ? `${cycle.name} · ${cycle.status}` : 'Your schedule'}</Label>
       <Actions>
         {staff && data.cycles.length > 1 && <Action title={cycleOpen ? 'Close cycles' : 'Change cycle'} onPress={() => setCycleOpen(!cycleOpen)} />}
         {staff && <Action title={toolsOpen ? 'Hide schedule actions' : 'Schedule actions'} onPress={() => setToolsOpen(!toolsOpen)} />}
@@ -394,9 +387,15 @@ function ScheduleContent() {
           }} />)}</Actions>
         </>}
     </Card>}
-    {!staff && <MemberSchedule view={memberViewMode} onViewChange={setMemberViewMode} calendar={memberCalendar} today={today()}
+    {!staff && <MemberSchedule key={JSON.stringify([person.id, gridClubKey, memberMeetings.map((meeting) =>
+      [meeting.key, meeting.assignment ? kitById.get(meeting.assignment.kitId)?.titleId : null,
+        meeting.assignment ? titleById.has(kitById.get(meeting.assignment.kitId)?.titleId ?? '') : false])])}
+      view={memberViewMode} onViewChange={setMemberViewMode} meetings={memberMeetings} today={today()}
+      emptyMessage={clubChoices.length === 0 ? 'You are not enrolled in any clubs. Enrol in a club on Home.' : gridClubs.length === 0 ? 'Select clubs to see their schedule.' : 'No drafted or published meetings are available for the selected clubs.'}
+      labels={data.kitLabels}
       titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
-      clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'} renderDetail={renderDetail} gridContent={gridContent} />}
+      titleIdFor={(assignment) => kitById.get(assignment.kitId)?.titleId}
+      clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'} />}
     {staff && mode === 'meetings' && <Card>
       <Label>Meetings</Label>
       {clubChoices.length > 0 && gridClubs.length === 0 && <Note>Select clubs to see meetings.</Note>}

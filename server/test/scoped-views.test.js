@@ -25,6 +25,11 @@ test('scoped views load only relevant member data and retain complete staff sche
   });
   await require('../src/migrate').migrate(pool);
   await require('../src/seed').seed(pool);
+  await pool.query(`INSERT INTO kit_labels(id,category,name) VALUES
+    ('schedule-genre','genre','Scheduled genre'),('schedule-vibe','vibe','Scheduled vibe'),('other-label','genre','Other genre')`);
+  await pool.query(`INSERT INTO title_label_assignments(title_id,label_id) VALUES
+    ('t1','schedule-genre'),('t1','schedule-vibe'),('t2','other-label')`);
+  await pool.query("INSERT INTO people(id,name,role) VALUES('no-clubs','No clubs','member')");
   await pool.query(`INSERT INTO cycles(id,name,deadline,starts_on,ends_on,status)
     VALUES('published','Published','2030-12-01','2031-01-01','2031-01-31','published')`);
   await pool.query(`INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting)
@@ -77,6 +82,8 @@ test('scoped views load only relevant member data and retain complete staff sche
   assert.deepEqual(schedule.assignments.map((item) => item.id), ['a3', 'a1']);
   assert.deepEqual(schedule.kits.map((item) => item.id), ['k1', 'k2']);
   assert.deepEqual(schedule.titles.map((item) => item.id), ['t1']);
+  assert.deepEqual(schedule.kitLabels.map((label) => label.id), ['schedule-genre', 'schedule-vibe']);
+  assert.deepEqual((await get('/api/users/no-clubs/views/schedule')).kitLabels, []);
   assert.ok(schedule.cycles.every((cycle) => cycle.slots.every((slot) => slot.clubId === 'c1')));
   assert.deepEqual(schedule.ballots, []);
   assert.deepEqual(schedule.events, []);

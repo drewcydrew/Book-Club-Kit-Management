@@ -240,6 +240,43 @@ export function memberMeetingCalendar(data: Data, clubIds: string[]): MemberMeet
   return [...byMonth.values()];
 }
 
+export interface MemberScheduleMeeting {
+  key: string;
+  cycle: Cycle;
+  clubId: string;
+  month: string;
+  date: string | null;
+  assignment?: Assignment;
+}
+
+export function memberScheduleMeetings(data: Data, clubIds: string[]): MemberScheduleMeeting[] {
+  const clubs = new Set(clubIds);
+  const cycles = data.cycles.filter(memberVisibleCycle);
+  const cycleById = new Map(cycles.map((cycle) => [cycle.id, cycle]));
+  const assignedSlots = new Set<string>();
+  const meetings: MemberScheduleMeeting[] = [];
+  for (const assignment of data.assignments) {
+    const cycle = cycleById.get(assignment.cycleId);
+    if (!cycle || !clubs.has(assignment.clubId)) continue;
+    assignedSlots.add(JSON.stringify([assignment.cycleId, assignment.slotId]));
+    meetings.push({
+      key: `assignment:${assignment.id}`, cycle, clubId: assignment.clubId,
+      month: assignment.meeting.slice(0, 7), date: assignment.meeting, assignment,
+    });
+  }
+  for (const cycle of cycles) {
+    for (const slot of cycle.slots) {
+      if (!clubs.has(slot.clubId) || assignedSlots.has(JSON.stringify([cycle.id, slot.id]))) continue;
+      meetings.push({
+        key: `slot:${cycle.id}:${slot.id}`, cycle, clubId: slot.clubId,
+        month: slot.month, date: slot.meeting,
+      });
+    }
+  }
+  return meetings.sort((a, b) => (a.date ?? a.month).localeCompare(b.date ?? b.month)
+    || a.clubId.localeCompare(b.clubId) || a.cycle.id.localeCompare(b.cycle.id) || a.key.localeCompare(b.key));
+}
+
 export function scheduleByKit(data: Data, cycleId: string, clubIds: string[]): { kitId: string; assignments: Assignment[] }[] {
   const clubs = new Set(clubIds);
   const groups = new Map<string, Assignment[]>();

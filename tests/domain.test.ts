@@ -9,7 +9,7 @@ import { emptyBallot, moveInRanking, setMark, undoDismissal } from '../src/domai
 import { memberCycleStatus, preferenceStatus, votingStatus } from '../src/domain/voting';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
-import { clubPriorities, clubStatuses, groupSlotsByMonth, memberMeetingCalendar, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
+import { clubPriorities, clubStatuses, groupSlotsByMonth, memberMeetingCalendar, memberScheduleMeetings, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
 
 test('voting status explains whether member voting is open and why it is not', () => {
   const collecting = { status: 'collecting' as const, deadline: '2026-11-20' };
@@ -350,6 +350,30 @@ test('member meeting calendar groups visible enrolled assignments by month and d
   assert.deepEqual(calendar[2].days[0].assignments.map((a) => a.id), ['drafted', 'future']);
   assert.deepEqual(memberMeetingCalendar(data, ['c1']).flatMap((m) => m.days.map((d) => d.day)), ['2026-01-15', '2026-02-01', '2026-03-01']);
   assert.deepEqual(memberMeetingCalendar(data, []), []);
+});
+
+test('member schedule includes visible unassigned slots and orphan assignments without duplicating assigned slots', () => {
+  const data = {
+    cycles: [
+      { id: 'draft', status: 'drafted', slots: [
+        { id: 'assigned', clubId: 'c1', month: '2027-01', meeting: null },
+        { id: 'open', clubId: 'c1', month: '2027-02', meeting: null },
+        { id: 'other', clubId: 'c2', month: '2027-03', meeting: '2027-03-10' },
+      ] },
+      { id: 'published', status: 'published', slots: [] },
+      { id: 'hidden', status: 'collecting', slots: [{ id: 'hidden-slot', clubId: 'c1', month: '2027-01', meeting: null }] },
+    ],
+    assignments: [
+      { id: 'a', cycleId: 'draft', clubId: 'c1', slotId: 'assigned', meeting: '2027-01-15' },
+      { id: 'orphan', cycleId: 'published', clubId: 'c1', slotId: 'missing', meeting: '2027-04-01' },
+      { id: 'hidden', cycleId: 'hidden', clubId: 'c1', slotId: 'hidden-slot', meeting: '2027-01-01' },
+    ],
+  } as unknown as Data;
+  const meetings = memberScheduleMeetings(data, ['c1']);
+  assert.deepEqual(meetings.map((meeting) => meeting.key), ['assignment:a', 'slot:draft:open', 'assignment:orphan']);
+  assert.equal(meetings[1].date, null);
+  assert.deepEqual(memberScheduleMeetings(data, []), []);
+  assert.equal(memberScheduleMeetings(data, ['c2'])[0].date, '2027-03-10');
 });
 
 test('staff kits group selected cycle assignments by physical kit in meeting order', () => {

@@ -26,7 +26,10 @@ export function UserSelection({ disabled = false }: { disabled?: boolean }) {
       {!loading && !error && people.length === 0 && <Note>No shared users are available. Run the server demo seed, or create an admin through the API if it was already run.</Note>}
       {!loading && !error && people.length > 0 && !people.some((value) => value.role === 'admin') && <Note>No administrator exists. Restore an admin through the API if the demo seed was already run.</Note>}
       <Actions>{roles.map((role) => <Action key={role} selected={activeRole === role} title={role} disabled={disabled || loading} onPress={() => setPickedRole(role)} />)}</Actions>
-      <SearchPicker label="Demo user" options={options} selectedId={person?.id ?? ''} groups={userGroups} summary={`Select a ${activeRole}`} disabled={disabled || loading || !!error} onSelect={select} />
+      {options.length > 5 ? <SearchPicker label="Demo user" options={options} selectedId={person?.id ?? ''} groups={userGroups} summary={`Select a ${activeRole}`} disabled={disabled || loading || !!error} onSelect={select} />
+        : options.length > 0 ? <Actions>{options.map((option) => <Action key={option.id} title={option.label} selected={person?.id === option.id}
+          disabled={disabled || loading || !!error} onPress={() => select(option.id)} />)}</Actions>
+          : !loading && !error && people.length > 0 ? <Note>No {activeRole} users are available.</Note> : null}
       {person && <><Note>Selected: {person.name} · {person.role}</Note><Action title="Clear selection" disabled={disabled} onPress={() => select('')} /></>}
       {disabled && <Note>Wait for the shared change to finish before changing users.</Note>}
     </Card>
