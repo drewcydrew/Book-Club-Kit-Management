@@ -26,6 +26,33 @@ npm start
 
 Migrations and the fictional demo seed are explicit commands; neither runs at startup. To import the title list in `server/data/titles-import.tsv` (title, author, ISBN-13), run `npm run import-titles -- --dry-run` to preview and then `npm run import-titles`. Titles whose ISBN already exists are skipped, so it is safe to rerun. Imported titles start with 0 pages, which can be edited in the catalogue. To create one kit per title that has no kit yet (10 copies each, at the first configured branch, barcode equal to the title name), run `npm run create-kits -- --dry-run` to preview and then `npm run create-kits`. If any title name clashes with an existing kit barcode, nothing is written and the clashing names are listed. To load the demo 2027 schedule in `server/data/demo-schedule.tsv` (club_id, ISBN-13, meeting date), run `npm run import-demo-schedule -- --dry-run` and then `npm run import-demo-schedule`. This creates one sample member per club, a `demo-cycle-2027` cycle with a 2026-12-15 voting deadline, meeting slots, and one ballot per club ranked by meeting order. It requires the clubs and titles to exist already, and it runs once; later runs report that it was already imported. Back up the target database and verify the connection before upgrading an existing deployment. The seed creates the initial demo admin and is repeatable without overwriting edits. Conflicting existing IDs or barcodes cause the affected seed step to fail transactionally. Use an appropriately scoped database account.
 
+### Repair an outdated database safely
+
+If a database branch or restore may have lost schema changes, do **not** run `npm run migrate` blindly. Migration 007 can remove duplicate monthly meetings and their assignments, and migration 009 normally drops the old kit-label table. First stop app writes, take a verified restorable backup, and verify that the server's `DATABASE_URL` and PostgreSQL search path select the intended database and schema. Do not share the URL.
+
+From `server`, run the read-only preflight:
+
+```powershell
+npm run repair-schema -- --check
+```
+
+The report names the database and schema, checks the migration ledger and required tables, columns, constraints, indexes and trigger against the current schema, and reports label counts without printing rows. It accepts a fully current schema or the complete pre-009 schema through 008. A `blocked` result makes no changes: inspect the reported discrepancies and restore missing data or resolve the schema with an administrator. The tool intentionally does not repair missing older migrations, ambiguous or partial title-label migrations, unknown numbered migrations, changed schema definitions or lost data. Differences between PostgreSQL versions or custom schema definitions may also require investigation. A recorded migration does not prove its data survived.
+
+Only if the report says `repairable` and its counts make sense, keep writes stopped and run:
+
+```powershell
+npm run repair-schema -- --apply
+```
+
+The command repeats its checks, locks the relevant tables, copies the distinct kit-label union to titles, updates affected revisions and records migration 009 in one transaction. It retains `kit_label_assignments` as a historical snapshot, but removes its kit and label foreign keys so subsequent deletions are not blocked or cascaded into the snapshot. It is not kept in sync and can contain stale references; never replay it over current title tags. No other records are deleted. The command rolls back on failure, and repeating it on a current schema is a no-op. It does not run seed or imports.
+
+Afterward, rerun `--check`, verify the expected title labels and normal Catalog and Preferences operations, and only then resume writes. A successful schema check cannot prove lost data was recovered; use the backup to investigate missing records. The migration ledger can also be inspected without changing it:
+
+```sql
+SELECT current_database(), current_schema();
+SELECT name, applied_at FROM schema_migrations ORDER BY name;
+```
+
 ### Populate title descriptions from ISBNdb
 
 Back up the intended database first, verify `DATABASE_URL`, and set `ISBNDB_API_KEY` privately in the server environment or root `.env`. Run from `server`:
@@ -113,6 +140,10 @@ Preferences shows the cycle phase and whether choices can be edited. Members see
 Autosave is the default. Choose **Draft** to keep changes locally until **Save current draft** is pressed. Drafts are separate for each club and cycle and remain in memory only while Preferences is open; leaving or switching users prompts before discarding them, but forced termination can still lose them. Switching back to autosave offers Save all, Discard all or Cancel. If a save conflicts or its outcome is uncertain, the draft is retained and must be reconciled or discarded before retrying. Preferences remain editable in drafted or published cycles, but saving changes does not alter existing assignments and clears the club's finalized ranking. Club leaders can expand the review to finalize the club ranking after saving or discarding that club and cycle's draft.
 
 Staff and admins can filter clubs or hide clubs and titles from the preference comparison. On web, use the grid's arrow icons to order titles by a club's ranking or clubs by their ranking of a title; select again to reverse the direction. Reset sorting returns both axes to their default order, and the title column remains visible while club columns scroll horizontally. On native, choose a club to review its ranked titles, and expand a title to compare all shown clubs. Use the ranking controls to reverse either order. Unranked entries always appear last. Clear hidden titles restores title rows; the Clubs shown panel restores clubs. Contested counts show how many visible clubs rank a title, using finalized rankings where available and combined rankings otherwise. Club summaries and Title demand are expandable; demand counts clubs with member selections, which can differ from ranked-club counts.
+
+Staff and admins can export the current preference comparison as CSV or PDF. Both files include all clubs in **Clubs shown**, exclude hidden titles, and follow the current grid order; the native review club determines title order but does not restrict the clubs exported. The grid has one row per title and one column per club, with rankings in the cells and blanks for unranked titles. It does not include individual member votes. The landscape A3 PDF uses multiple pages for large grids, repeating titles and club headings as needed. Missing covers use placeholders; shortened labels are reported after export, and CSV contains the full text. Web downloads the file; mobile opens the share sheet. Each export is a snapshot of the selected cycle.
+
+**Export HTML** creates a self-contained offline snapshot with the same shown clubs and visible titles. Open it in a browser to search and select clubs or titles, or toggle rank colours (1–3, 4–6 and 7+) and contested-title emphasis (at least two currently visible clubs rank a title). Reset restores the exported selection; the document never updates the app or retrieves later changes. If JavaScript is disabled, the full grid remains readable without interactive controls. Some mobile share-sheet previews disable scripts, so save the file and open it in a browser. Anyone receiving the file can view the entire exported snapshot, even if filters hide some entries.
 
 For members, Schedule shows upcoming Meetings grouped by year across selected clubs, with past and unassigned meetings available too. Books groups assigned meetings by title; select a book or meeting to see its title details and labels alongside scheduled pickup/delivery and return dates. Drafted and published schedules are included and labeled; dates do not confirm a checkout or return. For staff and admins, Grid is the default, with Meetings and Kits views also available. Clubs shown filters all three views; Hide beside a grid row removes that club from the selection, and the panel can restore it. Kits groups assigned meetings by physical kit, while unassigned meetings appear in Grid and Meetings.
 

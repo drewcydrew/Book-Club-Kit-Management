@@ -3,7 +3,9 @@ import { Pressable, StyleSheet, Text } from "react-native";
 import { Action, Actions, Card, Label, Note } from "./ui";
 import { PriorityGridView } from "./priority-grid";
 import { NativePriorityGridView } from "./priority-grid-native";
-import { priorityMatrix, titleDemand } from "../domain/cycle-overview";
+import { PreferencesExportActions } from "./preferences-export";
+import { priorityMatrix, titleDemand, type PriorityMatrix, type PrioritySort } from "../domain/cycle-overview";
+import { visiblePreferencesMatrix } from "../domain/preferences-export";
 import { preferences as clubPreferences } from "../domain/logic";
 import type { Club, Cycle, Data } from "../domain/model";
 
@@ -120,12 +122,48 @@ export function StaffPreferences({ controller, nativeHeader }: { controller: Ret
       </>}
     </Card>
   </>;
-  if (nativeHeader !== undefined && matrix) {
-    return <NativePriorityGridView key={cycle.id} matrix={matrix} clubNameFor={clubNameFor} titleFor={titleFor} onHideClub={hideClub}
-      header={<>{nativeHeader}{filters}<Card>{intro}</Card></>} footer={footer} />;
+  if (!matrix) return null;
+  return <PreferencesGridWorkspace key={cycle.id} data={data} cycle={cycle} matrix={matrix} clubNameFor={clubNameFor}
+    titleFor={titleFor} onHideClub={hideClub} nativeHeader={nativeHeader} filters={filters} intro={intro} footer={footer} />;
+}
+
+function PreferencesGridWorkspace({ data, cycle, matrix, clubNameFor, titleFor, onHideClub, nativeHeader, filters, intro, footer }: {
+  data: Data; cycle: Cycle; matrix: PriorityMatrix; clubNameFor: (id: string) => string;
+  titleFor: (id: string) => Data['titles'][number] | undefined; onHideClub: (id: string) => void;
+  nativeHeader?: ReactNode; filters: ReactNode; intro: ReactNode; footer: ReactNode;
+}) {
+  const [hiddenTitleIds, setHiddenTitleIds] = useState<string[]>([]);
+  const [sortClub, setSortClub] = useState<PrioritySort | null>(null);
+  const [sortTitle, setSortTitle] = useState<PrioritySort | null>(null);
+  const [selectedClubId, setSelectedClubId] = useState(matrix.clubIds[0] ?? '');
+  const [titleDirection, setTitleDirection] = useState<PrioritySort['direction']>('ascending');
+  const [clubDirection, setClubDirection] = useState<PrioritySort['direction']>('ascending');
+  const [expandedTitleId, setExpandedTitleId] = useState<string | null>(null);
+  const selectedClub = matrix.clubIds.includes(selectedClubId) ? selectedClubId : matrix.clubIds[0] ?? '';
+  if (selectedClub !== selectedClubId) setSelectedClubId(selectedClub);
+  const activeClub = sortClub && matrix.clubIds.includes(sortClub.id) ? sortClub : null;
+  const activeTitle = sortTitle && matrix.rows.some((row) => row.titleId === sortTitle.id && !hiddenTitleIds.includes(row.titleId)) ? sortTitle : null;
+  if (sortClub && !activeClub) setSortClub(null);
+  if (sortTitle && !activeTitle) setSortTitle(null);
+  const visibleMatrix = useMemo(() => {
+    const native = nativeHeader !== undefined;
+    const nativeTitle = expandedTitleId && !hiddenTitleIds.includes(expandedTitleId) && matrix.rows.some((row) => row.titleId === expandedTitleId)
+      ? { id: expandedTitleId, direction: clubDirection } : null;
+    return visiblePreferencesMatrix(matrix, hiddenTitleIds,
+      native ? (selectedClub ? { id: selectedClub, direction: titleDirection } : null) : activeClub,
+      native ? nativeTitle : activeTitle);
+  }, [matrix, hiddenTitleIds, nativeHeader, expandedTitleId, clubDirection, selectedClub, titleDirection, activeClub, activeTitle]);
+  const exportControls = <PreferencesExportActions data={data} cycle={cycle} matrix={visibleMatrix} />;
+  if (nativeHeader !== undefined) {
+    return <NativePriorityGridView matrix={matrix} clubNameFor={clubNameFor} titleFor={titleFor} onHideClub={onHideClub}
+      hiddenTitleIds={hiddenTitleIds} setHiddenTitleIds={setHiddenTitleIds}
+      selectedClubId={selectedClub} setSelectedClubId={setSelectedClubId} titleDirection={titleDirection} setTitleDirection={setTitleDirection}
+      clubDirection={clubDirection} setClubDirection={setClubDirection} expandedTitleId={expandedTitleId} setExpandedTitleId={setExpandedTitleId}
+      header={<>{nativeHeader}{filters}<Card>{intro}{exportControls}</Card></>} footer={footer} />;
   }
-  return <>{filters}<Card>{intro}{matrix && <PriorityGridView key={cycle.id} matrix={matrix}
-    clubNameFor={clubNameFor} titleFor={titleFor} onHideClub={hideClub} />}</Card>{footer}</>;
+  return <>{filters}<Card>{intro}{exportControls}<PriorityGridView matrix={matrix} clubNameFor={clubNameFor} titleFor={titleFor}
+    onHideClub={onHideClub} hiddenTitleIds={hiddenTitleIds} setHiddenTitleIds={setHiddenTitleIds}
+    sortClub={activeClub} setSortClub={setSortClub} sortTitle={activeTitle} setSortTitle={setSortTitle} /></Card>{footer}</>;
 }
 
 const styles = StyleSheet.create({

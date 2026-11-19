@@ -1,0 +1,1295 @@
+{
+  "ballot_marks": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "club_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "cycle_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "mark": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "person_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "rank": {
+        "type": "integer",
+        "not_null": false,
+        "default_value": null
+      },
+      "title_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "ballot_marks_check": {
+        "definition": "CHECK (((mark = 'selected'::text) = (rank IS NOT NULL)))"
+      },
+      "ballot_marks_cycle_id_club_id_person_id_fkey": {
+        "definition": "FOREIGN KEY (cycle_id, club_id, person_id) REFERENCES ballots(cycle_id, club_id, person_id) ON DELETE RESTRICT"
+      },
+      "ballot_marks_cycle_id_club_id_person_id_rank_key": {
+        "definition": "UNIQUE (cycle_id, club_id, person_id, rank)"
+      },
+      "ballot_marks_mark_check": {
+        "definition": "CHECK ((mark = ANY (ARRAY['selected'::text, 'read'::text, 'wont'::text])))"
+      },
+      "ballot_marks_pkey": {
+        "definition": "PRIMARY KEY (cycle_id, club_id, person_id, title_id)"
+      },
+      "ballot_marks_rank_check": {
+        "definition": "CHECK ((rank > 0))"
+      },
+      "ballot_marks_title_id_fkey": {
+        "definition": "FOREIGN KEY (title_id) REFERENCES titles(id) ON DELETE RESTRICT"
+      }
+    },
+    "indexes": {
+      "ballot_marks_cycle_id_club_id_person_id_rank_key": {
+        "definition": "CREATE UNIQUE INDEX ballot_marks_cycle_id_club_id_person_id_rank_key ON ballot_marks USING btree (cycle_id, club_id, person_id, rank)",
+        "valid": true,
+        "ready": true
+      },
+      "ballot_marks_pkey": {
+        "definition": "CREATE UNIQUE INDEX ballot_marks_pkey ON ballot_marks USING btree (cycle_id, club_id, person_id, title_id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "ballots": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "club_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "cycle_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "person_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "revision": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": "1"
+      }
+    },
+    "constraints": {
+      "ballots_club_id_person_id_fkey": {
+        "definition": "FOREIGN KEY (club_id, person_id) REFERENCES memberships(club_id, person_id) ON DELETE RESTRICT"
+      },
+      "ballots_cycle_id_fkey": {
+        "definition": "FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE RESTRICT"
+      },
+      "ballots_pkey": {
+        "definition": "PRIMARY KEY (cycle_id, club_id, person_id)"
+      },
+      "ballots_revision_check": {
+        "definition": "CHECK ((revision > 0))"
+      }
+    },
+    "indexes": {
+      "ballots_pkey": {
+        "definition": "CREATE UNIQUE INDEX ballots_pkey ON ballots USING btree (cycle_id, club_id, person_id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "circulation_events": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "action": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "at": {
+        "type": "timestamp with time zone",
+        "not_null": true,
+        "default_value": null
+      },
+      "id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "kit_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "missing_components": {
+        "type": "text[]",
+        "not_null": false,
+        "default_value": null
+      },
+      "notes": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "returned_copies": {
+        "type": "integer",
+        "not_null": false,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "circulation_events_action_check": {
+        "definition": "CHECK ((action = ANY (ARRAY['reserved'::text, 'picked up'::text, 'delivered'::text, 'returned'::text, 'inspected'::text, 'resolved'::text])))"
+      },
+      "circulation_events_kit_id_fkey": {
+        "definition": "FOREIGN KEY (kit_id) REFERENCES kits(id) ON DELETE RESTRICT"
+      },
+      "circulation_events_pkey": {
+        "definition": "PRIMARY KEY (id)"
+      },
+      "circulation_events_returned_copies_check": {
+        "definition": "CHECK ((returned_copies >= 0))"
+      }
+    },
+    "indexes": {
+      "circulation_events_pkey": {
+        "definition": "CREATE UNIQUE INDEX circulation_events_pkey ON circulation_events USING btree (id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {
+      "circulation_events_append_only": {
+        "definition": "CREATE TRIGGER circulation_events_append_only BEFORE DELETE OR UPDATE ON circulation_events FOR EACH ROW EXECUTE FUNCTION reject_circulation_event_change()",
+        "enabled": "O",
+        "function_definition": "CREATE OR REPLACE FUNCTION reject_circulation_event_change()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  RAISE EXCEPTION 'Circulation events are append-only' USING ERRCODE = '55000';\r\nEND;\r\n$function$\n"
+      }
+    }
+  },
+  "club_history": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "club_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "title_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "club_history_club_id_fkey": {
+        "definition": "FOREIGN KEY (club_id) REFERENCES clubs(id) ON DELETE RESTRICT"
+      },
+      "club_history_pkey": {
+        "definition": "PRIMARY KEY (club_id, title_id)"
+      },
+      "club_history_title_id_fkey": {
+        "definition": "FOREIGN KEY (title_id) REFERENCES titles(id) ON DELETE RESTRICT"
+      }
+    },
+    "indexes": {
+      "club_history_pkey": {
+        "definition": "CREATE UNIQUE INDEX club_history_pkey ON club_history USING btree (club_id, title_id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "club_kits": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "club_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "kit_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "club_kits_club_id_fkey": {
+        "definition": "FOREIGN KEY (club_id) REFERENCES clubs(id) ON DELETE RESTRICT"
+      },
+      "club_kits_kit_id_fkey": {
+        "definition": "FOREIGN KEY (kit_id) REFERENCES kits(id) ON DELETE RESTRICT"
+      },
+      "club_kits_pkey": {
+        "definition": "PRIMARY KEY (club_id, kit_id)"
+      }
+    },
+    "indexes": {
+      "club_kits_pkey": {
+        "definition": "CREATE UNIQUE INDEX club_kits_pkey ON club_kits USING btree (club_id, kit_id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "clubs": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "address": {
+        "type": "text",
+        "not_null": true,
+        "default_value": "''::text"
+      },
+      "branch": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "cadence": {
+        "type": "text",
+        "not_null": true,
+        "default_value": "''::text"
+      },
+      "id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "name": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "pickup": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "revision": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": "1"
+      },
+      "size": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "clubs_branch_check": {
+        "definition": "CHECK (((length(TRIM(BOTH FROM branch)) >= 1) AND (length(TRIM(BOTH FROM branch)) <= 200)))"
+      },
+      "clubs_check": {
+        "definition": "CHECK (((pickup <> 'delivery'::text) OR (length(TRIM(BOTH FROM address)) > 0)))"
+      },
+      "clubs_name_check": {
+        "definition": "CHECK (((length(TRIM(BOTH FROM name)) >= 1) AND (length(TRIM(BOTH FROM name)) <= 200)))"
+      },
+      "clubs_pickup_check": {
+        "definition": "CHECK ((pickup = ANY (ARRAY['pickup'::text, 'delivery'::text])))"
+      },
+      "clubs_pkey": {
+        "definition": "PRIMARY KEY (id)"
+      },
+      "clubs_revision_check": {
+        "definition": "CHECK ((revision > 0))"
+      },
+      "clubs_size_check": {
+        "definition": "CHECK ((size > 0))"
+      }
+    },
+    "indexes": {
+      "clubs_pkey": {
+        "definition": "CREATE UNIQUE INDEX clubs_pkey ON clubs USING btree (id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "cycles": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "deadline": {
+        "type": "date",
+        "not_null": true,
+        "default_value": null
+      },
+      "ends_on": {
+        "type": "date",
+        "not_null": true,
+        "default_value": null
+      },
+      "id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "name": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "revision": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": "1"
+      },
+      "starts_on": {
+        "type": "date",
+        "not_null": true,
+        "default_value": null
+      },
+      "status": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "cycles_name_check": {
+        "definition": "CHECK (((length(TRIM(BOTH FROM name)) >= 1) AND (length(TRIM(BOTH FROM name)) <= 200)))"
+      },
+      "cycles_pkey": {
+        "definition": "PRIMARY KEY (id)"
+      },
+      "cycles_range_check": {
+        "definition": "CHECK ((starts_on <= ends_on))"
+      },
+      "cycles_revision_check": {
+        "definition": "CHECK ((revision > 0))"
+      },
+      "cycles_status_check": {
+        "definition": "CHECK ((status = ANY (ARRAY['open'::text, 'collecting'::text, 'drafted'::text, 'published'::text])))"
+      }
+    },
+    "indexes": {
+      "cycles_pkey": {
+        "definition": "CREATE UNIQUE INDEX cycles_pkey ON cycles USING btree (id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "finalized_groups": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "club_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "cycle_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "finalized_groups_club_id_fkey": {
+        "definition": "FOREIGN KEY (club_id) REFERENCES clubs(id) ON DELETE RESTRICT"
+      },
+      "finalized_groups_cycle_id_fkey": {
+        "definition": "FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE RESTRICT"
+      },
+      "finalized_groups_pkey": {
+        "definition": "PRIMARY KEY (cycle_id, club_id)"
+      }
+    },
+    "indexes": {
+      "finalized_groups_pkey": {
+        "definition": "CREATE UNIQUE INDEX finalized_groups_pkey ON finalized_groups USING btree (cycle_id, club_id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "finalized_rankings": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "club_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "cycle_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "rank": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": null
+      },
+      "title_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "finalized_rankings_cycle_id_club_id_fkey": {
+        "definition": "FOREIGN KEY (cycle_id, club_id) REFERENCES finalized_groups(cycle_id, club_id) ON DELETE RESTRICT"
+      },
+      "finalized_rankings_cycle_id_club_id_rank_key": {
+        "definition": "UNIQUE (cycle_id, club_id, rank)"
+      },
+      "finalized_rankings_pkey": {
+        "definition": "PRIMARY KEY (cycle_id, club_id, title_id)"
+      },
+      "finalized_rankings_rank_check": {
+        "definition": "CHECK ((rank > 0))"
+      },
+      "finalized_rankings_title_id_fkey": {
+        "definition": "FOREIGN KEY (title_id) REFERENCES titles(id) ON DELETE RESTRICT"
+      }
+    },
+    "indexes": {
+      "finalized_rankings_cycle_id_club_id_rank_key": {
+        "definition": "CREATE UNIQUE INDEX finalized_rankings_cycle_id_club_id_rank_key ON finalized_rankings USING btree (cycle_id, club_id, rank)",
+        "valid": true,
+        "ready": true
+      },
+      "finalized_rankings_pkey": {
+        "definition": "CREATE UNIQUE INDEX finalized_rankings_pkey ON finalized_rankings USING btree (cycle_id, club_id, title_id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "kit_identifiers": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "identifier": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "kind": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "kit_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "kit_identifiers_identifier_check": {
+        "definition": "CHECK (((length(TRIM(BOTH FROM identifier)) >= 1) AND (length(TRIM(BOTH FROM identifier)) <= 200)))"
+      },
+      "kit_identifiers_kind_check": {
+        "definition": "CHECK ((kind = ANY (ARRAY['kit'::text, 'copy'::text])))"
+      },
+      "kit_identifiers_kit_id_fkey": {
+        "definition": "FOREIGN KEY (kit_id) REFERENCES kits(id) ON DELETE CASCADE"
+      }
+    },
+    "indexes": {
+      "kit_identifier_unique": {
+        "definition": "CREATE UNIQUE INDEX kit_identifier_unique ON kit_identifiers USING btree (lower(identifier))",
+        "valid": true,
+        "ready": true
+      },
+      "kit_primary_identifier_unique": {
+        "definition": "CREATE UNIQUE INDEX kit_primary_identifier_unique ON kit_identifiers USING btree (kit_id) WHERE (kind = 'kit'::text)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "kit_label_assignments": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "kit_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "label_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "kit_label_assignments_kit_id_fkey": {
+        "definition": "FOREIGN KEY (kit_id) REFERENCES kits(id) ON DELETE CASCADE"
+      },
+      "kit_label_assignments_label_id_fkey": {
+        "definition": "FOREIGN KEY (label_id) REFERENCES kit_labels(id) ON DELETE RESTRICT"
+      },
+      "kit_label_assignments_pkey": {
+        "definition": "PRIMARY KEY (kit_id, label_id)"
+      }
+    },
+    "indexes": {
+      "kit_label_assignments_by_label": {
+        "definition": "CREATE INDEX kit_label_assignments_by_label ON kit_label_assignments USING btree (label_id, kit_id)",
+        "valid": true,
+        "ready": true
+      },
+      "kit_label_assignments_pkey": {
+        "definition": "CREATE UNIQUE INDEX kit_label_assignments_pkey ON kit_label_assignments USING btree (kit_id, label_id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "kit_labels": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "category": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "name": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "revision": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": "1"
+      }
+    },
+    "constraints": {
+      "kit_labels_category_check": {
+        "definition": "CHECK ((category = ANY (ARRAY['genre'::text, 'vibe'::text])))"
+      },
+      "kit_labels_name_check": {
+        "definition": "CHECK (((name = TRIM(BOTH FROM name)) AND ((length(name) >= 1) AND (length(name) <= 100))))"
+      },
+      "kit_labels_pkey": {
+        "definition": "PRIMARY KEY (id)"
+      },
+      "kit_labels_revision_check": {
+        "definition": "CHECK ((revision > 0))"
+      }
+    },
+    "indexes": {
+      "kit_labels_category_name_unique": {
+        "definition": "CREATE UNIQUE INDEX kit_labels_category_name_unique ON kit_labels USING btree (category, lower(name))",
+        "valid": true,
+        "ready": true
+      },
+      "kit_labels_pkey": {
+        "definition": "CREATE UNIQUE INDEX kit_labels_pkey ON kit_labels USING btree (id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "kits": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "branch": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "copies": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": null
+      },
+      "extras": {
+        "type": "text",
+        "not_null": true,
+        "default_value": "''::text"
+      },
+      "id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "revision": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": "1"
+      },
+      "status": {
+        "type": "text",
+        "not_null": true,
+        "default_value": "'available'::text"
+      },
+      "title_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "kits_branch_check": {
+        "definition": "CHECK (((length(TRIM(BOTH FROM branch)) >= 1) AND (length(TRIM(BOTH FROM branch)) <= 200)))"
+      },
+      "kits_copies_check": {
+        "definition": "CHECK ((copies > 0))"
+      },
+      "kits_pkey": {
+        "definition": "PRIMARY KEY (id)"
+      },
+      "kits_revision_check": {
+        "definition": "CHECK ((revision > 0))"
+      },
+      "kits_status_check": {
+        "definition": "CHECK ((status = ANY (ARRAY['available'::text, 'reserved'::text, 'out'::text, 'inspection'::text, 'unavailable'::text])))"
+      },
+      "kits_title_id_fkey": {
+        "definition": "FOREIGN KEY (title_id) REFERENCES titles(id) ON DELETE RESTRICT"
+      }
+    },
+    "indexes": {
+      "kits_pkey": {
+        "definition": "CREATE UNIQUE INDEX kits_pkey ON kits USING btree (id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "lending_settings": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "branches": {
+        "type": "text[]",
+        "not_null": true,
+        "default_value": null
+      },
+      "buffer_days": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": null
+      },
+      "loan_days": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": null
+      },
+      "name": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "revision": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": "1"
+      },
+      "singleton": {
+        "type": "boolean",
+        "not_null": true,
+        "default_value": "true"
+      }
+    },
+    "constraints": {
+      "lending_settings_buffer_days_check": {
+        "definition": "CHECK ((buffer_days >= 0))"
+      },
+      "lending_settings_loan_days_check": {
+        "definition": "CHECK ((loan_days > 0))"
+      },
+      "lending_settings_name_check": {
+        "definition": "CHECK (((length(TRIM(BOTH FROM name)) >= 1) AND (length(TRIM(BOTH FROM name)) <= 200)))"
+      },
+      "lending_settings_pkey": {
+        "definition": "PRIMARY KEY (singleton)"
+      },
+      "lending_settings_revision_check": {
+        "definition": "CHECK ((revision > 0))"
+      },
+      "lending_settings_singleton_check": {
+        "definition": "CHECK (singleton)"
+      }
+    },
+    "indexes": {
+      "lending_settings_pkey": {
+        "definition": "CREATE UNIQUE INDEX lending_settings_pkey ON lending_settings USING btree (singleton)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "meeting_slots": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "club_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "cycle_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "meeting": {
+        "type": "date",
+        "not_null": false,
+        "default_value": null
+      },
+      "month": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "meeting_slots_club_id_fkey": {
+        "definition": "FOREIGN KEY (club_id) REFERENCES clubs(id) ON DELETE RESTRICT"
+      },
+      "meeting_slots_cycle_club_month_key": {
+        "definition": "UNIQUE (cycle_id, club_id, month)"
+      },
+      "meeting_slots_cycle_id_fkey": {
+        "definition": "FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE RESTRICT"
+      },
+      "meeting_slots_id_cycle_id_club_id_meeting_key": {
+        "definition": "UNIQUE (id, cycle_id, club_id, meeting)"
+      },
+      "meeting_slots_meeting_month_check": {
+        "definition": "CHECK (((meeting IS NULL) OR (to_char((meeting)::timestamp with time zone, 'YYYY-MM'::text) = month)))"
+      },
+      "meeting_slots_month_check": {
+        "definition": "CHECK ((month ~ '^\\d{4}-\\d{2}$'::text))"
+      },
+      "meeting_slots_pkey": {
+        "definition": "PRIMARY KEY (id)"
+      }
+    },
+    "indexes": {
+      "meeting_slots_cycle_club_month_key": {
+        "definition": "CREATE UNIQUE INDEX meeting_slots_cycle_club_month_key ON meeting_slots USING btree (cycle_id, club_id, month)",
+        "valid": true,
+        "ready": true
+      },
+      "meeting_slots_id_cycle_id_club_id_meeting_key": {
+        "definition": "CREATE UNIQUE INDEX meeting_slots_id_cycle_id_club_id_meeting_key ON meeting_slots USING btree (id, cycle_id, club_id, meeting)",
+        "valid": true,
+        "ready": true
+      },
+      "meeting_slots_pkey": {
+        "definition": "CREATE UNIQUE INDEX meeting_slots_pkey ON meeting_slots USING btree (id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "membership_versions": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "club_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "revision": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": "1"
+      }
+    },
+    "constraints": {
+      "membership_versions_club_id_fkey": {
+        "definition": "FOREIGN KEY (club_id) REFERENCES clubs(id) ON DELETE CASCADE"
+      },
+      "membership_versions_pkey": {
+        "definition": "PRIMARY KEY (club_id)"
+      },
+      "membership_versions_revision_check": {
+        "definition": "CHECK ((revision > 0))"
+      }
+    },
+    "indexes": {
+      "membership_versions_pkey": {
+        "definition": "CREATE UNIQUE INDEX membership_versions_pkey ON membership_versions USING btree (club_id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "memberships": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "club_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "leader": {
+        "type": "boolean",
+        "not_null": true,
+        "default_value": "false"
+      },
+      "person_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "memberships_club_id_fkey": {
+        "definition": "FOREIGN KEY (club_id) REFERENCES clubs(id) ON DELETE RESTRICT"
+      },
+      "memberships_person_id_fkey": {
+        "definition": "FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE RESTRICT"
+      },
+      "memberships_pkey": {
+        "definition": "PRIMARY KEY (club_id, person_id)"
+      }
+    },
+    "indexes": {
+      "memberships_pkey": {
+        "definition": "CREATE UNIQUE INDEX memberships_pkey ON memberships USING btree (club_id, person_id)",
+        "valid": true,
+        "ready": true
+      },
+      "one_leader_per_club": {
+        "definition": "CREATE UNIQUE INDEX one_leader_per_club ON memberships USING btree (club_id) WHERE leader",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "people": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "name": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "revision": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": "1"
+      },
+      "role": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "people_name_check": {
+        "definition": "CHECK (((length(TRIM(BOTH FROM name)) >= 1) AND (length(TRIM(BOTH FROM name)) <= 200)))"
+      },
+      "people_pkey": {
+        "definition": "PRIMARY KEY (id)"
+      },
+      "people_revision_check": {
+        "definition": "CHECK ((revision > 0))"
+      },
+      "people_role_check": {
+        "definition": "CHECK ((role = ANY (ARRAY['admin'::text, 'staff'::text, 'member'::text])))"
+      }
+    },
+    "indexes": {
+      "people_pkey": {
+        "definition": "CREATE UNIQUE INDEX people_pkey ON people USING btree (id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "schedule_assignments": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "club_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "cycle_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "due": {
+        "type": "date",
+        "not_null": true,
+        "default_value": null
+      },
+      "id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "kit_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "locked": {
+        "type": "boolean",
+        "not_null": true,
+        "default_value": null
+      },
+      "meeting": {
+        "type": "date",
+        "not_null": true,
+        "default_value": null
+      },
+      "ready": {
+        "type": "date",
+        "not_null": true,
+        "default_value": null
+      },
+      "slot_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "schedule_assignments_check": {
+        "definition": "CHECK (((ready <= meeting) AND (meeting <= due)))"
+      },
+      "schedule_assignments_club_id_fkey": {
+        "definition": "FOREIGN KEY (club_id) REFERENCES clubs(id) ON DELETE RESTRICT"
+      },
+      "schedule_assignments_cycle_id_fkey": {
+        "definition": "FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE RESTRICT"
+      },
+      "schedule_assignments_kit_id_fkey": {
+        "definition": "FOREIGN KEY (kit_id) REFERENCES kits(id) ON DELETE RESTRICT"
+      },
+      "schedule_assignments_pkey": {
+        "definition": "PRIMARY KEY (id)"
+      },
+      "schedule_assignments_slot_id_cycle_id_club_id_meeting_fkey": {
+        "definition": "FOREIGN KEY (slot_id, cycle_id, club_id, meeting) REFERENCES meeting_slots(id, cycle_id, club_id, meeting) ON DELETE RESTRICT"
+      },
+      "schedule_assignments_slot_id_key": {
+        "definition": "UNIQUE (slot_id)"
+      }
+    },
+    "indexes": {
+      "schedule_assignments_pkey": {
+        "definition": "CREATE UNIQUE INDEX schedule_assignments_pkey ON schedule_assignments USING btree (id)",
+        "valid": true,
+        "ready": true
+      },
+      "schedule_assignments_slot_id_key": {
+        "definition": "CREATE UNIQUE INDEX schedule_assignments_slot_id_key ON schedule_assignments USING btree (slot_id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "schema_migrations": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "applied_at": {
+        "type": "timestamp with time zone",
+        "not_null": true,
+        "default_value": "now()"
+      },
+      "name": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "schema_migrations_pkey": {
+        "definition": "PRIMARY KEY (name)"
+      }
+    },
+    "indexes": {
+      "schema_migrations_pkey": {
+        "definition": "CREATE UNIQUE INDEX schema_migrations_pkey ON schema_migrations USING btree (name)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "title_label_assignments": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "label_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "title_id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "title_label_assignments_label_id_fkey": {
+        "definition": "FOREIGN KEY (label_id) REFERENCES kit_labels(id) ON DELETE RESTRICT"
+      },
+      "title_label_assignments_pkey": {
+        "definition": "PRIMARY KEY (title_id, label_id)"
+      },
+      "title_label_assignments_title_id_fkey": {
+        "definition": "FOREIGN KEY (title_id) REFERENCES titles(id) ON DELETE CASCADE"
+      }
+    },
+    "indexes": {
+      "title_label_assignments_by_label": {
+        "definition": "CREATE INDEX title_label_assignments_by_label ON title_label_assignments USING btree (label_id, title_id)",
+        "valid": true,
+        "ready": true
+      },
+      "title_label_assignments_pkey": {
+        "definition": "CREATE UNIQUE INDEX title_label_assignments_pkey ON title_label_assignments USING btree (title_id, label_id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  },
+  "titles": {
+    "properties": {
+      "row_security": false,
+      "force_row_security": false
+    },
+    "columns": {
+      "audio": {
+        "type": "boolean",
+        "not_null": true,
+        "default_value": "false"
+      },
+      "author": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "binding": {
+        "type": "text",
+        "not_null": false,
+        "default_value": null
+      },
+      "cover_url": {
+        "type": "text",
+        "not_null": false,
+        "default_value": null
+      },
+      "date_published": {
+        "type": "text",
+        "not_null": false,
+        "default_value": null
+      },
+      "genres": {
+        "type": "text",
+        "not_null": true,
+        "default_value": "''::text"
+      },
+      "id": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "isbn": {
+        "type": "text",
+        "not_null": true,
+        "default_value": "''::text"
+      },
+      "language": {
+        "type": "text",
+        "not_null": false,
+        "default_value": null
+      },
+      "large_print": {
+        "type": "boolean",
+        "not_null": true,
+        "default_value": "false"
+      },
+      "name": {
+        "type": "text",
+        "not_null": true,
+        "default_value": null
+      },
+      "notes": {
+        "type": "text",
+        "not_null": true,
+        "default_value": "''::text"
+      },
+      "pages": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": null
+      },
+      "publisher": {
+        "type": "text",
+        "not_null": false,
+        "default_value": null
+      },
+      "revision": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": "1"
+      },
+      "synopsis": {
+        "type": "text",
+        "not_null": false,
+        "default_value": null
+      }
+    },
+    "constraints": {
+      "titles_author_check": {
+        "definition": "CHECK (((length(TRIM(BOTH FROM author)) >= 1) AND (length(TRIM(BOTH FROM author)) <= 200)))"
+      },
+      "titles_binding_check": {
+        "definition": "CHECK (((binding IS NULL) OR (length(binding) <= 100)))"
+      },
+      "titles_cover_url_check": {
+        "definition": "CHECK (((cover_url IS NULL) OR ((cover_url ~ '^https://'::text) AND (length(cover_url) <= 2000))))"
+      },
+      "titles_date_published_check": {
+        "definition": "CHECK (((date_published IS NULL) OR (length(date_published) <= 40)))"
+      },
+      "titles_language_check": {
+        "definition": "CHECK (((language IS NULL) OR (length(language) <= 40)))"
+      },
+      "titles_name_check": {
+        "definition": "CHECK (((length(TRIM(BOTH FROM name)) >= 1) AND (length(TRIM(BOTH FROM name)) <= 200)))"
+      },
+      "titles_pages_check": {
+        "definition": "CHECK ((pages >= 0))"
+      },
+      "titles_pkey": {
+        "definition": "PRIMARY KEY (id)"
+      },
+      "titles_publisher_check": {
+        "definition": "CHECK (((publisher IS NULL) OR (length(publisher) <= 200)))"
+      },
+      "titles_revision_check": {
+        "definition": "CHECK ((revision > 0))"
+      },
+      "titles_synopsis_check": {
+        "definition": "CHECK (((synopsis IS NULL) OR (length(synopsis) <= 4000)))"
+      }
+    },
+    "indexes": {
+      "titles_pkey": {
+        "definition": "CREATE UNIQUE INDEX titles_pkey ON titles USING btree (id)",
+        "valid": true,
+        "ready": true
+      }
+    },
+    "triggers": {}
+  }
+}

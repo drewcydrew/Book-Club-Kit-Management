@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState, type ReactNode } from 'react';
+import React, { useCallback, useMemo, type ReactNode } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { priorityCellsForTitle, priorityRowsForClub, type PriorityCell, type PriorityMatrix, type PriorityRow, type PrioritySort } from '../domain/cycle-overview';
 import type { Title } from '../domain/model';
@@ -13,6 +13,16 @@ interface Props {
   onHideClub: (id: string) => void;
   header: ReactNode;
   footer: ReactNode;
+  hiddenTitleIds: string[];
+  setHiddenTitleIds: React.Dispatch<React.SetStateAction<string[]>>;
+  selectedClubId: string;
+  setSelectedClubId: React.Dispatch<React.SetStateAction<string>>;
+  titleDirection: PrioritySort['direction'];
+  setTitleDirection: React.Dispatch<React.SetStateAction<PrioritySort['direction']>>;
+  clubDirection: PrioritySort['direction'];
+  setClubDirection: React.Dispatch<React.SetStateAction<PrioritySort['direction']>>;
+  expandedTitleId: string | null;
+  setExpandedTitleId: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
 function cellDescription(cell: PriorityCell): string {
@@ -23,14 +33,9 @@ function cellDescription(cell: PriorityCell): string {
   ].filter(Boolean).join(' · ');
 }
 
-export function NativePriorityGridView({ matrix, clubNameFor, titleFor, onHideClub, header, footer }: Props) {
-  const [selectedClubId, setSelectedClubId] = useState(matrix.clubIds[0] ?? '');
-  const [titleDirection, setTitleDirection] = useState<PrioritySort['direction']>('ascending');
-  const [clubDirection, setClubDirection] = useState<PrioritySort['direction']>('ascending');
-  const [hiddenTitleIds, setHiddenTitleIds] = useState<string[]>([]);
-  const [expandedTitleId, setExpandedTitleId] = useState<string | null>(null);
+export function NativePriorityGridView({ matrix, clubNameFor, titleFor, onHideClub, header, footer, hiddenTitleIds, setHiddenTitleIds,
+  selectedClubId, setSelectedClubId, titleDirection, setTitleDirection, clubDirection, setClubDirection, expandedTitleId, setExpandedTitleId }: Props) {
   const selectedClub = matrix.clubIds.includes(selectedClubId) ? selectedClubId : matrix.clubIds[0] ?? '';
-  if (selectedClub !== selectedClubId) setSelectedClubId(selectedClub);
 
   const rows = useMemo(() => priorityRowsForClub(matrix, selectedClub, hiddenTitleIds, titleDirection),
     [matrix, selectedClub, hiddenTitleIds, titleDirection]);
@@ -82,7 +87,7 @@ export function NativePriorityGridView({ matrix, clubNameFor, titleFor, onHideCl
         </View>)}
       </>}
     </View>;
-  }, [clubDirection, clubNameFor, expandedTitleId, matrix, onHideClub, selectedClub, titleFor]);
+  }, [clubDirection, clubNameFor, expandedTitleId, matrix, onHideClub, selectedClub, titleFor, setClubDirection, setExpandedTitleId, setHiddenTitleIds]);
 
   return <FlatList style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 60 }}
     data={rows} renderItem={renderItem} keyExtractor={(row) => row.titleId}

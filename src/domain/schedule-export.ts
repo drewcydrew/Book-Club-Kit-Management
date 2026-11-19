@@ -1,6 +1,7 @@
 import { highlightedGrid, memberScheduleMeetings, scheduleByKit, scheduleGrid, type MemberScheduleMeeting } from './cycle-overview';
 import { fairness, rankings } from './logic';
 import type { Cycle, Data } from './model';
+import { csvCell } from './csv';
 
 export type StaffScheduleView = 'grid' | 'meetings' | 'kits';
 
@@ -137,12 +138,6 @@ export function makeScheduleExport(data: Data, clubIds: string[], staffCycle?: C
     label: staffCycle ? `${staffCycle.name} · ${staffCycle.status}${unsaved ? ' · Unsaved local schedule' : ''}` : 'Your schedule · Drafted and published cycles',
     meetings: rows, mode: staffCycle ? mode : undefined, grid, highlight,
   };
-}
-
-function csvCell(value: string | number | boolean | null): string {
-  let text = value === null ? '' : String(value);
-  if (/^[\s]*[=+\-@\t\r]/.test(text)) text = `'${text}`;
-  return `"${text.replace(/"/g, '""')}"`;
 }
 
 export function scheduleCsv(schedule: ScheduleExport): string {

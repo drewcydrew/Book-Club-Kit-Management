@@ -11,6 +11,7 @@
     "start": "node --env-file-if-exists=../.env src/server.js",
     "test": "node --test",
     "migrate": "node --env-file-if-exists=../.env src/migrate.js",
+    "repair-schema": "node --env-file-if-exists=../.env src/repair-schema.js",
     "seed": "node --env-file-if-exists=../.env src/seed.js",
     "import-titles": "node --env-file-if-exists=../.env src/import-titles.js",
     "enrich-titles": "node --env-file-if-exists=../.env src/enrich-titles.js",
