@@ -116,8 +116,10 @@ export function ScheduleExportActions({ schedule, disabled, staffClubCount }: { 
         missing += pdf.invalidCovers;
         content = pdf.bytes;
       }
-      await deliver(content, `book-club-schedule-${date}.${format}`, format === 'csv' ? 'text/csv' : 'application/pdf');
-      setMessage(missing ? `Export prepared. ${missing} ${missing === 1 ? 'title has' : 'titles have'} no usable cover; placeholders were included.` : 'Export prepared.');
+      const name = schedule.mode ? `book-club-schedule-${schedule.mode}` : 'book-club-schedule';
+      await deliver(content, `${name}-${date}.${format}`, format === 'csv' ? 'text/csv' : 'application/pdf');
+      const result = schedule.mode ? `${schedule.mode[0].toUpperCase()}${schedule.mode.slice(1)} ${format.toUpperCase()} export prepared.` : 'Export prepared.';
+      setMessage(missing ? `${result} ${missing} ${missing === 1 ? 'title has' : 'titles have'} no usable cover; placeholders were included.` : result);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : 'Unable to export the schedule.');
     } finally {
@@ -126,14 +128,16 @@ export function ScheduleExportActions({ schedule, disabled, staffClubCount }: { 
   }
 
   return <View style={{ gap: 8 }}>
-    <Label>Export schedule</Label>
-    <Note>Exports include all meetings for the clubs shown, including unassigned meetings. {schedule.label}.</Note>
+    <Label>{schedule.mode ? `Export ${schedule.mode === 'grid' ? 'Grid' : schedule.mode === 'meetings' ? 'Meetings' : 'Kits'}` : 'Export schedule'}</Label>
+    <Note>{schedule.mode === 'kits'
+      ? 'Exports include assigned meetings grouped by kit; unassigned meetings are not included.'
+      : 'Exports include all meetings for the clubs shown, including unassigned meetings.'} {schedule.label}.</Note>
     {staffClubCount !== undefined && <Note>{staffClubCount} {staffClubCount === 1 ? 'club is' : 'clubs are'} selected in Clubs shown. Title highlighting does not change the export selection.</Note>}
     <Actions>
       <Action title={busy ? 'Preparing export…' : 'Export CSV'} disabled={disabled || busy || !schedule.meetings.length} onPress={() => { void exportFile('csv'); }} />
       <Action title={busy ? 'Preparing export…' : 'Export PDF'} disabled={disabled || busy || !schedule.meetings.length} onPress={() => { void exportFile('pdf'); }} />
     </Actions>
-    {!schedule.meetings.length && <Note>No meetings are available to export for the clubs shown.</Note>}
+    {!schedule.meetings.length && <Note>{schedule.mode === 'kits' ? 'No assigned kits are available to export for the clubs shown.' : 'No meetings are available to export for the clubs shown.'}</Note>}
     {message ? <Text>{message}</Text> : null}
     {error ? <Text style={{ color: '#a22525' }}>Unable to export schedule: {error}</Text> : null}
   </View>;

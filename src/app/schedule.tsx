@@ -12,7 +12,7 @@ import { TitleCover } from '../components/title-cover';
 import { memberScheduleMeetings, memberVisibleCycle, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
-import { makeScheduleExport } from '../domain/schedule-export';
+import { makeScheduleExport, type StaffScheduleView } from '../domain/schedule-export';
 import { assignmentProblem, fairness, rankings } from '../domain/logic';
 import type { Assignment } from '../domain/model';
 import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
@@ -48,7 +48,7 @@ function ScheduleContent() {
   const [highlightTitleId, setHighlightTitleId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
   const [memberViewMode, setMemberViewMode] = useState<MemberView>('meetings');
-  const [staffViewMode, setStaffViewMode] = useState<'grid' | 'meetings' | 'kits'>('grid');
+  const [staffViewMode, setStaffViewMode] = useState<StaffScheduleView>('grid');
   const [publication, setPublication] = useState<{ cycleId: string; revision: number; assignments: Assignment[]; validation: ScheduleValidation } | null>(null);
   const [validating, setValidating] = useState(false);
   const [gridClubIds, setGridClubIds] = useState<string[] | null>(null);
@@ -282,11 +282,6 @@ function ScheduleContent() {
       {staff && messages.length > 5 && <Action title={showAllMessages ? 'Show fewer messages' : `Show all messages (${messages.length})`} onPress={() => setShowAllMessages(!showAllMessages)} />}
       {staff && message ? <Text>{message}</Text> : null}
       {staff && editor.message ? <Text>{editor.message}</Text> : null}
-      {staff && <Actions>
-        <Action selected={mode === 'grid'} title="Grid" onPress={() => { editor.closeSlot(); setStaffViewMode('grid'); }} />
-        <Action selected={mode === 'meetings'} title="Meetings" onPress={() => { editor.closeSlot(); setStaffViewMode('meetings'); }} />
-        <Action selected={mode === 'kits'} title="Kits" onPress={() => { editor.closeSlot(); setStaffViewMode('kits'); }} />
-      </Actions>}
     </Card>
     {!modalOpen && pendingConfirmation}
     {discardConfirmation}
@@ -390,7 +385,16 @@ function ScheduleContent() {
         </>}
     </Card>}
     <Card>
-      <ScheduleExportActions schedule={makeScheduleExport(viewData, gridClubs.map((club) => club.id), staff ? cycle : undefined, staff && editor.dirty)}
+      {staff && <>
+        <Label>Schedule view</Label>
+        <Note>Choose a view, then export its information for the clubs shown.</Note>
+        <Actions>
+          <Action selected={mode === 'grid'} title="Grid" onPress={() => { editor.closeSlot(); setStaffViewMode('grid'); }} />
+          <Action selected={mode === 'meetings'} title="Meetings" onPress={() => { editor.closeSlot(); setStaffViewMode('meetings'); }} />
+          <Action selected={mode === 'kits'} title="Kits" onPress={() => { editor.closeSlot(); setStaffViewMode('kits'); }} />
+        </Actions>
+      </>}
+      <ScheduleExportActions schedule={makeScheduleExport(viewData, gridClubs.map((club) => club.id), staff ? cycle : undefined, staff && editor.dirty, staff ? staffViewMode : undefined)}
         disabled={staff && (editor.busy || validating || !!publication)} staffClubCount={staff ? gridClubs.length : undefined} />
     </Card>
     {!staff && <MemberSchedule key={JSON.stringify([person.id, gridClubKey, memberMeetings.map((meeting) =>

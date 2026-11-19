@@ -79,6 +79,74 @@ test('member export includes selected clubs and visible cycles, including unassi
   assert.deepEqual(result.meetings.map((row) => row.cycleStatus), ['drafted', 'drafted', 'published']);
 });
 
+test('staff export modes match their views and preserve the selected club scope', () => {
+  const data = fixture();
+  const cycle = data.cycles[0];
+  cycle.startsOn = '2027-01-01';
+  cycle.endsOn = '2027-04-30';
+  data.titles[0].name = '=Formula';
+  const grid = makeScheduleExport(data, ['c1'], cycle, true, 'grid');
+  const gridCsv = scheduleCsv(grid);
+  assert.deepEqual(grid.grid?.months, ['2027-01', '2027-02', '2027-03', '2027-04']);
+  assert.deepEqual(grid.grid?.rows[0].cells.map((cell) => cell?.slotId ?? null), ['s1', 's2', null, null]);
+  assert.match(gridCsv, /2027-01 Title/);
+  assert.match(gridCsv, /2027-02 Status/);
+  assert.ok(gridCsv.includes('"\'=Formula"'));
+  assert.ok(gridCsv.includes('"Unassigned"'));
+  assert.ok(gridCsv.includes('"No meeting"'));
+  assert.ok(gridCsv.includes('Unsaved local schedule'));
+  assert.ok(!gridCsv.includes('Westside Stories'));
+
+  const meetings = makeScheduleExport(data, ['c1'], cycle, false, 'meetings');
+  assert.ok(scheduleCsv(meetings).includes('"Unassigned"'));
+  const kits = makeScheduleExport(data, ['c1'], cycle, false, 'kits');
+  assert.deepEqual(kits.meetings.map((row) => row.kitId), ['k1']);
+  const kitsCsv = scheduleCsv(kits);
+  assert.ok(kitsCsv.includes('"KIT-101"'));
+  assert.ok(!kitsCsv.includes('"Unassigned"'));
+  assert.ok(!kitsCsv.includes('KIT-102'));
+  cycle.slots.push({ id: 's4', clubId: 'c1', month: '2027-03', meeting: '2027-03-15' });
+  data.assignments.push({ id: 'a3', cycleId: cycle.id, slotId: 's4', clubId: 'c1', kitId: 'k2',
+    ready: '2027-03-01', meeting: '2027-03-15', due: '2027-04-01', locked: false });
+  assert.deepEqual(makeScheduleExport(data, ['c1', 'c2'], cycle, false, 'kits').meetings.map((row) => row.assignmentId), ['a1', 'a2', 'a3']);
+  data.assignments = [];
+  assert.equal(makeScheduleExport(data, ['c1'], cycle, false, 'kits').meetings.length, 0);
+});
+
+test('staff PDFs use the selected view and include covers', async () => {
+  const data = fixture();
+  const cycle = data.cycles[0];
+  cycle.startsOn = '2027-01-01';
+  cycle.endsOn = '2027-04-30';
+  const fontBytes = await readFile('node_modules/@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf');
+  const image = await readFile('assets/icon.png');
+  const fontDoc = await PDFDocument.create();
+  fontDoc.registerFontkit(fontkit);
+  const font = await fontDoc.embedFont(fontBytes);
+  for (const mode of ['grid', 'meetings', 'kits'] as const) {
+    const schedule = makeScheduleExport(data, ['c1'], cycle, false, mode);
+    const { bytes } = await makeSchedulePdf(schedule, fontBytes, new Map([['t1', image]]), '2027-01-01');
+    const pdf = await PDFDocument.load(bytes);
+    const content = pdf.getPages().flatMap((page) => {
+      const streams = page.node.Contents();
+      assert.ok(streams instanceof PDFArray);
+      return Array.from({ length: streams.size() }, (_, index) =>
+        Buffer.from(decodePDFRawStream(streams.lookup(index, PDFRawStream)).decode()).toString('ascii'));
+    }).join('\n');
+    const contains = (text: string) => content.includes(font.encodeText(text).toString().slice(1, -1));
+    assert.ok(contains('Harbour Readers'));
+    assert.ok(!contains('Westside Stories'));
+    assert.equal(contains('Not assigned'), mode !== 'kits');
+    assert.ok(Buffer.from(bytes).includes(Buffer.from('/Subtype /Image')));
+    if (mode === 'grid') {
+      assert.ok(pdf.getPageCount() >= 2);
+      assert.ok(contains('2027-04'));
+      assert.ok(contains('No meeting'));
+    }
+    if (mode === 'kits') assert.ok(contains('KIT-101'));
+  }
+});
+
 test('CSV quotes fields, protects spreadsheet formulas and identifies unsaved scope', () => {
   const data = fixture();
   data.titles[0].name = '=SUM(1,2)\n"Book"';
