@@ -32,10 +32,10 @@ function SelectedShell() {
       {person && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.navigation}>
         <NavigationLink disabled={saving} href="/">Home</NavigationLink>
         {!member && <NavigationLink disabled={saving} href="/catalog">Catalog & kits</NavigationLink>}
-        {!member && <NavigationLink disabled={saving} href="/clubs">Clubs</NavigationLink>}
-        {!member && <NavigationLink disabled={saving} href="/cycles">Cycles</NavigationLink>}
         <NavigationLink disabled={saving} href="/preferences">Preferences</NavigationLink>
         <NavigationLink disabled={saving} href="/schedule">Schedule</NavigationLink>
+        {!member && <NavigationLink disabled={saving} href="/clubs">Clubs</NavigationLink>}
+        {!member && <NavigationLink disabled={saving} href="/cycles">Cycles</NavigationLink>}
         {!member && <NavigationLink disabled={saving} href="/circulation">Circulation</NavigationLink>}
         {!member && <NavigationLink disabled={saving} href="/admin">Admin</NavigationLink>}
       </ScrollView>}
