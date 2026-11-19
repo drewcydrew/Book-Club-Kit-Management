@@ -6,7 +6,7 @@ import { RankingList } from "./ranking-list";
 import { TitleDetails } from "./title-details";
 import { TitleGallery } from "./title-gallery";
 import { ballotKey, emptyBallot, moveInRanking, setMark, undoDismissal } from "../domain/ballot-draft";
-import { indexKits, kitLabelSummary } from "../domain/kit-label-search";
+import { titleLabelSummary } from "../domain/kit-label-search";
 import { rankings } from "../domain/logic";
 import type { Ballot, Club, Cycle, Data, Mark, Person } from "../domain/model";
 import { finalizeRanking, loadLeaderReview, saveBallot } from "../state/api";
@@ -134,7 +134,6 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
     ? data.titles.filter((title) => club.history.includes(title.id))
     : [];
   const detailTitle = data.titles.find((title) => title.id === detailTitleId);
-  const kitsByTitle = useMemo(() => indexKits(data.kits), [data.kits]);
   const labelById = useMemo(() => new Map(data.kitLabels.map((label) => [label.id, label])), [data.kitLabels]);
   const activeUndo = dismissalUndo?.key === currentKey && ballot?.marks[dismissalUndo.titleId] === dismissalUndo.dismissedAs ? dismissalUndo : null;
   const selectedCount = Object.values(ballot?.marks ?? {}).filter(
@@ -227,7 +226,7 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
     data, shared, cycle, club, isMember, isLeader, editable, ballot, currentKey, reviewKey, reviewRanking, setReview,
     sync, syncRefreshing, syncRefreshError, leaderOpen, setLeaderOpen, leaderReady, leaderError, setLeaderRetry, reviewData,
     pendingNavigation, setPendingNavigation, setAllowLeaving, navigationMessage, setNavigationMessage, activeUndo, undoLastDismissal,
-    lastRemovedId, setLastRemovedId, detailTitle, setDetailTitleId, kitsByTitle, labelById,
+    lastRemovedId, setLastRemovedId, detailTitle, setDetailTitleId, labelById,
     clubRead, selectedCount, changeBallot, saveChoices, refreshChoices, mark, removeSelection, resetContext,
   };
 }
@@ -237,7 +236,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
     data, shared, cycle, club, isMember, isLeader, editable, ballot, currentKey, reviewKey, reviewRanking, setReview,
     sync, syncRefreshing, syncRefreshError, leaderOpen, setLeaderOpen, leaderReady, leaderError, setLeaderRetry, reviewData,
     pendingNavigation, setPendingNavigation, setAllowLeaving, navigationMessage, setNavigationMessage, activeUndo, undoLastDismissal,
-    lastRemovedId, setLastRemovedId, detailTitle, setDetailTitleId, kitsByTitle, labelById,
+    lastRemovedId, setLastRemovedId, detailTitle, setDetailTitleId, labelById,
     clubRead, selectedCount, changeBallot, saveChoices, refreshChoices, mark, removeSelection,
   } = controller;
   if (!club || !cycle) return null;
@@ -253,14 +252,14 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
         </View></View>
       </Modal>
       {detailTitle && (
-        <TitleDetails title={detailTitle} kits={data.kits.filter((kit) => kit.titleId === detailTitle.id)} labels={data.kitLabels} onClose={() => setDetailTitleId(null)} />
+        <TitleDetails title={detailTitle} labels={data.kitLabels} onClose={() => setDetailTitleId(null)} />
       )}
       <Card soft>
         <Label>Your ranked choices · {selectedCount}</Label>
         <Note>{Platform.OS === "web"
           ? "Drag a cover, or use the ← → buttons, to rank your choices. Your first choice is top-left."
           : "Tap a cover to select it, then use ← → to rank your choices. Your first choice is top-left."}</Note>
-        <Note>Labels describe individual kits and may vary. Details show the synopsis and each kit’s labels.</Note>
+        <Note>Labels describe titles. Details show the synopsis and title labels.</Note>
         {activeUndo && (
           <Toast>
             <Note>Moved “{data.titles.find((title) => title.id === activeUndo.titleId)?.name ?? "title"}” to {activeUndo.dismissedAs === "read" ? "Already read" : "Won’t read"}.</Note>
@@ -291,7 +290,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
               author: title?.author ?? "",
               coverUrl: title?.coverUrl ?? null,
               isbn: title?.isbn ?? "",
-              kitLabels: kitLabelSummary(kitsByTitle.get(titleId) ?? [], labelById),
+              kitLabels: title ? titleLabelSummary(title, labelById) : "Title unavailable.",
               clubRead: club.history.includes(titleId),
             };
           })}
@@ -313,7 +312,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
       <Card soft>
         {data.titles.length === 0 ? <Note>No shared titles are available. Staff can add titles in the Catalog.</Note> :
           <TitleGallery titles={data.titles.filter((title) => !club.history.includes(title.id))}
-            kits={data.kits} labels={data.kitLabels} marks={ballot?.marks ?? {}} disabled={!editable || !isMember}
+            labels={data.kitLabels} marks={ballot?.marks ?? {}} disabled={!editable || !isMember}
             onMark={mark} onShowDetails={setDetailTitleId} />}
         {clubRead.length > 0 && <Note>{clubRead.length} {clubRead.length === 1 ? "title" : "titles"} already read by this club {clubRead.length === 1 ? "is" : "are"} hidden from the palette.</Note>}
         {clubRead.filter((title) => ballot?.marks[title.id]).map((title) => <Actions key={title.id}>

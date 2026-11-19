@@ -14,10 +14,12 @@ function labelInput(value) {
 async function deletionSnapshot(client, labelId, expected) {
   const label = await one(client, 'SELECT id,category,name,revision FROM kit_labels WHERE id=$1 FOR UPDATE', [labelId], 'Label');
   stale(label.revision, expected);
-  const kits = (await client.query(`SELECT k.id,k.revision FROM kits k JOIN kit_label_assignments a ON a.kit_id=k.id
+  const titles = (await client.query(`SELECT t.id,t.revision FROM titles t JOIN title_label_assignments a ON a.title_id=t.id
+    WHERE a.label_id=$1 ORDER BY t.id FOR UPDATE OF t`, [labelId])).rows;
+  const kits = (await client.query(`SELECT k.id,k.revision FROM kits k JOIN title_label_assignments a ON a.title_id=k.title_id
     WHERE a.label_id=$1 ORDER BY k.id FOR UPDATE OF k`, [labelId])).rows;
-  const token = createHash('sha256').update(JSON.stringify({ label, kits })).digest('hex');
-  return { label, kitCount: kits.length, token };
+  const token = createHash('sha256').update(JSON.stringify({ label, titles, kits })).digest('hex');
+  return { label, titleCount: titles.length, kitCount: kits.length, token };
 }
 
 router.post('/', async (req, res) => {
@@ -55,8 +57,9 @@ router.delete('/:id', async (req, res) => {
   await transaction(async (client) => {
     const preview = await deletionSnapshot(client, req.params.id, expected);
     if (preview.token !== body.token) throw new HttpError(409, 'Label assignments changed. Refresh and review a new preview.');
-    await client.query('UPDATE kits SET revision=revision+1 WHERE id IN (SELECT kit_id FROM kit_label_assignments WHERE label_id=$1)', [req.params.id]);
-    await client.query('DELETE FROM kit_label_assignments WHERE label_id=$1', [req.params.id]);
+    await client.query('UPDATE kits SET revision=revision+1 WHERE title_id IN (SELECT title_id FROM title_label_assignments WHERE label_id=$1)', [req.params.id]);
+    await client.query('UPDATE titles SET revision=revision+1 WHERE id IN (SELECT title_id FROM title_label_assignments WHERE label_id=$1)', [req.params.id]);
+    await client.query('DELETE FROM title_label_assignments WHERE label_id=$1', [req.params.id]);
     await client.query('DELETE FROM kit_labels WHERE id=$1', [req.params.id]);
   });
   res.status(204).end();

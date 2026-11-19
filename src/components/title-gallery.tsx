@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Platform, StyleSheet, View, type DimensionValue } from 'react-native';
-import { indexKits, kitLabelSummary, preferenceMatches } from '../domain/kit-label-search';
-import type { Kit, KitLabel, Mark, Title } from '../domain/model';
+import { titleLabelSummary, preferenceMatches } from '../domain/kit-label-search';
+import type { KitLabel, Mark, Title } from '../domain/model';
 import { useGalleryColumns } from './gallery-columns';
 import { animateLayout, useReducedMotion } from './motion';
 import { TitleCard } from './title-card';
@@ -9,8 +9,8 @@ import { Action, Actions, Field, Label, Note } from './ui';
 
 const PAGE_SIZE = 18;
 
-export function TitleGallery({ titles, kits, labels, marks, disabled, onMark, onShowDetails }: {
-  titles: Title[]; kits: Kit[]; labels: KitLabel[]; marks: Record<string, Mark>; disabled: boolean;
+export function TitleGallery({ titles, labels, marks, disabled, onMark, onShowDetails }: {
+  titles: Title[]; labels: KitLabel[]; marks: Record<string, Mark>; disabled: boolean;
   onMark: (titleId: string, value: Mark | null) => void;
   onShowDetails: (titleId: string) => void;
 }) {
@@ -31,11 +31,10 @@ export function TitleGallery({ titles, kits, labels, marks, disabled, onMark, on
     animateLayout(reduced);
     setter(value);
   }
-  const kitsByTitle = useMemo(() => indexKits(kits), [kits]);
   const labelById = useMemo(() => new Map(labels.map((label) => [label.id, label])), [labels]);
   const activeLabels = selectedLabels.filter((id) => labelById.has(id));
   const visible = titles.filter((title) => !marks[title.id] &&
-    preferenceMatches(title, kitsByTitle.get(title.id) ?? [], labelById, query, activeLabels));
+    preferenceMatches(title, labelById, query, activeLabels));
   const wont = titles.filter((title) => marks[title.id] === 'wont');
   const read = titles.filter((title) => marks[title.id] === 'read');
 
@@ -43,7 +42,7 @@ export function TitleGallery({ titles, kits, labels, marks, disabled, onMark, on
     return <View style={styles.grid}>
       {values.map((title, index) => <TitleCard key={title.id} title={title} width={cardWidth} disabled={disabled} hidden={hidden}
         enterDelay={Math.min(index % PAGE_SIZE, 10) * 30}
-        kitLabels={kitLabelSummary(kitsByTitle.get(title.id) ?? [], labelById)}
+        kitLabels={titleLabelSummary(title, labelById)}
         onSelect={() => onMark(title.id, 'selected')} onDismiss={() => onMark(title.id, 'wont')} onRead={() => onMark(title.id, 'read')}
         onRestore={() => onMark(title.id, null)} onShowDetails={() => onShowDetails(title.id)} />)}
     </View>;
@@ -54,12 +53,12 @@ export function TitleGallery({ titles, kits, labels, marks, disabled, onMark, on
     {paletteOpen && <>
       <Label>Add titles</Label>
       <Note>Browse titles and add them to your ranked choices. {Platform.OS === 'web' ? 'Hover a cover for quick actions' : 'Tap + to add a title, or tap a cover for more actions'}; titles you won’t read or have already read move to separate bins below.</Note>
-      <Field label="Find a title" value={query} placeholder="Title, author, ISBN or kit label"
+      <Field label="Find a title" value={query} placeholder="Title, author, ISBN or title label"
         onChangeText={(value) => { setQuery(value); setVisibleLimit(PAGE_SIZE); }} />
       {labels.length > 0 && <>
         <Action title={filtersOpen ? 'Hide genre and vibe filters' : `Filter by genre or vibe (${activeLabels.length} selected)`} expanded={filtersOpen} onPress={() => toggle(setFiltersOpen, !filtersOpen)} />
         {filtersOpen && <>
-          <Note>One kit must have every selected label. Labels help find titles; they do not reserve a kit or guarantee availability. Scheduling may assign any eligible kit for the title.</Note>
+          <Note>Titles must have every selected label. Labels do not reserve a kit or guarantee availability.</Note>
           {(['genre', 'vibe'] as const).map((category) => <View key={category}>
             <Note>{category === 'genre' ? 'Genres' : 'Book-club vibes'}</Note>
             <Actions>{labels.filter((label) => label.category === category).map((label) =>

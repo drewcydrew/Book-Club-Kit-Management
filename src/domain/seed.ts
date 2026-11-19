@@ -4,10 +4,10 @@ import type { Data } from './model';
 export function seed(): Data {
   const now = today();
   const titles = [
-    { id: 't1', name: 'The Lantern Garden', author: 'Mara Fields', isbn: '9780000000001', pages: 312, genres: 'Fiction', notes: '', largePrint: true, audio: true },
-    { id: 't2', name: 'A Map of Small Things', author: 'Ari Vale', isbn: '9780000000002', pages: 260, genres: 'Mystery', notes: '', largePrint: false, audio: true },
-    { id: 't3', name: 'River of Seasons', author: 'Sam Rowan', isbn: '9780000000003', pages: 288, genres: 'Nature, Fiction', notes: '', largePrint: true, audio: false },
-    { id: 't4', name: 'The Clockmaker’s Table', author: 'Jo Ellis', isbn: '9780000000004', pages: 341, genres: 'Historical', notes: '', largePrint: false, audio: false },
+    { id: 't1', name: 'The Lantern Garden', author: 'Mara Fields', isbn: '9780000000001', pages: 312, genres: 'Fiction', labelIds: [], notes: '', largePrint: true, audio: true },
+    { id: 't2', name: 'A Map of Small Things', author: 'Ari Vale', isbn: '9780000000002', pages: 260, genres: 'Mystery', labelIds: [], notes: '', largePrint: false, audio: true },
+    { id: 't3', name: 'River of Seasons', author: 'Sam Rowan', isbn: '9780000000003', pages: 288, genres: 'Nature, Fiction', labelIds: [], notes: '', largePrint: true, audio: false },
+    { id: 't4', name: 'The Clockmaker’s Table', author: 'Jo Ellis', isbn: '9780000000004', pages: 341, genres: 'Historical', labelIds: [], notes: '', largePrint: false, audio: false },
   ];
   return {
     version: 1,

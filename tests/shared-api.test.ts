@@ -4,7 +4,7 @@ import test from 'node:test';
 import { seed } from '../src/domain/seed';
 import {
   ApiError, deleteClub, deleteCycle, deleteUser, finalizeRanking, loadEnrolment, loadLeaderReview, loadShared, loadUsers, loadView, previewClubDeletion, reopenCycle, saveBallot, saveCycle, saveEvent,
-  saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser, saveValidatedSchedule, validateSchedule,
+  saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser, saveValidatedSchedule, validateSchedule, previewKitLabelDeletion,
 } from '../src/state/api';
 
 const demo = seed();
@@ -92,6 +92,25 @@ test('shared loader rejects a snapshot missing catalog records', async () => {
     globalThis.fetch = oldFetch;
     if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL;
     else process.env.EXPO_PUBLIC_API_URL = oldUrl;
+  }
+});
+
+test('title labels and deletion previews reject malformed server data', async () => {
+  const oldUrl = process.env.EXPO_PUBLIC_API_URL;
+  const oldFetch = globalThis.fetch;
+  process.env.EXPO_PUBLIC_API_URL = 'https://demo.example';
+  const label = { id: 'g', category: 'genre' as const, name: 'Mystery', revision: 1 };
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ ...payload,
+      titles: [{ ...payload.titles[0], labelIds: 'invalid' }] }), { status: 200 });
+    await assert.rejects(loadShared(), /invalid data/);
+    globalThis.fetch = async () => new Response(JSON.stringify({ label, kitCount: 0, token: 'a'.repeat(64) }), { status: 200 });
+    await assert.rejects(previewKitLabelDeletion(label), /invalid label deletion preview/);
+    globalThis.fetch = async () => new Response(JSON.stringify({ label, kitCount: 0, titleCount: 1, token: 'a'.repeat(64) }), { status: 200 });
+    assert.equal((await previewKitLabelDeletion(label)).titleCount, 1);
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL; else process.env.EXPO_PUBLIC_API_URL = oldUrl;
   }
 });
 

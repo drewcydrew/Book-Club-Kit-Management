@@ -1,7 +1,13 @@
-const { records } = require('./records');
+const express = require('express');
+const { randomUUID } = require('node:crypto');
 const { getPool } = require('../db');
 const { object, text, integer, boolean, HttpError, revision, checkUpdated } = require('../http');
 const { titleColumns } = require('./shared-selects');
+const { transaction } = require('./workflow-util');
+const { labelIds, setLabels } = require('./title-labels');
+
+const router = express.Router();
+const columns = ['name', 'author', 'isbn', 'pages', 'genres', 'notes', 'large_print', 'audio', 'cover_url', 'publisher', 'synopsis', 'date_published', 'binding', 'language'];
 
 function coverUrl(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -47,16 +53,47 @@ async function removeTitle(req, res) {
   } finally { client.release(); }
 }
 
-module.exports = records({
-  table: 'titles',
-  columns: ['name', 'author', 'isbn', 'pages', 'genres', 'notes', 'large_print', 'audio', 'cover_url', 'publisher', 'synopsis', 'date_published', 'binding', 'language'],
-  select: titleColumns,
-  remove: removeTitle,
-  validate(value) {
-    const b = object(value);
-    return [text(b.name, 'name', true, 200), text(b.author, 'author', true, 200), text(b.isbn, 'isbn', false, 40),
-      integer(b.pages, 'pages', 0), text(b.genres, 'genres'), text(b.notes, 'notes'), boolean(b.largePrint, 'largePrint'), boolean(b.audio, 'audio'), coverUrl(b.coverUrl),
-      optionalText(b.publisher, 'publisher', 200), optionalText(b.synopsis, 'synopsis', 4000), optionalText(b.datePublished, 'datePublished', 40),
-      optionalText(b.binding, 'binding', 100), optionalText(b.language, 'language', 40)];
-  },
+function validate(value) {
+  const b = object(value);
+  return [text(b.name, 'name', true, 200), text(b.author, 'author', true, 200), text(b.isbn, 'isbn', false, 40),
+    integer(b.pages, 'pages', 0), text(b.genres, 'genres'), text(b.notes, 'notes'), boolean(b.largePrint, 'largePrint'), boolean(b.audio, 'audio'), coverUrl(b.coverUrl),
+    optionalText(b.publisher, 'publisher', 200), optionalText(b.synopsis, 'synopsis', 4000), optionalText(b.datePublished, 'datePublished', 40),
+    optionalText(b.binding, 'binding', 100), optionalText(b.language, 'language', 40)];
+}
+
+router.get('/', async (_req, res) => {
+  res.json((await getPool().query(`SELECT ${titleColumns} FROM titles ORDER BY id`)).rows);
 });
+router.get('/:id', async (req, res) => {
+  const result = await getPool().query(`SELECT ${titleColumns} FROM titles WHERE id=$1`, [req.params.id]);
+  if (!result.rowCount) throw new HttpError(404, 'Record not found.');
+  res.json(result.rows[0]);
+});
+router.post('/', async (req, res) => {
+  const values = validate(req.body);
+  const ids = labelIds(req.body.labelIds);
+  const id = randomUUID();
+  const title = await transaction(async (client) => {
+    const placeholders = values.map((_, index) => `$${index + 2}`).join(',');
+    await client.query(`INSERT INTO titles (id,${columns.join(',')}) VALUES ($1,${placeholders})`, [id, ...values]);
+    await setLabels(client, id, ids, { titleUpdated: true });
+    return (await client.query(`SELECT ${titleColumns} FROM titles WHERE id=$1`, [id])).rows[0];
+  });
+  res.status(201).json(title);
+});
+router.put('/:id', async (req, res) => {
+  const values = validate(req.body);
+  const ids = labelIds(req.body.labelIds);
+  const expected = revision(req.body.revision);
+  const title = await transaction(async (client) => {
+    const setters = columns.map((column, index) => `${column}=$${index + 3}`).join(',');
+    const updated = await client.query(`UPDATE titles SET ${setters},revision=revision+1 WHERE id=$1 AND revision=$2 RETURNING id`, [req.params.id, expected, ...values]);
+    if (!updated.rowCount) await checkUpdated(client, 'titles', req.params.id);
+    await setLabels(client, req.params.id, ids, { titleUpdated: true });
+    return (await client.query(`SELECT ${titleColumns} FROM titles WHERE id=$1`, [req.params.id])).rows[0];
+  });
+  res.json(title);
+});
+router.delete('/:id', removeTitle);
+
+module.exports = router;

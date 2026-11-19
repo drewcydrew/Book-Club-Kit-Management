@@ -49,7 +49,7 @@ export function KitLabelManager({ labels }: { labels: KitLabel[] }) {
   return <Card>
     <Action title={open ? 'Hide genre and vibe management' : 'Manage genres and vibes'} onPress={() => setOpen(!open)} />
     {open && <>
-      <Note>Keep these shared kit labels concise. ISBNdb genres on titles are separate.</Note>
+      <Note>Keep these shared title labels concise. ISBNdb source genres are separate.</Note>
       <Actions>{(['genre', 'vibe'] as const).map((value) =>
         <Action key={value} title={value === 'genre' ? 'Genres' : 'Book-club vibes'} selected={category === value} disabled={busy || shared.saving}
           onPress={() => { setCategory(value); setEditing(null); setName(''); setPreview(null); setError(''); }} />)}</Actions>
@@ -64,7 +64,7 @@ export function KitLabelManager({ labels }: { labels: KitLabel[] }) {
         <Action tone="danger" title={`Delete ${label.name}`} disabled={busy || shared.saving} onPress={() => { void requestDelete(label); }} /></Actions>
       </View>)}
       {preview && <Card>
-        <Note>Delete “{preview.label.name}” and remove it from {preview.kitCount} {preview.kitCount === 1 ? 'kit' : 'kits'}? Kits and schedules will not be deleted.</Note>
+        <Note>Delete “{preview.label.name}” and remove it from {preview.titleCount} {preview.titleCount === 1 ? 'title' : 'titles'}? Titles, kits and schedules will not be deleted.</Note>
         <Actions><Action tone="danger" title="Confirm label deletion" disabled={busy || shared.saving} onPress={() => { void confirmDelete(); }} />
           <Action title="Keep label" disabled={busy || shared.saving} onPress={() => setPreview(null)} /></Actions>
       </Card>}

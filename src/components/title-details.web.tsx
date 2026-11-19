@@ -1,13 +1,13 @@
 /// <reference types="expo/types" />
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import type { Kit, KitLabel, Title } from '../domain/model';
+import type { KitLabel, Title } from '../domain/model';
 import { TitleCover } from './title-cover';
 import { titleDetailRows } from './title-details-rows';
 import styles from './title-details.module.css';
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-export function TitleDetails({ title, kits, labels, onClose }: { title: Title; kits?: Kit[]; labels?: KitLabel[]; onClose: () => void }) {
+export function TitleDetails({ title, labels, onClose }: { title: Title; labels?: KitLabel[]; onClose: () => void }) {
   const dialog = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
@@ -64,20 +64,13 @@ export function TitleDetails({ title, kits, labels, onClose }: { title: Title; k
           </dl>}
           <h3 className={styles.heading}>Description</h3>
           <p className={styles.synopsis}>{title.synopsis || 'No description stored for this title.'}</p>
-          {kits && labels && <>
-            <h3 className={styles.heading}>Kit labels</h3>
-            {kits.length === 0 ? <p className={styles.muted}>No physical kits for this title.</p> : <ul className={styles.kits}>
-              {kits.map((kit) => {
-                const names = kit.labelIds.map((id) => labelById.get(id)?.name).filter(Boolean) as string[];
-                return <li key={kit.id}>
-                  <span className={styles.kit}>{kit.barcode} · {kit.branch}</span>
-                  <span className={styles.chips}>
-                    {names.length ? names.map((name) => <span key={name} className={styles.chip}>{name}</span>) : <span className={styles.muted}>No labels</span>}
-                  </span>
-                </li>;
-              })}
-            </ul>}
-            <p className={styles.muted}>Labels describe individual kits and do not reserve a kit or guarantee availability. Scheduling may assign any eligible kit for this title.</p>
+          {labels && <>
+            <h3 className={styles.heading}>Title labels</h3>
+            <span className={styles.chips}>
+              {title.labelIds.length ? title.labelIds.map((id) => labelById.get(id)).filter((label): label is KitLabel => !!label)
+                .map((label) => <span key={label.id} className={styles.chip}>{label.name}</span>) : <span className={styles.muted}>No labels</span>}
+            </span>
+            <p className={styles.muted}>Labels do not reserve a kit or guarantee availability.</p>
           </>}
         </div>
       </div>

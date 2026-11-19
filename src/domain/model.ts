@@ -23,6 +23,7 @@ export interface Title {
   isbn: string;
   pages: number;
   genres: string;
+  labelIds: string[];
   notes: string;
   largePrint: boolean;
   audio: boolean;

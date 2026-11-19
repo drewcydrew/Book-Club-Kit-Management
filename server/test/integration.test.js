@@ -142,8 +142,9 @@ test('shared records persist, enforce constraints and reject stale edits', { ski
   assert.equal((await pool.query("SELECT 1 FROM club_kits WHERE kit_id=$1", [cascadeKit.json.id])).rowCount, 0);
   assert.equal((await pool.query("SELECT 1 FROM circulation_events WHERE kit_id=$1", [cascadeKit.json.id])).rowCount, 0);
   assert.equal((await pool.query("SELECT tgenabled FROM pg_trigger WHERE tgname='circulation_events_append_only'")).rows[0].tgenabled, 'O');
+  const currentTitle = await request(`/api/titles/${titleId}`);
   const concurrent = await Promise.all(['Updated', 'Other update'].map((name) =>
-    request(`/api/titles/${titleId}`, 'PUT', { ...title, name, revision: created.json.revision })));
+    request(`/api/titles/${titleId}`, 'PUT', { ...title, name, revision: currentTitle.json.revision })));
   assert.deepEqual(concurrent.map((result) => result.status).sort(), [200, 409]);
   const updated = concurrent.find((result) => result.status === 200);
   assert.equal((await request(`/api/titles/${titleId}`, 'PUT', { ...title, revision: created.json.revision })).status, 409);
@@ -178,7 +179,7 @@ test('kit label migration preserves existing catalog data', { skip: !enabled, ti
   assert.deepEqual((await pool.query('SELECT id,title_id,revision FROM kits ORDER BY id')).rows, before.rows);
   assert.equal((await pool.query("SELECT genres FROM titles WHERE id='t1'")).rows[0].genres, 'ISBNdb genre');
   assert.equal((await pool.query('SELECT count(*)::int AS count FROM kit_labels')).rows[0].count, 0);
-  assert.equal((await pool.query('SELECT count(*)::int AS count FROM kit_label_assignments')).rows[0].count, 0);
+  assert.equal((await pool.query('SELECT count(*)::int AS count FROM title_label_assignments')).rows[0].count, 0);
 });
 
 test('conflicting seed rolls back without partial demo records', { skip: !enabled, timeout: 30000 }, async (t) => {

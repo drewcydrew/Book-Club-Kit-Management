@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
-import { catalogueMatches, indexKits } from '../domain/kit-label-search';
+import { catalogueMatches, indexKits, titleLabelSummary } from '../domain/kit-label-search';
 import type { Kit, KitLabel, Title } from '../domain/model';
 import { KitPanel } from './kit-panel';
 import { PendingStatus, type PendingAction } from './pending-status';
@@ -27,7 +27,7 @@ export function TitlePanel({ titles, kits, labels, query, onQueryChange, staff, 
   return <View style={{ gap: 12 }}>
     <Label>Titles and kits</Label>
     {staff && <Actions><Action tone="primary" title="Add title" onPress={onAddTitle} /><Action title="Add kit" onPress={() => onAddKit()} /></Actions>}
-    <Field label="Search titles, authors, ISBN, barcodes or kit labels" value={query} onChangeText={(value) => { setExpanded({}); onQueryChange(value); }} />
+    <Field label="Search titles, authors, ISBN, barcodes or title labels" value={query} onChangeText={(value) => { setExpanded({}); onQueryChange(value); }} />
     <Note>{rows.length} of {titles.length} titles</Note>
     {rows.length === 0 && <Note>{query.trim() ? 'No matching titles or kits.' : 'No titles yet.'}</Note>}
     {rows.map(({ title, related, matchingKitIds }) => {
@@ -38,6 +38,7 @@ export function TitlePanel({ titles, kits, labels, query, onQueryChange, staff, 
           <Label>{title.name}</Label>
           <Note>{title.author} {title.isbn ? `· ISBN ${title.isbn}` : ''}</Note>
           <Note>Source genres: {title.genres || 'None'} · {title.pages || 'Unknown'} pages · {title.largePrint ? 'Large print' : 'No large print'} · {title.audio ? 'Audio available' : 'No audio'}</Note>
+          <Note>{titleLabelSummary(title, labelById)}</Note>
           {title.publisher || title.datePublished ? <Note>{[title.publisher, title.datePublished].filter(Boolean).join(' · ')}</Note> : null}
           {title.synopsis ? <Text>{title.synopsis}</Text> : <Note>No description stored.</Note>}
           {title.notes ? <Text>Content notes: {title.notes}</Text> : null}
@@ -45,7 +46,7 @@ export function TitlePanel({ titles, kits, labels, query, onQueryChange, staff, 
         <Actions><Action title={`${isExpanded ? 'Hide' : 'Show'} kits for ${title.name} (${related.length})`}
           onPress={() => setExpanded({ ...expanded, [title.id]: !isExpanded })} />
           {staff && <Action title={`Add kit for ${title.name}`} onPress={() => onAddKit(title.id)} />}</Actions>
-        {isExpanded && <KitPanel kits={related} labels={labelById} matchingKitIds={matchingKitIds} staff={staff} saving={saving}
+        {isExpanded && <KitPanel kits={related} matchingKitIds={matchingKitIds} staff={staff} saving={saving}
           pendingFor={pendingKitFor} onEdit={onEditKit} onDelete={onDeleteKit} />}
         {staff && <Actions><Action disabled={saving} title="Edit title" onPress={() => onEdit(title)} />
           <Action disabled={saving} tone="danger" title="Delete title" onPress={() => onDelete(title)} /></Actions>}

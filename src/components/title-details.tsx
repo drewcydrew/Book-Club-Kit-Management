@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { Kit, KitLabel, Title } from '../domain/model';
+import type { KitLabel, Title } from '../domain/model';
 import { colors, radius, shadow } from './design';
 import { useReducedMotion } from './motion';
 import { TitleCover } from './title-cover';
@@ -9,7 +9,7 @@ import { titleDetailRows } from './title-details-rows';
 
 const HIDDEN = Dimensions.get('window').height;
 
-export function TitleDetails({ title, kits, labels, onClose }: { title: Title; kits?: Kit[]; labels?: KitLabel[]; onClose: () => void }) {
+export function TitleDetails({ title, labels, onClose }: { title: Title; labels?: KitLabel[]; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
   const [offset] = useState(() => new Animated.Value(reduced ? 0 : HIDDEN));
@@ -79,18 +79,13 @@ export function TitleDetails({ title, kits, labels, onClose }: { title: Title; k
           </View>}
           <Text style={styles.heading}>Description</Text>
           <Text style={styles.synopsis}>{title.synopsis || 'No description stored for this title.'}</Text>
-          {kits && labels && <>
-            <Text style={styles.heading}>Kit labels</Text>
-            {kits.length === 0 ? <Text style={styles.muted}>No physical kits for this title.</Text> : kits.map((kit) => {
-              const names = kit.labelIds.map((id) => labelById.get(id)?.name).filter(Boolean) as string[];
-              return <View key={kit.id} style={styles.kit}>
-                <Text style={styles.kitName}>{kit.barcode} · {kit.branch}</Text>
-                <View style={styles.chips}>
-                  {names.length ? names.map((name) => <Text key={name} style={styles.chip}>{name}</Text>) : <Text style={styles.muted}>No labels</Text>}
-                </View>
-              </View>;
-            })}
-            <Text style={styles.muted}>Labels describe individual kits and do not reserve a kit or guarantee availability. Scheduling may assign any eligible kit for this title.</Text>
+          {labels && <>
+            <Text style={styles.heading}>Title labels</Text>
+            <View style={styles.chips}>
+              {title.labelIds.length ? title.labelIds.map((id) => labelById.get(id)).filter((label): label is KitLabel => !!label)
+                .map((label) => <Text key={label.id} style={styles.chip}>{label.name}</Text>) : <Text style={styles.muted}>No labels</Text>}
+            </View>
+            <Text style={styles.muted}>Labels do not reserve a kit or guarantee availability.</Text>
           </>}
         </ScrollView>
       </Animated.View>
@@ -120,8 +115,6 @@ const styles = StyleSheet.create({
   heading: { marginTop: 12, fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: colors.accent },
   synopsis: { color: colors.ink, lineHeight: 22 },
   muted: { color: colors.muted, fontSize: 13, lineHeight: 19 },
-  kit: { gap: 4 },
-  kitName: { fontSize: 13, fontWeight: '600', color: colors.ink },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { paddingHorizontal: 10, paddingVertical: 2, borderRadius: radius.pill, overflow: 'hidden', backgroundColor: colors.accentSoft, color: '#183f37', fontSize: 12 },
 });

@@ -41,6 +41,7 @@ const blankTitle = (): Title => ({
   isbn: "",
   pages: 0,
   genres: "",
+  labelIds: [],
   notes: "",
   largePrint: false,
   audio: false,
@@ -419,7 +420,7 @@ function CatalogContent() {
           );
           return;
         }
-        const { status: _status, ...fields } = draft.value;
+        const { status: _status, labelIds: _labelIds, ...fields } = draft.value;
         const value = {
           ...fields,
           barcode: draft.value.barcode.trim(),
@@ -746,6 +747,27 @@ function CatalogContent() {
                             })
                           }
                         />
+                        <Note>Controlled labels describe this title. Manage the shared lists on the catalog page.</Note>
+                        {(["genre", "vibe"] as const).map((category) => (
+                          <View key={category} style={{ gap: 6 }}>
+                            <Label>{category === "genre" ? "Genres" : "Book-club vibes"}</Label>
+                            {data.kitLabels.filter((label) => label.category === category).length === 0 ? (
+                              <Note>No labels in this list yet.</Note>
+                            ) : (
+                              <Actions>
+                                {data.kitLabels.filter((label) => label.category === category).map((label) => (
+                                  <Action key={label.id} title={label.name} selected={draft.value.labelIds.includes(label.id)}
+                                    disabled={shared.saving} onPress={() => setDraft({
+                                      ...draft,
+                                      value: { ...draft.value, labelIds: draft.value.labelIds.includes(label.id)
+                                        ? draft.value.labelIds.filter((id) => id !== label.id)
+                                        : [...draft.value.labelIds, label.id] },
+                                    })} />
+                                ))}
+                              </Actions>
+                            )}
+                          </View>
+                        ))}
                         <Field
                           editable={!shared.saving}
                           label="Publisher"
@@ -910,60 +932,6 @@ function CatalogContent() {
                             setDraft({ ...draft, components })
                           }
                         />
-                        <Note>
-                          Controlled labels apply only to this physical kit.
-                          Manage the shared lists on the catalog page.
-                        </Note>
-                        {(["genre", "vibe"] as const).map((category) => (
-                          <View key={category} style={{ gap: 6 }}>
-                            <Label>
-                              {category === "genre"
-                                ? "Kit genres"
-                                : "Book-club vibes"}
-                            </Label>
-                            {data.kitLabels.filter(
-                              (label) => label.category === category,
-                            ).length === 0 ? (
-                              <Note>No labels in this list yet.</Note>
-                            ) : (
-                              <Actions>
-                                {data.kitLabels
-                                  .filter(
-                                    (label) => label.category === category,
-                                  )
-                                  .map((label) => (
-                                    <Action
-                                      key={label.id}
-                                      title={label.name}
-                                      selected={draft.value.labelIds.includes(
-                                        label.id,
-                                      )}
-                                      disabled={shared.saving}
-                                      onPress={() =>
-                                        setDraft({
-                                          ...draft,
-                                          value: {
-                                            ...draft.value,
-                                            labelIds:
-                                              draft.value.labelIds.includes(
-                                                label.id,
-                                              )
-                                                ? draft.value.labelIds.filter(
-                                                    (id) => id !== label.id,
-                                                  )
-                                                : [
-                                                    ...draft.value.labelIds,
-                                                    label.id,
-                                                  ],
-                                          },
-                                        })
-                                      }
-                                    />
-                                  ))}
-                              </Actions>
-                            )}
-                          </View>
-                        ))}
                       </>
                     )}
                     {formError ? (

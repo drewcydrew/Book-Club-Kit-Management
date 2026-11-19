@@ -38,7 +38,7 @@ function isNullableString(value: unknown): value is string | null | undefined {
 }
 function isTitle(value: unknown): value is SharedTitle {
   return isObject(value) && isString(value.id) && isString(value.name) && isString(value.author) &&
-    isString(value.isbn) && isNumber(value.pages) && isString(value.genres) && isString(value.notes) &&
+    isString(value.isbn) && isNumber(value.pages) && isString(value.genres) && isStringArray(value.labelIds) && isString(value.notes) &&
     typeof value.largePrint === 'boolean' && typeof value.audio === 'boolean' && isNumber(value.revision) &&
     isNullableString(value.publisher) && isNullableString(value.synopsis) && isNullableString(value.datePublished) &&
     isNullableString(value.binding) && isNullableString(value.language);
@@ -200,7 +200,7 @@ export async function loadEnrolment(personId: string, signal?: AbortSignal): Pro
 }
 
 export async function saveRecord(kind: 'titles' | 'kits' | 'clubs', record: SharedTitle | SharedClub |
-  Omit<SharedTitle, 'revision'> | Omit<SharedKit, 'status' | 'revision'> & { revision?: number } | Omit<SharedClub, 'revision'>): Promise<SharedTitle | SharedKit | SharedClub> {
+  Omit<SharedTitle, 'revision'> | Omit<SharedKit, 'status' | 'revision' | 'labelIds'> & { revision?: number } | Omit<SharedClub, 'revision'>): Promise<SharedTitle | SharedKit | SharedClub> {
   const exists = 'revision' in record;
   const value = await request(`/api/${kind}${exists ? `/${encodeURIComponent(record.id)}` : ''}`, exists ? 'PUT' : 'POST', record);
   const guard = kind === 'titles' ? isTitle : kind === 'kits' ? isKit : isClub;
@@ -219,15 +219,15 @@ export async function saveKitLabel(value: Pick<KitLabel, 'category' | 'name'> | 
   return result;
 }
 
-export type KitLabelDeletionPreview = { label: KitLabel; kitCount: number; token: string };
+export type KitLabelDeletionPreview = { label: KitLabel; titleCount: number; kitCount: number; token: string };
 
 export async function previewKitLabelDeletion(label: KitLabel): Promise<KitLabelDeletionPreview> {
   const value = await request(`/api/kit-labels/${encodeURIComponent(label.id)}/deletion-preview`, 'POST', { revision: label.revision });
   if (!isObject(value) || !isKitLabel(value.label) || value.label.id !== label.id || value.label.revision !== label.revision ||
-      !isCount(value.kitCount) || !isString(value.token) || !/^[a-f0-9]{64}$/.test(value.token)) {
+      !isCount(value.titleCount) || !isCount(value.kitCount) || !isString(value.token) || !/^[a-f0-9]{64}$/.test(value.token)) {
     throw new Error('Server returned an invalid label deletion preview. Refresh before retrying.');
   }
-  return { label: value.label, kitCount: value.kitCount, token: value.token };
+  return { label: value.label, titleCount: value.titleCount, kitCount: value.kitCount, token: value.token };
 }
 
 export async function deleteKitLabel(preview: KitLabelDeletionPreview): Promise<void> {
