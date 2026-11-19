@@ -1,4 +1,5 @@
-import { memberScheduleMeetings, scheduleByKit, scheduleGrid, type MemberScheduleMeeting } from './cycle-overview';
+import { highlightedGrid, memberScheduleMeetings, scheduleByKit, scheduleGrid, type MemberScheduleMeeting } from './cycle-overview';
+import { fairness, rankings } from './logic';
 import type { Cycle, Data } from './model';
 
 export type StaffScheduleView = 'grid' | 'meetings' | 'kits';
@@ -33,9 +34,18 @@ export interface ScheduleExport {
   meetings: ExportMeeting[];
   mode?: StaffScheduleView;
   grid?: { cycleId: string; cycleName: string; cycleStatus: string; months: string[]; rows: { clubId: string; clubName: string; cells: (ExportMeeting | null)[] }[] };
+  highlight?: HighlightedScheduleExport;
 }
 
-export function makeScheduleExport(data: Data, clubIds: string[], staffCycle?: Cycle, unsaved = false, mode?: StaffScheduleView): ScheduleExport {
+export interface HighlightedScheduleExport {
+  titleId: string;
+  title: string;
+  months: string[];
+  rows: { clubId: string; clubName: string; summary: string; cells: { meeting: ExportMeeting | null; priority: number | null; problem: boolean }[] }[];
+  stops: { row: number; column: number }[];
+}
+
+export function makeScheduleExport(data: Data, clubIds: string[], staffCycle?: Cycle, unsaved = false, mode?: StaffScheduleView, highlightTitleId?: string | null): ScheduleExport {
   const clubs = new Set(clubIds);
   let meetings: MemberScheduleMeeting[];
   if (staffCycle) {
@@ -76,6 +86,7 @@ export function makeScheduleExport(data: Data, clubIds: string[], staffCycle?: C
     || (a.meeting || a.month).localeCompare(b.meeting || b.month)
     || a.cycleId.localeCompare(b.cycleId) || a.slotId.localeCompare(b.slotId));
   let grid: ScheduleExport['grid'];
+  let highlight: HighlightedScheduleExport | undefined;
   if (staffCycle && mode === 'grid') {
     const source = scheduleGrid(data, staffCycle, clubIds, data.assignments);
     const bySlot = new Map(rows.map((row) => [row.slotId, row]));
@@ -87,6 +98,29 @@ export function makeScheduleExport(data: Data, clubIds: string[], staffCycle?: C
         cells: row.cells.map((cell) => cell.slot ? bySlot.get(cell.slot.id) ?? null : null),
       })),
     };
+    if (highlightTitleId) {
+      const selected = highlightedGrid(source.rows, (row) => row.cells, (cell) => {
+        const titleId = cell.assignment ? kitsById.get(cell.assignment.kitId)?.titleId : undefined;
+        return !!titleId && titlesById.get(titleId)?.id === highlightTitleId;
+      });
+      highlight = {
+        titleId: highlightTitleId, title: titlesById.get(highlightTitleId)?.name ?? 'Unavailable title',
+        months: source.months, stops: selected.stops,
+        rows: selected.rows.map((row) => {
+          const priorities = staffCycle.finalized[row.clubId] ?? rankings(data, staffCycle, row.clubId, true);
+          const result = fairness(data, staffCycle, row.clubId, data.assignments);
+          return {
+            clubId: row.clubId, clubName: clubsById.get(row.clubId)?.name ?? 'Unavailable club',
+            summary: `Fairness ${result.score === null ? 'N/A' : `${Math.round(result.score)}%`} · ${result.assigned}/${result.slots} assigned`,
+            cells: row.cells.map((cell) => {
+              const meeting = cell.slot ? bySlot.get(cell.slot.id) ?? null : null;
+              const rank = meeting?.titleId ? priorities.indexOf(meeting.titleId) : -1;
+              return { meeting, priority: rank < 0 ? null : rank + 1, problem: !!cell.problem };
+            }),
+          };
+        }),
+      };
+    }
   }
   if (staffCycle && mode === 'kits') {
     const byAssignment = new Map(rows.filter((row) => row.assignmentId).map((row) => [row.assignmentId, row]));
@@ -101,7 +135,7 @@ export function makeScheduleExport(data: Data, clubIds: string[], staffCycle?: C
   return {
     library: data.library.name,
     label: staffCycle ? `${staffCycle.name} · ${staffCycle.status}${unsaved ? ' · Unsaved local schedule' : ''}` : 'Your schedule · Drafted and published cycles',
-    meetings: rows, mode: staffCycle ? mode : undefined, grid,
+    meetings: rows, mode: staffCycle ? mode : undefined, grid, highlight,
   };
 }
 

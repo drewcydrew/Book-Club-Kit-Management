@@ -226,7 +226,7 @@ function ScheduleContent() {
     {staff && mode === 'grid' && <Note>Cover badges show club priority; — means unranked. Fairness averages priority weights across all club slots: first choice is 100%, last is 1/N, and unranked, repeated and unassigned slots score zero. No priorities or slots: N/A.</Note>}
     {mode === 'grid' && staff && highlightTitle && grid && <Card>
       <Label>Highlighting · {highlightTitle.name}</Label>
-      <Note>{highlightCount} {highlightCount === 1 ? 'club' : 'clubs'} in {gridCycle?.name ?? 'this cycle'}. Other rows are temporarily hidden; Clubs shown still controls generation and exports.</Note>
+      <Note>{highlightCount} {highlightCount === 1 ? 'club' : 'clubs'} in {gridCycle?.name ?? 'this cycle'}. Other rows are temporarily hidden. Clubs shown still controls generation and CSV exports; the Grid PDF matches this highlight.</Note>
       <Actions><Action title="Clear highlight" onPress={() => setHighlight(null)} /></Actions>
     </Card>}
     {mode === 'grid' && (grid
@@ -389,7 +389,7 @@ function ScheduleContent() {
           <Action selected={mode === 'kits'} title="Kits" onPress={() => { editor.closeSlot(); setStaffViewMode('kits'); }} />
         </Actions>
       </>}
-      <ScheduleExportActions schedule={makeScheduleExport(viewData, gridClubs.map((club) => club.id), staff ? cycle : undefined, staff && editor.dirty, staff ? staffViewMode : undefined)}
+      <ScheduleExportActions schedule={makeScheduleExport(viewData, gridClubs.map((club) => club.id), staff ? cycle : undefined, staff && editor.dirty, staff ? staffViewMode : undefined, staff && mode === 'grid' ? highlightTitleId : null)}
         disabled={staff && (editor.busy || validating || !!publication)} staffClubCount={staff ? gridClubs.length : undefined} />
     </Card>
     {!staff && <MemberSchedule key={JSON.stringify([person.id, gridClubKey, memberMeetings.map((meeting) =>

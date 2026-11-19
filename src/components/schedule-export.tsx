@@ -3,7 +3,7 @@ import { Platform, Text, View } from 'react-native';
 import { Asset } from 'expo-asset';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import type { ScheduleExport } from '../domain/schedule-export';
+import type { ExportMeeting, ScheduleExport } from '../domain/schedule-export';
 import { scheduleCsv } from '../domain/schedule-export';
 import { makeSchedulePdf } from '../domain/schedule-pdf';
 import { fetchIsbnCover } from '../state/api';
@@ -35,8 +35,8 @@ async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promis
   }
 }
 
-async function loadCovers(schedule: ScheduleExport): Promise<{ covers: Map<string, Uint8Array>; missing: number }> {
-  const titles = new Map(schedule.meetings.filter((row) => row.assignmentId)
+async function loadCovers(meetings: readonly ExportMeeting[]): Promise<{ covers: Map<string, Uint8Array>; missing: number }> {
+  const titles = new Map(meetings.filter((row) => row.assignmentId)
     .map((row) => [row.titleId || `missing:${row.kitId}`, row] as const));
   const entries = [...titles];
   const covers = new Map<string, Uint8Array>();
@@ -107,19 +107,24 @@ export function ScheduleExportActions({ schedule, disabled, staffClubCount }: { 
       const date = new Date().toISOString().slice(0, 10);
       let content: string | Uint8Array;
       let missing = 0;
+      let smallText = false;
       if (format === 'csv') {
         content = scheduleCsv(schedule);
       } else {
-        const [font, result] = await Promise.all([fontData(), loadCovers(schedule)]);
+        const meetings = schedule.highlight
+          ? schedule.highlight.rows.flatMap((row) => row.cells.flatMap((cell) => cell.meeting ? [cell.meeting] : []))
+          : schedule.meetings;
+        const [font, result] = await Promise.all([fontData(), loadCovers(meetings)]);
         missing = result.missing;
         const pdf = await makeSchedulePdf(schedule, font, result.covers, date);
         missing += pdf.invalidCovers;
+        smallText = !!pdf.smallText;
         content = pdf.bytes;
       }
       const name = schedule.mode ? `book-club-schedule-${schedule.mode}` : 'book-club-schedule';
       await deliver(content, `${name}-${date}.${format}`, format === 'csv' ? 'text/csv' : 'application/pdf');
       const result = schedule.mode ? `${schedule.mode[0].toUpperCase()}${schedule.mode.slice(1)} ${format.toUpperCase()} export prepared.` : 'Export prepared.';
-      setMessage(missing ? `${result} ${missing} ${missing === 1 ? 'title has' : 'titles have'} no usable cover; placeholders were included.` : result);
+      setMessage(`${result}${missing ? ` ${missing} ${missing === 1 ? 'title has' : 'titles have'} no usable cover; placeholders were included.` : ''}${smallText ? ' The grid was scaled to one page; text is smaller than 6 points.' : ''}`);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : 'Unable to export the schedule.');
     } finally {
@@ -129,15 +134,20 @@ export function ScheduleExportActions({ schedule, disabled, staffClubCount }: { 
 
   return <View style={{ gap: 8 }}>
     <Label>{schedule.mode ? `Export ${schedule.mode === 'grid' ? 'Grid' : schedule.mode === 'meetings' ? 'Meetings' : 'Kits'}` : 'Export schedule'}</Label>
-    <Note>{schedule.mode === 'kits'
+    <Note>{schedule.highlight
+      ? 'CSV includes all meetings for the clubs shown, including unassigned meetings.'
+      : schedule.mode === 'kits'
       ? 'Exports include assigned meetings grouped by kit; unassigned meetings are not included.'
       : 'Exports include all meetings for the clubs shown, including unassigned meetings.'} {schedule.label}.</Note>
-    {staffClubCount !== undefined && <Note>{staffClubCount} {staffClubCount === 1 ? 'club is' : 'clubs are'} selected in Clubs shown. Title highlighting does not change the export selection.</Note>}
+    {staffClubCount !== undefined && <Note>{staffClubCount} {staffClubCount === 1 ? 'club is' : 'clubs are'} selected in Clubs shown. {schedule.highlight
+      ? `PDF shows ${schedule.highlight.rows.length} ${schedule.highlight.rows.length === 1 ? 'club' : 'clubs'} matching ${schedule.highlight.title} on one page; CSV includes all selected clubs.`
+      : 'Title highlighting does not change the CSV selection.'}</Note>}
     <Actions>
       <Action title={busy ? 'Preparing export…' : 'Export CSV'} disabled={disabled || busy || !schedule.meetings.length} onPress={() => { void exportFile('csv'); }} />
-      <Action title={busy ? 'Preparing export…' : 'Export PDF'} disabled={disabled || busy || !schedule.meetings.length} onPress={() => { void exportFile('pdf'); }} />
+      <Action title={busy ? 'Preparing export…' : 'Export PDF'} disabled={disabled || busy || !schedule.meetings.length || (!!schedule.highlight && !schedule.highlight.rows.length)} onPress={() => { void exportFile('pdf'); }} />
     </Actions>
     {!schedule.meetings.length && <Note>{schedule.mode === 'kits' ? 'No assigned kits are available to export for the clubs shown.' : 'No meetings are available to export for the clubs shown.'}</Note>}
+    {schedule.highlight && !schedule.highlight.rows.length && <Note>No shown clubs use this highlighted title. Select another title or clear the highlight to export a PDF.</Note>}
     {message ? <Text>{message}</Text> : null}
     {error ? <Text style={{ color: '#a22525' }}>Unable to export schedule: {error}</Text> : null}
   </View>;

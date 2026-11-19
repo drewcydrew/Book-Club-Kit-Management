@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import fontkit from '@pdf-lib/fontkit';
-import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
+import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream } from 'pdf-lib';
 import { seed } from '../src/domain/seed';
 import { makeScheduleExport, scheduleCsv } from '../src/domain/schedule-export';
 import { makeSchedulePdf } from '../src/domain/schedule-pdf';
@@ -145,6 +145,104 @@ test('staff PDFs use the selected view and include covers', async () => {
     }
     if (mode === 'kits') assert.ok(contains('KIT-101'));
   }
+});
+
+test('highlighted PDF scope matches grid rows and leaves CSV and other modes unchanged', async () => {
+  const data = fixture();
+  const cycle = data.cycles[0];
+  cycle.startsOn = '2027-01-01';
+  cycle.endsOn = '2027-12-31';
+  data.clubs.push({ ...data.clubs[0], id: 'c3', name: 'Another Club 🦄' }, { ...data.clubs[0], id: 'c4', name: 'Hidden Club 🦄' });
+  cycle.slots.push(
+    { id: 's4', clubId: 'c1', month: '2027-02', meeting: '2027-02-15' },
+    { id: 's5', clubId: 'c2', month: '2027-03', meeting: '2027-03-16' },
+    { id: 's6', clubId: 'c3', month: '2027-02', meeting: '2027-02-16' },
+    { id: 's7', clubId: 'c4', month: '2027-01', meeting: '2027-01-17' },
+  );
+  cycle.slots = cycle.slots.filter((slot) => slot.id !== 's2');
+  for (const [id, slotId, clubId, kitId, meeting] of [
+    ['a4', 's4', 'c1', 'k3', '2027-02-15'], ['a5', 's5', 'c2', 'k2', '2027-03-16'],
+    ['a6', 's6', 'c3', 'k3', '2027-02-16'], ['a7', 's7', 'c4', 'k1', '2027-01-17'],
+  ]) {
+    data.assignments.push({ id, cycleId: cycle.id, slotId, clubId, kitId, ready: meeting, meeting, due: meeting, locked: false });
+  }
+  const selected = ['c1', 'c2', 'c3'];
+  const schedule = makeScheduleExport(data, selected, cycle, true, 'grid', 't1');
+  assert.deepEqual(schedule.highlight?.rows.map((row) => row.clubId), ['c1', 'c2']);
+  assert.deepEqual(schedule.highlight?.stops, [{ row: 0, column: 0 }, { row: 1, column: 0 }, { row: 1, column: 2 }]);
+  assert.equal(schedule.highlight?.rows[0].cells[1].meeting?.titleId, 't2');
+  assert.equal(scheduleCsv(schedule), scheduleCsv(makeScheduleExport(data, selected, cycle, true, 'grid')));
+  assert.ok(scheduleCsv(schedule).includes('Another Club'));
+  assert.ok(!scheduleCsv(schedule).includes('Hidden Club'));
+  assert.equal(makeScheduleExport(data, selected, cycle, false, 'kits', 't1').highlight, undefined);
+  assert.equal(makeScheduleExport(data, selected, undefined, false, 'grid', 't1').highlight, undefined);
+  const font = await readFile('node_modules/@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf');
+  const image = await readFile('assets/icon.png');
+  const result = await makeSchedulePdf(schedule, font, new Map([['t1', image], ['t2', image]]), '2027-01-01');
+  const pdf = await PDFDocument.load(result.bytes);
+  const page = pdf.getPage(0);
+  const streams = page.node.Contents();
+  assert.ok(streams instanceof PDFArray);
+  const content = Buffer.from(decodePDFRawStream(streams.lookup(0, PDFRawStream)).decode()).toString('ascii');
+  const lines = [...content.matchAll(/0\.145 0\.388 0\.922 RG\n[^\n]+ w\n\[\] 0 d\n([\d.]+) ([\d.]+) m\n\1 \2 m\n([\d.]+) ([\d.]+) l\nS/g)];
+  const scale = Math.min(1, 802 / (120 + 12 * 54), 483 / (18 + 2 * 110));
+  const points = schedule.highlight!.stops.map(({ row, column }) => [
+    20 + (120 + column * 54 + 25) * scale, 503 - (18 + row * 110 + 38) * scale,
+  ]);
+  assert.equal(lines.length, points.length - 1);
+  lines.forEach((line, index) => {
+    const coordinates = line.slice(1).map(Number);
+    [...points[index], ...points[index + 1]].forEach((value, coordinate) =>
+      assert.ok(Math.abs(coordinates[coordinate] - value) < 0.0001));
+  });
+  const states = page.node.Resources()!.lookup(PDFName.of('ExtGState'), PDFDict);
+  assert.ok(states.values().some((ref) => {
+    const state = pdf.context.lookup(ref, PDFDict);
+    return state.lookupMaybe(PDFName.of('ca'), PDFNumber)?.asNumber() === 0.25;
+  }));
+  assert.ok(Buffer.from(result.bytes).includes(Buffer.from('/Subtype /Image')));
+  const noMatches = makeScheduleExport(data, selected, cycle, false, 'grid', 't4');
+  assert.equal(noMatches.highlight?.rows.length, 0);
+  await assert.rejects(makeSchedulePdf(noMatches, font, new Map(), '2027-01-01'), /No shown clubs/);
+});
+
+test('highlighted PDF fits all months and matching clubs onto one landscape page', async () => {
+  const data = fixture();
+  const cycle = data.cycles[0];
+  cycle.startsOn = '2027-01-01';
+  cycle.endsOn = '2027-12-31';
+  data.clubs = Array.from({ length: 40 }, (_, index) => ({ ...data.clubs[0], id: `c${index}`, name: `Club ${index} ${'Long name '.repeat(8)}` }));
+  cycle.slots = data.clubs.map((club, index) => ({ id: `s${index}`, clubId: club.id, month: '2027-01', meeting: '2027-01-15' }));
+  data.assignments = cycle.slots.map((slot, index) => ({ id: `a${index}`, cycleId: cycle.id, slotId: slot.id,
+    clubId: slot.clubId, kitId: 'k1', ready: '2027-01-01', meeting: '2027-01-15', due: '2027-02-01', locked: false }));
+  const schedule = makeScheduleExport(data, data.clubs.map((club) => club.id), cycle, true, 'grid', 't1');
+  assert.equal(schedule.highlight?.rows.length, 40);
+  assert.equal(schedule.highlight?.stops.length, 40);
+  const font = await readFile('node_modules/@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf');
+  const image = await readFile('assets/icon.png');
+  const { bytes, smallText, invalidCovers } = await makeSchedulePdf(schedule, font, new Map([['t1', image]]), '2027-01-01');
+  const pdf = await PDFDocument.load(bytes);
+  assert.equal(pdf.getPageCount(), 1);
+  assert.deepEqual(pdf.getPage(0).getSize(), { width: 842, height: 595 });
+  assert.equal(smallText, true);
+  assert.equal(invalidCovers, 0);
+  assert.ok(Buffer.from(bytes).includes(Buffer.from('/Subtype /Image')));
+});
+
+test('one highlighted match draws a single-page PDF and reports invalid covers', async () => {
+  const data = fixture();
+  const cycle = data.cycles[0];
+  cycle.startsOn = '2027-01-01';
+  cycle.endsOn = '2027-01-31';
+  cycle.slots = cycle.slots.filter((slot) => slot.id === 's1');
+  data.assignments = data.assignments.filter((assignment) => assignment.id === 'a1');
+  const schedule = makeScheduleExport(data, ['c1'], cycle, false, 'grid', 't1');
+  assert.deepEqual(schedule.highlight?.stops, [{ row: 0, column: 0 }]);
+  const font = await readFile('node_modules/@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf');
+  const pdf = await makeSchedulePdf(schedule, font, new Map([['t1', new Uint8Array([0xff, 0xd8, 0])]]), '2027-01-01');
+  assert.equal(pdf.invalidCovers, 1);
+  assert.equal(pdf.smallText, false);
+  assert.equal((await PDFDocument.load(pdf.bytes)).getPageCount(), 1);
 });
 
 test('CSV quotes fields, protects spreadsheet formulas and identifies unsaved scope', () => {

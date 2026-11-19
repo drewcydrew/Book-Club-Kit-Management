@@ -1,6 +1,6 @@
 import fontkit from '@pdf-lib/fontkit';
 import type { PDFFont, PDFImage, PDFPage } from 'pdf-lib';
-import type { ScheduleExport } from './schedule-export';
+import type { HighlightedScheduleExport, ScheduleExport } from './schedule-export';
 
 // The bundled build avoids Metro resolving pdf-lib's ESM tslib wrapper incorrectly.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -38,21 +38,109 @@ function wrap(text: string, font: PDFFont, size: number, maxWidth: number): stri
   return lines;
 }
 
+function ellipsize(text: string, font: PDFFont, size: number, maxWidth: number): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (font.widthOfTextAtSize(normalized, size) <= maxWidth) return normalized;
+  const characters = [...normalized];
+  while (characters.length && font.widthOfTextAtSize(`${characters.join('')}…`, size) > maxWidth) characters.pop();
+  return `${characters.join('')}…`;
+}
+
+function drawHighlightedGrid(
+  page: PDFPage, schedule: ScheduleExport, highlight: HighlightedScheduleExport,
+  font: PDFFont, images: Map<string, PDFImage>, exportedAt: string,
+): boolean {
+  const pageWidth = 842;
+  const pageHeight = 595;
+  const pageMargin = 20;
+  const clubWidth = 120;
+  const cellWidth = 50;
+  const gap = 4;
+  const rowHeight = 110;
+  const coverHeight = 72;
+  const top = pageHeight - 92;
+  const scale = Math.min(1, (pageWidth - pageMargin * 2) / (clubWidth + highlight.months.length * (cellWidth + gap)),
+    (top - pageMargin) / (18 + highlight.rows.length * rowHeight));
+  const blue = rgb(0.145, 0.388, 0.922);
+  const white = rgb(1, 1, 1);
+  let hasPlaceholder = false;
+  const text = (value: string, x: number, y: number, size: number, maxWidth: number, opacity = 1, color = green) => {
+    const clipped = ellipsize(value, font, size, maxWidth);
+    if (clipped) page.drawText(clipped, { x, y, size, font, color, opacity });
+  };
+  page.drawRectangle({ x: 0, y: pageHeight - 9, width: pageWidth, height: 9, color: green });
+  text(schedule.library || 'Library', pageMargin, pageHeight - 29, 13, pageWidth - pageMargin * 2);
+  text(schedule.label, pageMargin, pageHeight - 45, 9, pageWidth - pageMargin * 2);
+  text(`Highlight · ${highlight.title}`, pageMargin, pageHeight - 62, 11, pageWidth - pageMargin * 2);
+  text(`Exported ${exportedAt}`, pageMargin, pageHeight - 76, 8, pageWidth - pageMargin * 2, 1, muted);
+  const cellStep = (cellWidth + gap) * scale;
+  const gridX = pageMargin + clubWidth * scale;
+  text('Club', pageMargin, top, 8 * scale, (clubWidth - 8) * scale);
+  highlight.months.forEach((month, column) => text(month, gridX + column * cellStep, top, 8 * scale, cellWidth * scale));
+  const rowTop = (row: number) => top - 18 * scale - row * rowHeight * scale;
+  const cellX = (column: number) => gridX + column * cellStep;
+  highlight.rows.forEach((row, rowIndex) => {
+    const y = rowTop(rowIndex);
+    const clubLines = wrap(row.clubName, font, 8, clubWidth - 8);
+    clubLines.slice(0, 3).forEach((line, index) => {
+      const value = index === 2 && clubLines.length > 3 ? `${line}…` : line;
+      text(value, pageMargin, y - (9 + index * 10) * scale, 8 * scale, (clubWidth - 8) * scale);
+    });
+    text(row.summary, pageMargin, y - 40 * scale, 7 * scale, (clubWidth - 8) * scale, 1, muted);
+    row.cells.forEach(({ meeting, priority, problem }, column) => {
+      const x = cellX(column);
+      const match = !!meeting?.assignmentId && meeting.titleId === highlight.titleId;
+      const opacity = match ? 1 : 0.25;
+      const image = meeting?.assignmentId ? images.get(meeting.titleId) : undefined;
+      if (image) {
+        const imageScale = Math.min(cellWidth / image.width, coverHeight / image.height) * scale;
+        page.drawImage(image, { x: x + (cellWidth * scale - image.width * imageScale) / 2, y: y - 2 * scale - image.height * imageScale,
+          width: image.width * imageScale, height: image.height * imageScale, opacity });
+      } else {
+        hasPlaceholder = true;
+        page.drawRectangle({ x, y: y - (coverHeight + 2) * scale, width: cellWidth * scale, height: coverHeight * scale,
+          color: rgb(0.88, 0.91, 0.89), opacity });
+        const placeholder = !meeting ? 'No meeting' : meeting.assignmentId ? 'No cover' : 'Not assigned';
+        text(placeholder, x + 2 * scale, y - 38 * scale, 6 * scale, (cellWidth - 4) * scale, opacity, muted);
+      }
+      if (match) page.drawRectangle({ x, y: y - (coverHeight + 2) * scale, width: cellWidth * scale, height: coverHeight * scale,
+        borderColor: blue, borderWidth: 1.5 * scale, opacity: 0, borderOpacity: 1 });
+      if (meeting?.assignmentId) {
+        const badge = priority === null ? '—' : `#${priority}`;
+        text(badge, x + 2 * scale, y - 10 * scale, 7 * scale, (cellWidth - 4) * scale, opacity);
+        if (problem) text('!', x + (cellWidth - 8) * scale, y - 10 * scale, 8 * scale, 7 * scale, opacity, rgb(0.64, 0.15, 0.15));
+        const titleLines = wrap(meeting.title || 'Unavailable title', font, 7.5, cellWidth);
+        titleLines.slice(0, 2).forEach((line, index) => text(index === 1 && titleLines.length > 2 ? `${line}…` : line,
+          x, y - (84 + index * 9) * scale, 7.5 * scale, cellWidth * scale, opacity));
+      }
+    });
+  });
+  const points = highlight.stops.map(({ row, column }) => ({
+    x: cellX(column) + cellWidth * scale / 2, y: rowTop(row) - (2 + coverHeight / 2) * scale,
+  }));
+  points.slice(1).forEach((point, index) => page.drawLine({ start: points[index], end: point, color: blue, thickness: 1.5 * scale }));
+  points.forEach((point) => page.drawCircle({ ...point, size: 2.5 * scale, color: white, borderColor: blue, borderWidth: 1.2 * scale }));
+  return (hasPlaceholder ? 6 : 7) * scale < 6;
+}
+
 export async function makeSchedulePdf(
   schedule: ScheduleExport,
   fontBytes: Uint8Array,
   covers: Map<string, Uint8Array>,
   exportedAt: string,
-): Promise<{ bytes: Uint8Array; invalidCovers: number }> {
+): Promise<{ bytes: Uint8Array; invalidCovers: number; smallText?: boolean }> {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   // fontkit's subset has invalid TrueType checksums and renders incorrectly in PDF readers.
   const font = await doc.embedFont(fontBytes);
   const supported = new Set(font.getCharacterSet());
-  const text = [schedule.library, schedule.label, ...schedule.meetings.flatMap((row) =>
-    [row.clubName, row.cycleName, row.cycleStatus, row.title, row.author, row.meeting, row.month, row.ready, row.due,
-      ...(schedule.mode === 'kits' ? [row.barcode, row.branch, row.kitId] : [])]),
-    ...(schedule.grid?.rows.map((row) => row.clubName) ?? [])].join('');
+  const text = schedule.highlight
+    ? [schedule.library, schedule.label, schedule.highlight.title, ...schedule.highlight.rows.flatMap((row) =>
+      [row.clubName, row.summary, ...row.cells.map((cell) => cell.meeting?.title ?? '')])].join('')
+    : [schedule.library, schedule.label, ...schedule.meetings.flatMap((row) =>
+      [row.clubName, row.cycleName, row.cycleStatus, row.title, row.author, row.meeting, row.month, row.ready, row.due,
+        ...(schedule.mode === 'kits' ? [row.barcode, row.branch, row.kitId] : [])]),
+      ...(schedule.grid?.rows.map((row) => row.clubName) ?? [])].join('');
   const unsupported = [...text].find((character) => !/\s/.test(character) && !supported.has(character.codePointAt(0)!));
   if (unsupported) throw new Error(`The PDF font cannot display the character "${unsupported}".`);
   const images = new Map<string, PDFImage>();
@@ -64,6 +152,13 @@ export async function makeSchedulePdf(
     } catch {
       invalidCovers += 1;
     }
+  }
+
+  if (schedule.highlight) {
+    if (!schedule.highlight.rows.length) throw new Error('No shown clubs use this highlighted title.');
+    const page = doc.addPage([842, 595]);
+    const smallText = drawHighlightedGrid(page, schedule, schedule.highlight, font, images, exportedAt);
+    return { bytes: await doc.save(), invalidCovers, smallText };
   }
 
   let page: PDFPage = doc.addPage([width, height]);

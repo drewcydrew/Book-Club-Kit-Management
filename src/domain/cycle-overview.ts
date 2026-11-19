@@ -18,6 +18,23 @@ export interface ScheduleGrid {
   rows: GridRow[];
 }
 
+export function highlightedGrid<Row, Cell>(
+  rows: readonly Row[],
+  cellsFor: (row: Row) => readonly Cell[],
+  matches: (cell: Cell) => boolean,
+): { rows: Row[]; stops: { row: number; column: number }[] } {
+  const visible = rows.filter((row) => cellsFor(row).some(matches));
+  const stops: { row: number; column: number }[] = [];
+  const columns = visible.length ? cellsFor(visible[0]).length : 0;
+  for (let column = 0; column < columns; column++) {
+    visible.forEach((row, index) => {
+      const cell = cellsFor(row)[column];
+      if (cell !== undefined && matches(cell)) stops.push({ row: index, column });
+    });
+  }
+  return { rows: visible, stops };
+}
+
 export interface MonthGroup {
   month: string;
   slots: Slot[];

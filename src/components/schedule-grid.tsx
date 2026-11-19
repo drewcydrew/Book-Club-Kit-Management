@@ -4,7 +4,7 @@ import { TitleCover } from './title-cover';
 import { Action } from './ui';
 import { SCHEDULE_CLUB_WIDTH, SCHEDULE_CELL_LABEL_HEIGHT, SCHEDULE_ROW_GAP, scheduleCoverHeight, scheduleGridSizing, scheduleRowHeight } from './schedule-layout';
 import { FadeCell, HighlightPath, useReduceMotion, type HighlightStop } from './schedule-highlight';
-import type { ScheduleGrid as ScheduleGridData, GridCell } from '../domain/cycle-overview';
+import { highlightedGrid, type ScheduleGrid as ScheduleGridData, type GridCell } from '../domain/cycle-overview';
 import type { Assignment, Title } from '../domain/model';
 
 const CLASH = '#a22525';
@@ -38,7 +38,8 @@ export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId
   if (grid.rows.length === 0) return null;
   const highlighting = !!highlightTitleId;
   const isMatch = (cell: GridCell) => highlighting && !!cell.assignment && titleFor(cell.assignment)?.id === highlightTitleId;
-  const rows = highlighting ? grid.rows.filter((row) => row.cells.some(isMatch)) : grid.rows;
+  const highlight = highlighting ? highlightedGrid(grid.rows, (row) => row.cells, isMatch) : null;
+  const rows = highlight?.rows ?? grid.rows;
   const expandedCellFor = (row: ScheduleGridData['rows'][number]) => row.cells.find((cell) => onSelectSlot ? cell.slot?.id === selectedSlotId : cell.assignment && cell.assignment.id === expandedId);
   const cellsFor = (row: ScheduleGridData['rows'][number]) => row.cells.map((cell) => <FadeCell key={cell.month} dimmed={highlighting && !isMatch(cell)} reduceMotion={reduceMotion}
     style={{ width: cellWidth, marginRight: wide && cell === row.cells[row.cells.length - 1] ? 0 : gap }}>
@@ -88,14 +89,10 @@ export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId
   const contentWidth = grid.months.length * columnStep;
   const contentHeight = rows.length * (rowHeight + SCHEDULE_ROW_GAP);
   const stops: HighlightStop[] = [];
-  if (highlighting) {
-    for (let column = 0; column < grid.months.length; column++) {
-      rows.forEach((row, rowIndex) => {
-        const cell = row.cells[column];
-        if (cell && isMatch(cell)) stops.push({ x: column * columnStep + cellWidth / 2, y: rowIndex * (rowHeight + SCHEDULE_ROW_GAP) + SCHEDULE_CELL_LABEL_HEIGHT + coverHeight / 2 });
-      });
-    }
-  }
+  highlight?.stops.forEach(({ row, column }) => stops.push({
+    x: column * columnStep + cellWidth / 2,
+    y: row * (rowHeight + SCHEDULE_ROW_GAP) + SCHEDULE_CELL_LABEL_HEIGHT + coverHeight / 2,
+  }));
   return <View onLayout={(event) => setContainerWidth(event.nativeEvent.layout.width)}>
     {highlighting && rows.length === 0 && <Text style={{ color: '#374151', marginBottom: 12 }}>No meetings use this title in the selected cycle.</Text>}
     <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
