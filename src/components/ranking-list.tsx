@@ -8,8 +8,9 @@ import type { RankingListProps } from './ranking-types';
 import { TitleCover } from './title-cover';
 
 // Native ranking: tap a card to select it, then use the pills over its cover to move, inspect or remove it.
-export function RankingList({ items, disabled, onReorder, onRemove, onShowDetails }: RankingListProps) {
-  const columns = useGalleryColumns();
+export function RankingList({ items, disabled, columns: panelColumns, onReorder, onRemove, onShowDetails }: RankingListProps) {
+  const defaultColumns = useGalleryColumns();
+  const columns = panelColumns ?? defaultColumns;
   const reduced = useReducedMotion();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = items.some((item) => item.id === selectedId) ? selectedId : null;

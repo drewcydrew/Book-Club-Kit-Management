@@ -13,8 +13,9 @@ type Drag = { from: number; to: number; dx: number; dy: number };
 
 const DRAG_THRESHOLD = 6;
 
-export function RankingList({ items, disabled, onReorder, onRemove, onShowDetails }: RankingListProps) {
-  const columns = useGalleryColumns();
+export function RankingList({ items, disabled, columns: panelColumns, onReorder, onRemove, onShowDetails }: RankingListProps) {
+  const defaultColumns = useGalleryColumns();
+  const columns = panelColumns ?? defaultColumns;
   const [drag, setDrag] = useState<Drag | null>(null);
   const cells = useRef<(HTMLDivElement | null)[]>([]);
   const latest = useRef({ items, disabled, onReorder, onShowDetails });

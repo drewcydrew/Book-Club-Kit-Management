@@ -5,12 +5,14 @@ import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
 import { ScheduleGridView } from '../components/schedule-grid';
 import { SCHEDULE_DESKTOP_WIDTH } from '../components/schedule-layout';
 import { ScheduleInstructions } from '../components/schedule-instructions';
+import { ScheduleExportActions } from '../components/schedule-export';
 import { useScheduleWorkspace } from '../components/schedule-workspace';
 import { MemberSchedule, type MemberView } from '../components/member-schedule';
 import { TitleCover } from '../components/title-cover';
 import { memberScheduleMeetings, memberVisibleCycle, scheduleByKit, scheduleGrid } from '../domain/cycle-overview';
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
+import { makeScheduleExport } from '../domain/schedule-export';
 import { assignmentProblem, fairness, rankings } from '../domain/logic';
 import type { Assignment } from '../domain/model';
 import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
@@ -387,6 +389,10 @@ function ScheduleContent() {
           }} />)}</Actions>
         </>}
     </Card>}
+    <Card>
+      <ScheduleExportActions schedule={makeScheduleExport(viewData, gridClubs.map((club) => club.id), staff ? cycle : undefined, staff && editor.dirty)}
+        disabled={staff && (editor.busy || validating || !!publication)} />
+    </Card>
     {!staff && <MemberSchedule key={JSON.stringify([person.id, gridClubKey, memberMeetings.map((meeting) =>
       [meeting.key, meeting.assignment ? kitById.get(meeting.assignment.kitId)?.titleId : null,
         meeting.assignment ? titleById.has(kitById.get(meeting.assignment.kitId)?.titleId ?? '') : false])])}

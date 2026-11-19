@@ -5,7 +5,9 @@ import { addDays, today } from '../src/domain/dates';
 import { assignmentProblem, assignmentProblems, circulate, draft, fairness, firstMonday, meetingFor, rankings, satisfactionDebt } from '../src/domain/logic';
 import { filterOptions, type PickerOption } from '../src/domain/search';
 import { seed } from '../src/domain/seed';
-import { emptyBallot, moveInRanking, setMark, undoDismissal } from '../src/domain/ballot-draft';
+import { ballotKey, emptyBallot, moveInRanking, setMark, undoDismissal } from '../src/domain/ballot-draft';
+import { ApiError } from '../src/state/api';
+import { reconcileBallot, saveStagedBallots, stageBallot, type StagedBallots } from '../src/state/staged-ballots';
 import { memberCycleStatus, preferenceStatus, votingStatus } from '../src/domain/voting';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
@@ -97,6 +99,56 @@ test('ballot marks append to the ranking and moves reorder it', () => {
   ballot = moveInRanking(ballot, 2, 0);
   assert.deepEqual(ballot.ranking, ['c', 'a', 'b']);
   assert.equal(setMark(ballot, 'a', 'wont').ranking.includes('a'), false);
+});
+
+test('staging isolates ballots and retains their original revisions until explicitly saved', async () => {
+  const first = { ...emptyBallot('cycle1', 'club1', 'person'), revision: 3 };
+  const second = { ...emptyBallot('cycle2', 'club2', 'person'), revision: 4 };
+  let drafts = stageBallot({}, setMark(first, 'a', 'selected'), first);
+  drafts = stageBallot(drafts, setMark(second, 'b', 'selected'), second);
+  drafts = stageBallot(drafts, setMark(drafts[ballotKey(first)].ballot, 'c', 'selected'), { ...first, revision: 8 });
+  assert.equal(drafts[ballotKey(first)].ballot.revision, 3);
+  const writes: Ballot[] = [];
+  const result = await saveStagedBallots([ballotKey(first)], () => drafts, (next) => { drafts = next; },
+    async (ballot) => { writes.push(ballot); }, async () => ({ ballots: [{ ...writes[0], revision: 4 }] }));
+  assert.equal(result.savedCount, 1);
+  assert.equal(writes.length, 1);
+  assert.deepEqual(Object.keys(drafts), [ballotKey(second)]);
+  assert.equal(writes[0].revision, 3);
+});
+
+test('saving all stops on conflict and preserves failed and unattempted drafts', async () => {
+  const ballots = ['a', 'b', 'c'].map((club) => setMark(emptyBallot('cycle', club, 'person'), club, 'selected'));
+  let drafts: StagedBallots = {};
+  for (const ballot of ballots) drafts = stageBallot(drafts, ballot, emptyBallot('cycle', ballot.clubId, 'person'));
+  const writes: string[] = [];
+  const result = await saveStagedBallots(ballots.map(ballotKey), () => drafts, (next) => { drafts = next; },
+    async (ballot) => {
+      writes.push(ballot.clubId);
+      if (ballot.clubId === 'b') throw new ApiError('Revision conflict', 409);
+    }, async () => ({ ballots: [{ ...ballots[0], revision: 1 }] }));
+  assert.equal(result.savedCount, 1);
+  assert.deepEqual(writes, ['a', 'b']);
+  assert.match(drafts[ballotKey(ballots[1])].issue ?? '', /Save rejected/);
+  assert.ok(drafts[ballotKey(ballots[2])]);
+  const retry = await saveStagedBallots([ballotKey(ballots[1])], () => drafts, (next) => { drafts = next; },
+    async () => { throw new Error('must not retry before reconciliation'); }, async () => ({ ballots: [] }));
+  assert.equal(retry.savedCount, 0);
+  assert.ok(retry.problem);
+});
+
+test('failed refresh retains a saved draft and reconciliation distinguishes save, retry and conflict', async () => {
+  const baseline = { ...emptyBallot('cycle', 'club', 'person'), revision: 2 };
+  const ballot = setMark(baseline, 'a', 'selected');
+  let drafts = stageBallot({}, ballot, baseline);
+  const result = await saveStagedBallots([ballotKey(ballot)], () => drafts, (next) => { drafts = next; },
+    async () => undefined, async () => { throw new Error('offline'); });
+  assert.equal(result.savedCount, 1);
+  const entry = drafts[ballotKey(ballot)];
+  assert.match(entry.issue ?? '', /save succeeded, but refresh failed/);
+  assert.equal(reconcileBallot(entry, { ...ballot, revision: 3 }), 'saved');
+  assert.equal(reconcileBallot(entry, baseline), 'retry');
+  assert.equal(reconcileBallot(entry, { ...baseline, revision: 3 }), 'conflict');
 });
 
 test('undo dismissal restores the original rank without replacing later choices', () => {

@@ -38,7 +38,7 @@ function PreferencesContent() {
   const club = availableClubs.find((value) => value.id === clubId) ??
     (availableClubs.length === 1 ? availableClubs[0] : undefined);
   const staff = person?.role === "staff" || person?.role === "admin";
-  const wide = staff && Platform.OS === "web" && width >= SCHEDULE_DESKTOP_WIDTH;
+  const wide = Platform.OS === "web" && width >= SCHEDULE_DESKTOP_WIDTH;
   const isMember = !!person && !!club && membershipClubs.includes(club.id);
   const isLeader =
     !!person &&
@@ -55,7 +55,7 @@ function PreferencesContent() {
 
   const member = useMemberPreferences({ data, shared, person, cycle, club, isMember, isLeader, editable });
   const staffView = useStaffPreferences({ data, cycle, availableClubs });
-  const { sync, syncRefreshError, resetContext } = member;
+  const { sync, syncRefreshError, resetContext, mode, currentDraft, stagedCount, draftSaving } = member;
 
   function chooseClub(value: string) {
     resetContext();
@@ -101,6 +101,12 @@ function PreferencesContent() {
           <Note>{memberStatus.detail}</Note>
         </>}
         {!staff && club && (() => {
+          if (mode === 'draft') {
+            const text = draftSaving ? 'Saving draft…' : currentDraft?.issue ? 'Draft needs reconciliation.' :
+              currentDraft ? 'Unsaved draft for this club and cycle.' : `${stagedCount} unsaved ${stagedCount === 1 ? 'draft' : 'drafts'} across clubs and cycles.`;
+            return <Text accessibilityRole="text" accessibilityLiveRegion="polite"
+              style={[styles.syncChip, draftSaving && styles.syncSaving, currentDraft?.issue && styles.syncError]}>{text}</Text>;
+          }
           const state = syncRefreshError ? "error" : sync.status.state;
           const text = syncRefreshError ? `Unable to refresh choices: ${syncRefreshError}` :
             sync.status.state === "error" ? sync.status.message :
@@ -112,11 +118,11 @@ function PreferencesContent() {
           </Text>;
         })()}
         <Actions>
-          {data.cycles.length > 1 && <Action title={cycleOpen ? "Close cycles" : "Change cycle"} onPress={() => setCycleOpen(!cycleOpen)} />}
-          {!staff && availableClubs.length > 1 && <Action title={clubOpen ? "Close clubs" : club ? "Change club" : "Choose club"} onPress={() => setClubOpen(!clubOpen)} />}
+          {data.cycles.length > 1 && <Action title={cycleOpen ? "Close cycles" : "Change cycle"} disabled={!staff && draftSaving} onPress={() => setCycleOpen(!cycleOpen)} />}
+          {!staff && availableClubs.length > 1 && <Action title={clubOpen ? "Close clubs" : club ? "Change club" : "Choose club"} disabled={draftSaving} onPress={() => setClubOpen(!clubOpen)} />}
         </Actions>
         {cycleOpen && <Actions>
-          {data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} title={value.name} onPress={() => {
+          {data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} title={value.name} disabled={!staff && draftSaving} onPress={() => {
             setSelectedId(value.id);
             setCycleOpen(false);
             resetContext();
@@ -130,6 +136,7 @@ function PreferencesContent() {
                 key={value.id}
                 selected={value.id === club?.id}
                 title={value.name}
+                disabled={draftSaving}
                 onPress={() => chooseClub(value.id)}
               />
             ))}
@@ -148,7 +155,7 @@ function PreferencesContent() {
         </Note>
       )}
 
-      {!staff && club && <MemberPreferences controller={member} />}
+      {!staff && club && <MemberPreferences controller={member} wide={wide} />}
       {staff && <StaffPreferences controller={staffView} />}
     </Page>
   );

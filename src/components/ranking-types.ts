@@ -4,7 +4,7 @@ export type RankedItem = {
 };
 
 export type RankingListProps = {
-  items: RankedItem[]; disabled: boolean;
+  items: RankedItem[]; disabled: boolean; columns?: number;
   onReorder: (from: number, to: number) => void; onRemove: (titleId: string) => void;
   onShowDetails: (titleId: string) => void;
 };

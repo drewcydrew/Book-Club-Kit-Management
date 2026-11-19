@@ -8,6 +8,14 @@ export function emptyBallot(cycleId: string, clubId: string, personId: string): 
   return { cycleId, clubId, personId, marks: {}, ranking: [], revision: 0 };
 }
 
+export function sameBallotChoices(a: Ballot, b: Ballot): boolean {
+  const keys = Object.keys(a.marks);
+  return keys.length === Object.keys(b.marks).length
+    && keys.every((id) => a.marks[id] === b.marks[id])
+    && a.ranking.length === b.ranking.length
+    && a.ranking.every((id, index) => id === b.ranking[index]);
+}
+
 export function setMark(ballot: Ballot, titleId: string, value: Mark | null): Ballot {
   const marks = { ...ballot.marks };
   if (value) marks[titleId] = value;

@@ -9,8 +9,9 @@ import { Action, Actions, Field, Label, Note } from './ui';
 
 const PAGE_SIZE = 18;
 
-export function TitleGallery({ titles, labels, marks, disabled, onMark, onShowDetails }: {
+export function TitleGallery({ titles, labels, marks, disabled, columns: panelColumns, onMark, onShowDetails }: {
   titles: Title[]; labels: KitLabel[]; marks: Record<string, Mark>; disabled: boolean;
+  columns?: number;
   onMark: (titleId: string, value: Mark | null) => void;
   onShowDetails: (titleId: string) => void;
 }) {
@@ -23,7 +24,8 @@ export function TitleGallery({ titles, labels, marks, disabled, onMark, onShowDe
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const [wontLimit, setWontLimit] = useState(PAGE_SIZE);
   const [readLimit, setReadLimit] = useState(PAGE_SIZE);
-  const columns = useGalleryColumns();
+  const defaultColumns = useGalleryColumns();
+  const columns = panelColumns ?? defaultColumns;
   const reduced = useReducedMotion();
   const cardWidth: DimensionValue = `${100 / columns}%`;
 

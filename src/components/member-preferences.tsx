@@ -5,12 +5,14 @@ import { Action, Actions, Card, Label, Note } from "./ui";
 import { RankingList } from "./ranking-list";
 import { TitleDetails } from "./title-details";
 import { TitleGallery } from "./title-gallery";
+import { galleryColumns } from "./gallery-columns";
 import { ballotKey, emptyBallot, moveInRanking, setMark, undoDismissal } from "../domain/ballot-draft";
 import { titleLabelSummary } from "../domain/kit-label-search";
 import { rankings } from "../domain/logic";
 import type { Ballot, Club, Cycle, Data, Mark, Person } from "../domain/model";
 import { finalizeRanking, loadLeaderReview, saveBallot } from "../state/api";
 import { useBallotSync } from "../state/ballot-sync";
+import { reconcileBallot, saveStagedBallots, stageBallot, type StagedBallot } from "../state/staged-ballots";
 import { useShared } from "../state/shared";
 import { useNavigationGuard } from "./navigation-guard";
 
@@ -44,11 +46,20 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
   const [review, setReview] = useState<{ key: string; ranking: string[] } | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Ballot>>({});
   const draftRef = useRef<Record<string, Ballot>>({});
+  const [mode, setMode] = useState<'auto' | 'draft'>('auto');
+  const [staged, setStaged] = useState<Record<string, StagedBallot>>({});
+  const stagedRef = useRef<Record<string, StagedBallot>>({});
+  const [draftSaving, setDraftSaving] = useState(false);
+  const draftSavingRef = useRef(false);
+  const [draftMessage, setDraftMessage] = useState('');
+  const [draftAction, setDraftAction] = useState<'autosave' | 'discard' | null>(null);
   const [syncRefreshing, setSyncRefreshing] = useState(false);
   const [syncRefreshError, setSyncRefreshError] = useState<string | null>(null);
   const refreshCount = useRef(0);
   const refreshSequence = useRef(0);
   const [leaderOpen, setLeaderOpen] = useState(false);
+  const [leaderFinalizing, setLeaderFinalizing] = useState(false);
+  const leaderFinalizingRef = useRef(false);
   const [leaderResult, setLeaderResult] = useState<{ key: string; ballots: Ballot[]; error: null } | { key: string; ballots: null; error: string } | null>(null);
   const [leaderRetry, setLeaderRetry] = useState(0);
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
@@ -97,7 +108,7 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
     cycle && club && person
       ? ballotKey({ cycleId: cycle.id, clubId: club.id, personId: person.id })
       : "";
-  const ballot = drafts[currentKey] ?? serverBallot;
+  const ballot = staged[currentKey]?.ballot ?? drafts[currentKey] ?? serverBallot;
   const reviewKey = `${cycle?.id ?? ""}:${club?.id ?? ""}:${person?.id ?? ""}`;
   const reviewRanking = review?.key === reviewKey ? review.ranking : null;
   const leaderKey = `${reviewKey}:${cycle?.revision ?? ""}:${leaderRetry}`;
@@ -117,8 +128,9 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
     });
     return () => controller.abort();
   }, [leaderOpen, isLeader, personId, clubId, cycleId, leaderKey]);
-  const busy = sync.status.state === "saving" || syncRefreshing || shared.saving;
-  const dirty = sync.status.state === "error" || !!syncRefreshError || reviewRanking !== null;
+  const stagedCount = Object.keys(staged).length;
+  const busy = sync.status.state === "saving" || syncRefreshing || shared.saving || draftSaving;
+  const dirty = sync.status.state === "error" || !!syncRefreshError || reviewRanking !== null || stagedCount > 0;
   const disablePrevention = usePreventRemove(!allowLeaving && (busy || dirty), ({ repeat }) => {
     if (busy) { setNavigationMessage("Wait for choices and shared changes to finish saving before leaving."); return; }
     setPendingNavigation(() => repeat);
@@ -130,6 +142,12 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
       setPendingNavigation(() => () => { disablePrevention(); continueNavigation(); });
     });
   }, [busy, dirty, disablePrevention, navigationGuard]);
+  useEffect(() => {
+    if (Platform.OS !== 'web' || (!busy && !dirty)) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [busy, dirty]);
   const clubRead = club
     ? data.titles.filter((title) => club.history.includes(title.id))
     : [];
@@ -149,10 +167,19 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
   }
 
   function changeBallot(fn: (current: Ballot) => Ballot) {
-    if (!club || !cycle || !person || !editable || !isMember) return;
-    const latest = draftRef.current[currentKey] ?? ballot;
+    if (!club || !cycle || !person || !editable || !isMember || draftSavingRef.current || leaderFinalizingRef.current || stagedRef.current[currentKey]?.issue) return;
+    const latest = stagedRef.current[currentKey]?.ballot ?? draftRef.current[currentKey] ?? ballot;
     const current = latest ?? emptyBallot(cycle.id, club.id, person.id);
     const next = fn(current);
+    if (mode === 'draft') {
+      const baseline = serverBallot ?? emptyBallot(cycle.id, club.id, person.id);
+      const updated = stageBallot(stagedRef.current, next, baseline);
+      stagedRef.current = updated;
+      setStaged(updated);
+      setDraftMessage('');
+      setReview(null);
+      return;
+    }
     draftRef.current = { ...draftRef.current, [currentKey]: next };
     setDrafts(draftRef.current);
     setReview(null);
@@ -161,7 +188,107 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
     sync.enqueue(withFreshRevision(next));
   }
 
+  function updateStaged(next: Record<string, StagedBallot>) {
+    stagedRef.current = next;
+    setStaged(next);
+  }
+
+  function draftName(value: Ballot) {
+    const clubName = data.clubs.find((item) => item.id === value.clubId)?.name ?? value.clubId;
+    const cycleName = data.cycles.find((item) => item.id === value.cycleId)?.name ?? value.cycleId;
+    return `${clubName} · ${cycleName}`;
+  }
+
+  async function saveStaged(keys: string[], switchToAuto: boolean) {
+    if (draftSavingRef.current) return;
+    draftSavingRef.current = true;
+    setDraftSaving(true);
+    shared.setBackgroundSaving(true);
+    setDraftMessage('');
+    try {
+      const { savedCount, problem } = await saveStagedBallots(
+        keys, () => stagedRef.current, updateStaged, saveBallot, shared.refresh,
+      );
+      if (problem) {
+        shared.invalidateOtherScopes();
+        setDraftMessage(`${draftName(problem.ballot)}: ${problem.issue} ${savedCount} drafts saved.`);
+        return;
+      }
+      if (switchToAuto && Object.keys(stagedRef.current).length === 0) setMode('auto');
+      setDraftMessage(`${savedCount} ${savedCount === 1 ? 'draft' : 'drafts'} saved.`);
+    } finally {
+      draftSavingRef.current = false;
+      setDraftSaving(false);
+      shared.setBackgroundSaving(false);
+    }
+  }
+
+  async function reconcileDraft() {
+    const entry = stagedRef.current[currentKey];
+    if (!entry || draftSavingRef.current) return;
+    draftSavingRef.current = true;
+    setDraftSaving(true);
+    shared.setBackgroundSaving(true);
+    try {
+      const refreshed = await shared.refresh();
+      const latest = refreshed.ballots.find((item) => ballotKey(item) === currentKey)
+        ?? emptyBallot(entry.ballot.cycleId, entry.ballot.clubId, entry.ballot.personId);
+      const result = reconcileBallot(entry, latest);
+      if (result === 'saved') {
+        const remaining = { ...stagedRef.current };
+        delete remaining[currentKey];
+        updateStaged(remaining);
+        setDraftMessage('The shared ballot matches your draft; no further save is needed.');
+      } else if (result === 'retry') {
+        updateStaged({ ...stagedRef.current, [currentKey]: { ...entry, issue: undefined } });
+        setDraftMessage('The shared ballot has not changed. You can retry saving your draft.');
+      } else {
+        const issue = 'The shared ballot changed. Your draft is retained; discard it to view the shared choices and make your changes again.';
+        updateStaged({ ...stagedRef.current, [currentKey]: { ...entry, issue } });
+        setDraftMessage(issue);
+      }
+    } catch (reason: unknown) {
+      setDraftMessage(`Unable to refresh: ${reason instanceof Error ? reason.message : 'Please try again.'}`);
+    } finally {
+      draftSavingRef.current = false;
+      setDraftSaving(false);
+      shared.setBackgroundSaving(false);
+    }
+  }
+
+  async function discardStaged(keys: string[], switchToAuto: boolean) {
+    if (draftSavingRef.current) return;
+    draftSavingRef.current = true;
+    setDraftSaving(true);
+    shared.setBackgroundSaving(true);
+    try {
+      if (keys.some((key) => stagedRef.current[key]?.issue)) {
+        await shared.refresh();
+      }
+      const remaining = { ...stagedRef.current };
+      for (const key of keys) delete remaining[key];
+      updateStaged(remaining);
+      setDismissalUndo(null);
+      setLastRemovedId(null);
+      setDraftMessage('Draft changes discarded.');
+      if (switchToAuto && Object.keys(remaining).length === 0) setMode('auto');
+    } catch (reason: unknown) {
+      setDraftMessage(`Unable to refresh before discarding: ${reason instanceof Error ? reason.message : 'Please try again.'}`);
+    } finally {
+      draftSavingRef.current = false;
+      setDraftSaving(false);
+      shared.setBackgroundSaving(false);
+    }
+  }
+
+  function requestMode(next: 'auto' | 'draft') {
+    if (busy || sync.status.state === 'error' || syncRefreshError) return;
+    if (next === 'auto' && stagedCount) setDraftAction('autosave');
+    else { setMode(next); setDraftMessage(''); }
+  }
+
   function saveChoices() {
+    if (mode === 'draft') { void saveStaged([currentKey], false); return; }
     shared.setBackgroundSaving(true);
     const failedKey = sync.status.key;
     if (sync.status.state === "error" && failedKey && drafts[failedKey]) {
@@ -203,7 +330,7 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
 
   function undoLastDismissal() {
     if (!activeUndo || !editable || !isMember) return;
-    const latest = draftRef.current[currentKey] ?? ballot;
+    const latest = stagedRef.current[currentKey]?.ballot ?? draftRef.current[currentKey] ?? ballot;
     if (!latest || latest.marks[activeUndo.titleId] !== activeUndo.dismissedAs) {
       setDismissalUndo(null);
       return;
@@ -228,18 +355,83 @@ export function useMemberPreferences({ data, shared, person, cycle, club, isMemb
     pendingNavigation, setPendingNavigation, setAllowLeaving, navigationMessage, setNavigationMessage, activeUndo, undoLastDismissal,
     lastRemovedId, setLastRemovedId, detailTitle, setDetailTitleId, labelById,
     clubRead, selectedCount, changeBallot, saveChoices, refreshChoices, mark, removeSelection, resetContext,
+    mode, stagedCount, currentDraft: staged[currentKey], draftSaving, draftMessage, draftAction, setDraftAction,
+    requestMode, saveStaged, reconcileDraft, discardStaged, stagedKeys: () => Object.keys(stagedRef.current),
+    leaderFinalizing, setLeaderFinalizing, leaderFinalizingRef,
   };
 }
 
-export function MemberPreferences({ controller }: { controller: ReturnType<typeof useMemberPreferences> }) {
+export function MemberPreferences({ controller, wide }: { controller: ReturnType<typeof useMemberPreferences>; wide: boolean }) {
+  const [rankingWidth, setRankingWidth] = useState(0);
+  const [paletteWidth, setPaletteWidth] = useState(0);
   const {
     data, shared, cycle, club, isMember, isLeader, editable, ballot, currentKey, reviewKey, reviewRanking, setReview,
     sync, syncRefreshing, syncRefreshError, leaderOpen, setLeaderOpen, leaderReady, leaderError, setLeaderRetry, reviewData,
     pendingNavigation, setPendingNavigation, setAllowLeaving, navigationMessage, setNavigationMessage, activeUndo, undoLastDismissal,
     lastRemovedId, setLastRemovedId, detailTitle, setDetailTitleId, labelById,
     clubRead, selectedCount, changeBallot, saveChoices, refreshChoices, mark, removeSelection,
+    mode, stagedCount, currentDraft, draftSaving, draftMessage, draftAction, setDraftAction,
+    requestMode, saveStaged, reconcileDraft, discardStaged,
+    leaderFinalizing, setLeaderFinalizing, leaderFinalizingRef,
   } = controller;
   if (!club || !cycle) return null;
+  const editingDisabled = !editable || !isMember || draftSaving || leaderFinalizing || !!currentDraft?.issue;
+  const rankingPanel = <View key="ranking" style={wide ? styles.column : undefined} onLayout={(event) => setRankingWidth(event.nativeEvent.layout.width)}>
+    <Card soft>
+      <Label>Your ranked choices · {selectedCount}</Label>
+      <Note>{Platform.OS === "web"
+        ? "Drag a cover, or use the ← → buttons, to rank your choices. Your first choice is top-left."
+        : "Tap a cover to select it, then use ← → to rank your choices. Your first choice is top-left."}</Note>
+      <Note>Labels describe titles. Details show the synopsis and title labels.</Note>
+      {activeUndo && (
+        <Toast>
+          <Note>Moved “{data.titles.find((title) => title.id === activeUndo.titleId)?.name ?? "title"}” to {activeUndo.dismissedAs === "read" ? "Already read" : "Won’t read"}.</Note>
+          <Action title="Undo" accessibilityLabel="Undo dismissal" disabled={editingDisabled} onPress={undoLastDismissal} />
+        </Toast>
+      )}
+      {lastRemovedId && ballot?.marks[lastRemovedId] === undefined && (
+        <Toast>
+          <Note>Removed “{data.titles.find((t) => t.id === lastRemovedId)?.name ?? "title"}”.</Note>
+          <Action title="Undo" accessibilityLabel="Undo removal" disabled={editingDisabled}
+            onPress={() => { setLastRemovedId(null); mark(lastRemovedId, "selected"); }} />
+        </Toast>
+      )}
+      <RankingList key={currentKey} columns={wide && rankingWidth ? galleryColumns(rankingWidth) : undefined}
+        items={(ballot?.ranking ?? []).map((titleId) => {
+          const title = data.titles.find((t) => t.id === titleId);
+          return {
+            id: titleId, label: title?.name ?? "Unavailable title", author: title?.author ?? "",
+            coverUrl: title?.coverUrl ?? null, isbn: title?.isbn ?? "",
+            kitLabels: title ? titleLabelSummary(title, labelById) : "Title unavailable.",
+            clubRead: club.history.includes(titleId),
+          };
+        })}
+        disabled={editingDisabled}
+        onReorder={(from, to) => changeBallot((current) => moveInRanking(current, from, to))}
+        onRemove={removeSelection} onShowDetails={setDetailTitleId} />
+      {(ballot?.ranking.length ?? 0) === 0 && (
+        <View style={styles.empty}>
+          <Text style={styles.emptyTitle}>No choices yet</Text>
+          <Note>{wide ? "Add titles on the left to start your ranking." : "Add titles below to start your ranking."}</Note>
+        </View>
+      )}
+      {!isMember && <Note>Only a user assigned to this club can submit preferences for it.</Note>}
+    </Card>
+  </View>;
+  const palettePanel = <View key="palette" style={wide ? styles.column : undefined} onLayout={(event) => setPaletteWidth(event.nativeEvent.layout.width)}>
+    <Card soft>
+      {data.titles.length === 0 ? <Note>No shared titles are available. Staff can add titles in the Catalog.</Note> :
+        <TitleGallery titles={data.titles.filter((title) => !club.history.includes(title.id))}
+          labels={data.kitLabels} marks={ballot?.marks ?? {}} disabled={editingDisabled}
+          columns={wide && paletteWidth ? galleryColumns(paletteWidth) : undefined}
+          onMark={mark} onShowDetails={setDetailTitleId} />}
+      {clubRead.length > 0 && <Note>{clubRead.length} {clubRead.length === 1 ? "title" : "titles"} already read by this club {clubRead.length === 1 ? "is" : "are"} hidden from the palette.</Note>}
+      {clubRead.filter((title) => ballot?.marks[title.id]).map((title) => <Actions key={title.id}>
+        <Text>{title.name}: existing mark {ballot?.marks[title.id]}</Text>
+        <Action title="Clear existing mark" disabled={editingDisabled} onPress={() => mark(title.id, null)} />
+      </Actions>)}
+    </Card>
+  </View>;
   return (
     <>
       {navigationMessage ? <Text accessibilityLiveRegion="polite" onPress={() => setNavigationMessage("")}>{navigationMessage}</Text> : null}
@@ -251,75 +443,39 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
             <Action title="Keep editing" onPress={() => setPendingNavigation(null)} /></Actions>
         </View></View>
       </Modal>
+      <Modal transparent visible={!!draftAction} onRequestClose={() => setDraftAction(null)} accessibilityLabel="Resolve draft changes">
+        <View style={styles.backdrop}><View style={styles.dialog}>
+          <Label>{draftAction === 'autosave' ? 'Switch to autosave?' : 'Discard this draft?'}</Label>
+          <Note>{draftAction === 'autosave'
+            ? `${stagedCount} unsaved ${stagedCount === 1 ? 'draft' : 'drafts'} across your clubs and cycles. Save all or discard all before switching.`
+            : 'Your local changes for this club and cycle will be lost.'}</Note>
+          <Actions>
+            {draftAction === 'autosave' && <Action title="Save all" tone="primary" onPress={() => {
+              setDraftAction(null); void saveStaged(controller.stagedKeys(), true);
+            }} />}
+            <Action tone="danger" title={draftAction === 'autosave' ? 'Discard all' : 'Discard draft'} onPress={() => {
+              const all = draftAction === 'autosave';
+              setDraftAction(null); void discardStaged(all ? controller.stagedKeys() : [currentKey], all);
+            }} />
+            <Action title="Cancel" onPress={() => setDraftAction(null)} />
+          </Actions>
+        </View></View>
+      </Modal>
       {detailTitle && (
         <TitleDetails title={detailTitle} labels={data.kitLabels} onClose={() => setDetailTitleId(null)} />
       )}
       <Card soft>
-        <Label>Your ranked choices · {selectedCount}</Label>
-        <Note>{Platform.OS === "web"
-          ? "Drag a cover, or use the ← → buttons, to rank your choices. Your first choice is top-left."
-          : "Tap a cover to select it, then use ← → to rank your choices. Your first choice is top-left."}</Note>
-        <Note>Labels describe titles. Details show the synopsis and title labels.</Note>
-        {activeUndo && (
-          <Toast>
-            <Note>Moved “{data.titles.find((title) => title.id === activeUndo.titleId)?.name ?? "title"}” to {activeUndo.dismissedAs === "read" ? "Already read" : "Won’t read"}.</Note>
-            <Action title="Undo" accessibilityLabel="Undo dismissal" disabled={!editable || !isMember} onPress={undoLastDismissal} />
-          </Toast>
-        )}
-        {lastRemovedId && ballot?.marks[lastRemovedId] === undefined && (
-          <Toast>
-            <Note>Removed “{data.titles.find((t) => t.id === lastRemovedId)?.name ?? "title"}”.</Note>
-            <Action
-              title="Undo"
-              accessibilityLabel="Undo removal"
-              disabled={!editable || !isMember}
-              onPress={() => {
-                setLastRemovedId(null);
-                mark(lastRemovedId, "selected");
-              }}
-            />
-          </Toast>
-        )}
-        <RankingList
-          key={currentKey}
-          items={(ballot?.ranking ?? []).map((titleId) => {
-            const title = data.titles.find((t) => t.id === titleId);
-            return {
-              id: titleId,
-              label: title?.name ?? "Unavailable title",
-              author: title?.author ?? "",
-              coverUrl: title?.coverUrl ?? null,
-              isbn: title?.isbn ?? "",
-              kitLabels: title ? titleLabelSummary(title, labelById) : "Title unavailable.",
-              clubRead: club.history.includes(titleId),
-            };
-          })}
-          disabled={!editable || !isMember}
-          onReorder={(from, to) =>
-            changeBallot((current) => moveInRanking(current, from, to))
-          }
-          onRemove={removeSelection}
-          onShowDetails={setDetailTitleId}
-        />
-        {(ballot?.ranking.length ?? 0) === 0 && (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No choices yet</Text>
-            <Note>Add titles below to start your ranking.</Note>
-          </View>
-        )}
-        {!isMember && <Note>Only a user assigned to this club can submit preferences for it.</Note>}
+        <Label>Save mode</Label>
+        <Actions>
+          <Action title="Autosave" selected={mode === 'auto'} disabled={shared.saving || sync.status.state === 'saving' || syncRefreshing || sync.status.state === 'error' || !!syncRefreshError} onPress={() => requestMode('auto')} />
+          <Action title="Draft" selected={mode === 'draft'} disabled={shared.saving || sync.status.state === 'saving' || syncRefreshing || sync.status.state === 'error' || !!syncRefreshError} onPress={() => requestMode('draft')} />
+        </Actions>
+        <Note>{mode === 'auto' ? 'Changes save automatically.' : `Changes remain on this device until saved. ${stagedCount} unsaved ${stagedCount === 1 ? 'draft' : 'drafts'} across clubs and cycles.`}</Note>
+        {draftMessage ? <Text accessibilityLiveRegion="polite">{draftMessage}</Text> : null}
       </Card>
-      <Card soft>
-        {data.titles.length === 0 ? <Note>No shared titles are available. Staff can add titles in the Catalog.</Note> :
-          <TitleGallery titles={data.titles.filter((title) => !club.history.includes(title.id))}
-            labels={data.kitLabels} marks={ballot?.marks ?? {}} disabled={!editable || !isMember}
-            onMark={mark} onShowDetails={setDetailTitleId} />}
-        {clubRead.length > 0 && <Note>{clubRead.length} {clubRead.length === 1 ? "title" : "titles"} already read by this club {clubRead.length === 1 ? "is" : "are"} hidden from the palette.</Note>}
-        {clubRead.filter((title) => ballot?.marks[title.id]).map((title) => <Actions key={title.id}>
-          <Text>{title.name}: existing mark {ballot?.marks[title.id]}</Text>
-          <Action title="Clear existing mark" disabled={!editable || !isMember} onPress={() => mark(title.id, null)} />
-        </Actions>)}
-      </Card>
+      <View style={wide ? styles.columns : styles.stacked}>
+        {wide ? [palettePanel, rankingPanel] : [rankingPanel, palettePanel]}
+      </View>
       <Card soft>
         <Label>Save choices</Label>
         {(syncRefreshError || sync.status.state === "error") && (
@@ -330,14 +486,17 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
         <Actions>
           <Action
             tone="primary"
-            title={sync.status.state === "error" ? "Retry saving" : "Save choices now"}
+            title={mode === 'draft' ? 'Save current draft' : sync.status.state === "error" ? "Retry saving" : "Save choices now"}
             disabled={
-              sync.status.state === "saving" ||
-              (sync.status.state !== "error" && (!editable || !isMember))
+              draftSaving || sync.status.state === "saving" || syncRefreshing ||
+              (mode === 'draft' ? !currentDraft || !!currentDraft.issue || !editable || !isMember :
+                sync.status.state !== "error" && (!editable || !isMember))
             }
             onPress={saveChoices}
           />
-          {(sync.status.state === "error" || syncRefreshError) && (
+          {mode === 'draft' && currentDraft && <Action title="Discard current draft" disabled={draftSaving} onPress={() => setDraftAction('discard')} />}
+          {mode === 'draft' && currentDraft?.issue && <Action title="Refresh to reconcile" disabled={draftSaving} onPress={() => { void reconcileDraft(); }} />}
+          {mode === 'auto' && (sync.status.state === "error" || syncRefreshError) && (
             <Action
               title="Refresh"
               disabled={syncRefreshing}
@@ -345,6 +504,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
             />
           )}
         </Actions>
+        {mode === 'draft' && currentDraft?.issue && <Note>{currentDraft.issue}</Note>}
       </Card>
       {isLeader && (
         <Card soft>
@@ -400,8 +560,11 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
           <Action
             tone="primary"
             title="Finalize club ranking"
-            disabled={!editable || shared.saving || syncRefreshing || !!syncRefreshError || sync.status.state === "saving" || sync.status.state === "error" || !!shared.error}
+            disabled={!editable || shared.saving || syncRefreshing || !!syncRefreshError || sync.status.state === "saving" || sync.status.state === "error" || !!shared.error || !!currentDraft || draftSaving}
             onPress={() => {
+              if (leaderFinalizingRef.current) return;
+              leaderFinalizingRef.current = true;
+              setLeaderFinalizing(true);
               const order =
                 reviewRanking ??
                 cycle.finalized[club.id] ??
@@ -411,7 +574,8 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
                   finalizeRanking(cycle.id, club.id, order, cycle.revision),
                 )
                 .then(() => setReview(null))
-                .catch(() => undefined);
+                .catch(() => undefined)
+                .finally(() => { leaderFinalizingRef.current = false; setLeaderFinalizing(false); });
             }}
           />
           {!editable && (
@@ -422,6 +586,7 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
           {editable && (syncRefreshing || syncRefreshError || sync.status.state === "saving" || sync.status.state === "error") && (
             <Note>Save all choices and refresh successfully before finalizing.</Note>
           )}
+          {editable && currentDraft && <Note>Save or discard this club and cycle&apos;s draft before finalizing.</Note>}
           </>}
           </>}
         </Card>
@@ -431,6 +596,9 @@ export function MemberPreferences({ controller }: { controller: ReturnType<typeo
 }
 
 const styles = StyleSheet.create({
+  columns: { flexDirection: "row", alignItems: "flex-start", gap: 18 },
+  stacked: { gap: 18 },
+  column: { flex: 1, minWidth: 0 },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", padding: 20 },
   dialog: { backgroundColor: "#fffefa", padding: 20, gap: 12, maxWidth: 600, width: "100%", alignSelf: "center" },
   panelHeader: { gap: 4 },
