@@ -83,6 +83,29 @@ The importer matches existing titles by ISBN or unambiguous title and author, us
 
 After importing, refresh the app, choose a staff user, and select **Demo preferences 2027** on Preferences and Schedule. Individual ballots appear when selecting the chosen member on Home. The cycle is collecting with a 2026-12-15 preference deadline; after that date voting is closed unless staff adjust the deadline and any incompatible meeting dates on Cycles. On Schedule, use **Generate locally**, review warnings and unassigned slots, then save the draft. Undated slots use the first Monday of each month. Previously read titles are excluded from priority views and scheduling even though their ballots remain; kit status, other schedules, turnaround buffers and limited kit supply can also leave slots unfilled. Adjust kits or slots manually as needed.
 
+### Aligned 2027 demo preferences (migration 010)
+
+`npm run migrate` also applies `server/migrations/010_demo_preferences_2027_aligned.sql`, which creates `demo-preferences-cycle-2027-aligned` ("Demo preferences 2027 (aligned)") as a copy of `demo-preferences-cycle-2027` whose selections follow the baseline preference lists (39 clubs, 773 ranked selections; repeated titles keep their first position and ranks are compacted). It copies the deadline, dates and every meeting slot, and gives each club one ballot held by the member who holds the source ballot (otherwise the club leader, then the lowest member ID). The new cycle has only selected titles: no read/won't-read marks, finalized rankings or schedule assignments, and it is `collecting` even if the source is drafted or published. The source cycle is not changed.
+
+The migration does nothing if the source cycle is missing or the aligned cycle already exists. Clubs match by normalized name. Titles match by ISBN, then by name and author, then by the same author with a name that starts the other, to absorb ISBN, spelling and punctuation differences. It stops, rolling back the whole `migrate` run, if any club or title is missing or ambiguous. The only title it adds is *Inheritance* by Kath O'Connor, with one 10-copy demo kit at the first configured branch when one exists. Before running it on a shared database, back it up and preview it in a transaction you roll back; the migration reports a notice with the ballot, selection and slot counts.
+
+### Reconcile 2027 demo preference rankings
+
+The standalone `server/scripts/reconcile-demo-preferences-2027.sql` corrects existing ballots in `demo-preferences-cycle-2027` using the 223 club/title/rank rows embedded in the script. It does not read an external CSV. It is not a schema migration and does not run with `npm run migrate`. It updates all existing ballot holders in each matched club; it does not create missing ballots or people. For those ballots it clears all read/won't-read marks, selects matched titles from the embedded data, and preserves other selected titles in their existing relative order. Required positions take priority; if too few selections exist to fill earlier positions, the script compacts gaps and reports the resulting positions.
+
+The script tries normalized exact names and reviewed ISBN aliases, then fuzzy name matching. Fuzzy matching uses padded-trigram Dice similarity: club score must be at least 0.60; title name score at least 0.60, author score at least 0.35, and the weighted score (75% title, 25% author) at least 0.65. A missing source author or unknown database author receives an author score of 1. Review fuzzy matches and alternatives carefully. Weak or tied matches, and clubs with conflicting mappings, are skipped and reported. A club with no resolved titles is not changed. The input must have unique club/title and club/rank combinations and ranks from 1 through 500.
+
+Before running, stop app writes, take a verified restorable backup, and verify the database, schema, and cycle. Install a compatible PostgreSQL `psql` client; the script supports `psql` 17.6 with PostgreSQL 18 without relying on CSV `COPY` termination. Set `DATABASE_URL` privately in the environment or repository-root `.env`, as for the server. From PowerShell:
+
+```powershell
+Set-Location 'C:\Book-Club-Kit-Management\server'
+npm run reconcile-demo-preferences
+```
+
+Adjust the directory for your installation. The runner passes connection details to `psql` through its environment, not command-line arguments; unsupported URL parameters cause an explicit error. The process environment takes precedence over `.env`. The script prints the connected database, schema and user, then previews mappings, skipped rows, each changed ballot's before/after marks, rank gaps and finalized rankings to clear. The output contains member information; handle it accordingly. Review the full output before typing `APPLY` at the prompt. Any other response rolls back; an error also aborts the transaction. The cycle lock is held while you review, so do not leave the prompt open indefinitely. On a serialization failure, rerun and review a fresh preview.
+
+Changed clubs lose their finalized rankings, matching the normal ballot-save workflow; preferences are recalculated from ballots. Schedule assignments and club reading history remain unchanged, so history may still exclude a selected title. A repeat run with unchanged data is a no-op, but running it again after later ballot edits will reconcile those edits again. Refresh the app and audit the results after applying.
+
 If the server connection is instead configured in a root `.env` file, Node 22 can load it explicitly:
 
 ```powershell

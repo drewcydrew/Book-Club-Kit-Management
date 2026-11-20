@@ -17,7 +17,8 @@
     "enrich-titles": "node --env-file-if-exists=../.env src/enrich-titles.js",
     "create-kits": "node --env-file-if-exists=../.env src/create-title-kits.js",
     "import-demo-schedule": "node --env-file-if-exists=../.env src/import-demo-schedule.js",
-    "import-demo-preferences": "node --env-file-if-exists=../.env src/import-demo-preferences.js"
+    "import-demo-preferences": "node --env-file-if-exists=../.env src/import-demo-preferences.js",
+    "reconcile-demo-preferences": "node --env-file-if-exists=../.env src/reconcile-demo-preferences.js"
   },
   "dependencies": {
     "express": "^5.3.0",
