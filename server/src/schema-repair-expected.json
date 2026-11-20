@@ -1192,6 +1192,16 @@
         "not_null": false,
         "default_value": null
       },
+      "discussion_notes": {
+        "type": "text",
+        "not_null": true,
+        "default_value": "''::text"
+      },
+      "discussion_notes_revision": {
+        "type": "integer",
+        "not_null": true,
+        "default_value": "1"
+      },
       "genres": {
         "type": "text",
         "not_null": true,
@@ -1260,6 +1270,12 @@
       },
       "titles_date_published_check": {
         "definition": "CHECK (((date_published IS NULL) OR (length(date_published) <= 40)))"
+      },
+      "titles_discussion_notes_check": {
+        "definition": "CHECK ((length(discussion_notes) <= 4000))"
+      },
+      "titles_discussion_notes_revision_check": {
+        "definition": "CHECK ((discussion_notes_revision > 0))"
       },
       "titles_language_check": {
         "definition": "CHECK (((language IS NULL) OR (length(language) <= 40)))"

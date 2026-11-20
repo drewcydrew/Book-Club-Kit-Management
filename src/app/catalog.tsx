@@ -24,7 +24,9 @@ import {
   ApiError,
   deleteRecord,
   lookupIsbn,
+  loadDiscussionNotes,
   saveRecord,
+  saveDiscussionNotes,
   searchIsbns,
   type IsbnLookup,
   type TitleSearchResult,
@@ -78,6 +80,15 @@ type KitDraft = {
   revision: number | null;
 };
 type Draft = TitleDraft | KitDraft;
+type NotesState = {
+  titleId: string;
+  status: "loading" | "ready" | "error";
+  text: string;
+  saved: string;
+  revision: number;
+  saving: boolean;
+  error: string;
+};
 
 function titleDraft(value: Title, revision: number | null): TitleDraft {
   return {
@@ -211,7 +222,10 @@ function CatalogContent() {
     pending?.kind === kind && pending.id === id ? pending.action : null;
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const staff = person?.role === "staff" || person?.role === "admin";
-  const dirty = draft !== null && JSON.stringify(draft) !== initial;
+  const [notes, setNotes] = useState<NotesState | null>(null);
+  const notesDirty =
+    draft !== null && notes?.status === "ready" && notes.text !== notes.saved;
+  const dirty = (draft !== null && JSON.stringify(draft) !== initial) || notesDirty;
   const busy = shared.saving || refreshing;
 
   const disablePrevention = usePreventRemove(
@@ -287,6 +301,7 @@ function CatalogContent() {
     setConfirmDiscard(false);
     setPendingNavigation(null);
     setMessage("");
+    setNotes(null);
   }
   function changeIsbn(isbn: string) {
     if (!draft || draft.kind !== "title") return;
@@ -519,11 +534,92 @@ function CatalogContent() {
   function editTitle(id: string) {
     const record = shared.data.titles.find((title) => title.id === id);
     const item = data.titles.find((title) => title.id === id);
-    if (record && item) open(titleDraft(item, record.revision));
-    else
+    if (record && item) {
+      open(titleDraft(item, record.revision));
+      loadNotes(id);
+    } else
       setMessage(
         "This title is no longer available. Refresh the shared catalog.",
       );
+  }
+  function loadNotes(titleId: string) {
+    setNotes({
+      titleId,
+      status: "loading",
+      text: "",
+      saved: "",
+      revision: 0,
+      saving: false,
+      error: "",
+    });
+    loadDiscussionNotes(titleId)
+      .then((value) =>
+        setNotes((current) =>
+          current?.titleId === titleId
+            ? {
+                ...current,
+                status: "ready",
+                text: value.notes,
+                saved: value.notes,
+                revision: value.revision,
+              }
+            : current,
+        ),
+      )
+      .catch((error: unknown) =>
+        setNotes((current) =>
+          current?.titleId === titleId
+            ? {
+                ...current,
+                status: "error",
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Unable to load discussion notes.",
+              }
+            : current,
+        ),
+      );
+  }
+  async function saveNotes() {
+    if (
+      !notes ||
+      notes.status !== "ready" ||
+      notes.saving ||
+      notes.text === notes.saved ||
+      notes.text.length > 4000
+    )
+      return;
+    const { titleId, text, revision } = notes;
+    setNotes({ ...notes, saving: true, error: "" });
+    try {
+      await shared.mutate(async () => {
+        const value = await saveDiscussionNotes(titleId, text, revision);
+        setNotes((current) =>
+          current?.titleId === titleId
+            ? {
+                ...current,
+                saving: false,
+                saved: value.notes,
+                revision: value.revision,
+              }
+            : current,
+        );
+      });
+    } catch (error: unknown) {
+      setNotes((current) =>
+        current?.titleId === titleId
+          ? {
+              ...current,
+              saving: false,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Unable to save discussion notes.",
+            }
+          : current,
+      );
+    }
   }
   function deleteTitle(id: string) {
     const record = shared.data.titles.find((title) => title.id === id);
@@ -835,6 +931,54 @@ function CatalogContent() {
                             })
                           }
                         />
+                        {draft.revision === null ? (
+                          <Note>
+                            Save the title before adding discussion notes.
+                          </Note>
+                        ) : notes?.titleId === draft.value.id ? (
+                          notes.status === "loading" ? (
+                            <Note>Loading discussion notes...</Note>
+                          ) : notes.status === "error" ? (
+                            <Note>{notes.error}</Note>
+                          ) : (
+                            <>
+                              <Field
+                                editable={!shared.saving && !notes.saving}
+                                label="Discussion notes"
+                                multiline
+                                value={notes.text}
+                                onChangeText={(text) =>
+                                  setNotes((current) =>
+                                    current ? { ...current, text } : current,
+                                  )
+                                }
+                              />
+                              <Actions>
+                                <Action
+                                  disabled={
+                                    shared.saving ||
+                                    notes.saving ||
+                                    notes.text === notes.saved ||
+                                    notes.text.length > 4000
+                                  }
+                                  title={
+                                    notes.saving
+                                      ? "Saving notes..."
+                                      : "Save discussion notes"
+                                  }
+                                  onPress={saveNotes}
+                                />
+                              </Actions>
+                              {notes.text.length > 4000 ? (
+                                <Note>
+                                  Discussion notes must be 4000 characters or
+                                  fewer.
+                                </Note>
+                              ) : null}
+                              {notes.error ? <Note>{notes.error}</Note> : null}
+                            </>
+                          )
+                        ) : null}
                         <Actions>
                           <Action
                             disabled={shared.saving}

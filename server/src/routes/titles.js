@@ -94,6 +94,22 @@ router.put('/:id', async (req, res) => {
   });
   res.json(title);
 });
+router.get('/:id/discussion-notes', async (req, res) => {
+  const result = await getPool().query('SELECT discussion_notes AS notes, discussion_notes_revision AS revision FROM titles WHERE id=$1', [req.params.id]);
+  if (!result.rowCount) throw new HttpError(404, 'Record not found.');
+  res.json(result.rows[0]);
+});
+router.put('/:id/discussion-notes', async (req, res) => {
+  const b = object(req.body);
+  const notes = text(b.notes, 'notes', false, 4000);
+  const expected = revision(b.revision);
+  const saved = await transaction(async (client) => {
+    const updated = await client.query('UPDATE titles SET discussion_notes=$2,discussion_notes_revision=discussion_notes_revision+1 WHERE id=$1 AND discussion_notes_revision=$3 RETURNING discussion_notes AS notes, discussion_notes_revision AS revision', [req.params.id, notes, expected]);
+    if (!updated.rowCount) await checkUpdated(client, 'titles', req.params.id);
+    return updated.rows[0];
+  });
+  res.json(saved);
+});
 router.delete('/:id', removeTitle);
 
 module.exports = router;

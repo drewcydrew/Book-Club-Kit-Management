@@ -6,6 +6,7 @@ import { colors, radius, shadow } from './design';
 import { useReducedMotion } from './motion';
 import { TitleCover } from './title-cover';
 import { titleDetailRows } from './title-details-rows';
+import { useDiscussionNotes } from './use-discussion-notes';
 
 const HIDDEN = Dimensions.get('window').height;
 
@@ -47,6 +48,7 @@ export function TitleDetails({ title, labels, onClose, children }: { title: Titl
 
   const labelById = new Map((labels ?? []).map((label) => [label.id, label]));
   const rows = titleDetailRows(title).filter(([label]) => label !== 'Author');
+  const discussionNotes = useDiscussionNotes(title.id);
   const backdrop = offset.interpolate({ inputRange: [0, HIDDEN], outputRange: [1, 0], extrapolate: 'clamp' });
 
   return <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={dismiss}>
@@ -79,6 +81,8 @@ export function TitleDetails({ title, labels, onClose, children }: { title: Titl
           </View>}
           <Text style={styles.heading}>Description</Text>
           <Text style={styles.synopsis}>{title.synopsis || 'No description stored for this title.'}</Text>
+          <Text style={styles.heading}>Discussion notes</Text>
+          <Text style={styles.synopsis}>{discussionNotes}</Text>
           {labels && <>
             <Text style={styles.heading}>Title labels</Text>
             <View style={styles.chips}>

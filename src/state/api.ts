@@ -246,6 +246,23 @@ export async function saveRecord(kind: 'titles' | 'kits' | 'clubs', record: Shar
   return value;
 }
 
+export type DiscussionNotes = { notes: string; revision: number };
+function isDiscussionNotes(value: unknown): value is DiscussionNotes {
+  return isObject(value) && isString(value.notes) && isNumber(value.revision) && value.revision >= 1;
+}
+
+export async function loadDiscussionNotes(titleId: string, signal?: AbortSignal): Promise<DiscussionNotes> {
+  const value = await request(`/api/titles/${encodeURIComponent(titleId)}/discussion-notes`, 'GET', undefined, undefined, signal);
+  if (!isDiscussionNotes(value)) throw new Error('Server returned invalid discussion notes.');
+  return value;
+}
+
+export async function saveDiscussionNotes(titleId: string, notes: string, revision: number): Promise<DiscussionNotes> {
+  const value = await request(`/api/titles/${encodeURIComponent(titleId)}/discussion-notes`, 'PUT', { notes, revision });
+  if (!isDiscussionNotes(value)) throw new Error('Server saved the notes but returned an invalid response; reload before retrying.');
+  return value;
+}
+
 export async function deleteRecord(kind: 'titles' | 'kits', id: string, revision: number): Promise<void> {
   await request(`/api/${kind}/${encodeURIComponent(id)}`, 'DELETE', undefined, revision);
 }

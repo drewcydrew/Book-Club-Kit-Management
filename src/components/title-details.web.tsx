@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import type { KitLabel, Title } from '../domain/model';
 import { TitleCover } from './title-cover';
 import { titleDetailRows } from './title-details-rows';
+import { useDiscussionNotes } from './use-discussion-notes';
 import styles from './title-details.module.css';
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -46,6 +47,7 @@ export function TitleDetails({ title, labels, onClose, children }: { title: Titl
 
   const labelById = new Map((labels ?? []).map((label) => [label.id, label]));
   const rows = titleDetailRows(title).filter(([label]) => label !== 'Author');
+  const discussionNotes = useDiscussionNotes(title.id);
   if (typeof document === 'undefined') return null;
   return createPortal(<div className={styles.scrim} onClick={onClose}>
     <div ref={dialog} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="title-details-name" tabIndex={-1}
@@ -66,6 +68,8 @@ export function TitleDetails({ title, labels, onClose, children }: { title: Titl
           </dl>}
           <h3 className={styles.heading}>Description</h3>
           <p className={styles.synopsis}>{title.synopsis || 'No description stored for this title.'}</p>
+          <h3 className={styles.heading}>Discussion notes</h3>
+          <p className={styles.synopsis}>{discussionNotes}</p>
           {labels && <>
             <h3 className={styles.heading}>Title labels</h3>
             <span className={styles.chips}>
