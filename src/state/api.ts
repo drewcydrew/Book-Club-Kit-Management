@@ -193,7 +193,7 @@ export type ClubSchedule = {
 export type ClubIndexItem = { id: string; name: string; branch: string };
 
 export async function loadClubSchedule(clubId: string, signal?: AbortSignal): Promise<ClubSchedule> {
-  const path = `/api/clubs/${encodeURIComponent(clubId)}/schedule`;
+  const path = `/api/club-schedules/${encodeURIComponent(clubId)}`;
   const value = await request(path, 'GET', undefined, undefined, signal);
   if (!isObject(value) || !isClub(value.club) || value.club.id !== clubId ||
       !Array.isArray(value.cycles) || !value.cycles.every(isCycle) ||
@@ -210,9 +210,9 @@ export async function loadClubSchedule(clubId: string, signal?: AbortSignal): Pr
 }
 
 export async function loadClubIndex(signal?: AbortSignal): Promise<ClubIndexItem[]> {
-  const value = await request('/api/clubs/schedule-index', 'GET', undefined, undefined, signal);
+  const value = await request('/api/club-schedules', 'GET', undefined, undefined, signal);
   if (!Array.isArray(value) || !value.every((club) => isObject(club) && isString(club.id) && isString(club.name) && isString(club.branch))) {
-    throw new Error('Server returned invalid data for /api/clubs/schedule-index.');
+    throw new Error('Server returned invalid data for /api/club-schedules.');
   }
   return value as ClubIndexItem[];
 }

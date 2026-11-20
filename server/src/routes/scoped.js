@@ -181,7 +181,7 @@ router.get('/users/:personId/clubs/:clubId/cycles/:cycleId/review', async (req, 
   }
 });
 
-router.get('/clubs/schedule-index', async (_req, res) => {
+router.get('/club-schedules', async (_req, res) => {
   const c = await getPool().connect();
   try {
     await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -196,7 +196,7 @@ router.get('/clubs/schedule-index', async (_req, res) => {
   }
 });
 
-router.get('/clubs/:clubId/schedule', async (req, res) => {
+router.get('/club-schedules/:clubId', async (req, res) => {
   const clubId = id(req.params.clubId, 'clubId');
   const c = await getPool().connect();
   try {
