@@ -36,8 +36,8 @@ export function seed(): Data {
       { id: 'k5', titleId: 't4', barcode: 'KIT-105', branch: 'Central', copies: 10, extras: '', components: [], status: 'available', labelIds: [] },
     ],
     clubs: [
-      { id: 'c1', name: 'Harbour Readers', branch: 'Central', leaderId: 'p3', size: 8, cadence: 1, meetingWeekday: 1, meetingOccurrence: 1, pickup: 'pickup', address: '', history: ['t4'], revision: 1, membershipRevision: 1 },
-      { id: 'c2', name: 'Westside Stories', branch: 'West', leaderId: 'p5', size: 10, cadence: 1, meetingWeekday: 1, meetingOccurrence: 1, pickup: 'delivery', address: 'Fictional West Community Centre', history: [], revision: 1, membershipRevision: 1 },
+      { id: 'c1', name: 'Harbour Readers', branch: 'Central', leaderId: 'p3', size: 8, cadence: 1, cadenceOffset: 0, meetingWeekday: 1, meetingOccurrence: 1, pickup: 'pickup', address: '', history: ['t4'], revision: 1, membershipRevision: 1 },
+      { id: 'c2', name: 'Westside Stories', branch: 'West', leaderId: 'p5', size: 10, cadence: 1, cadenceOffset: 0, meetingWeekday: 1, meetingOccurrence: 1, pickup: 'delivery', address: 'Fictional West Community Centre', history: [], revision: 1, membershipRevision: 1 },
     ],
     cycles: [{
       id: 'cycle1', name: 'Upcoming reading cycle', deadline: addDays(now, 14), startsOn: `${addDays(now, 35).slice(0, 7)}-01`, endsOn: addDays(now, 70), status: 'collecting', finalized: {}, revision: 1,

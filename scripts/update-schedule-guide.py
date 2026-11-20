@@ -70,7 +70,7 @@ def main():
     generate = [
         (heading, "Generate and review"),
         (body, "1. Choose a collecting or drafted cycle and select clubs in Clubs shown. In the Shared schedule panel, choose a strategy and tap Generate locally. At least one club must be shown."),
-        (body, "2. Confirm replacement of shown clubs' dates and assignments, including locks. Current cadence and meeting rules determine new dates; six weeks skips every third cycle month. Hidden clubs' assignments are removed, but their meetings, dates and ballots remain."),
+        (body, "2. Confirm replacement of shown clubs' dates and assignments, including locks. Current cadence, offset and meeting rules determine new dates. Hidden clubs' assignments are removed, but their meetings, dates and ballots remain."),
         illustration(2, 0, 480),
         (caption, "Earlier interface: start a local proposal. Save draft is disabled until there is a local change."),
         (body, "3. Review the Grid, messages, fairness and unassigned meetings. Confirmation identifies locked assignments and affected checked-out or reserved kits. A title highlight does not change Clubs shown."),
@@ -93,7 +93,7 @@ def main():
         (body, "Other-cycle assignments do not count towards cycle usage but still block conflicting loans. Less popular ranked titles can still be used. This strategy does not delete kits or guarantee that any kit can be removed from inventory."),
         (subheading, "What to expect"),
         (body, "Both strategies use bounded rearrangements, so results are practical proposals, not guaranteed global optima. Search-limit messages mean more improvements or filled meetings may be possible. Review unassigned slots and each club's fairness; utilisation may give a club a lower-ranked choice. Fairness uses the full scoring ranking, including previously read titles, even though generation excludes those titles."),
-        (body, "Single-club generation first reconciles its cadence, then fills empty meetings without changing other clubs. Six weeks means two cycle months on, one off, not exact six-week dates. On Clubs, choose first to fourth or last weekday; existing dated meetings stay unchanged. The mode affects ranked order and unread unranked titles can be fallback."),
+        (body, "Single-club generation reconciles cadence, then fills empty meetings. Six weeks skips one month per three, restarting each cycle; it is not exact six-week dates. For a January start, offsets 0, 1 and 2 skip Mar/Jun, Jan/Apr and Feb/May respectively. Monthly ignores the offset. Saving the club alone does not move meetings. The mode affects ranked order; unread unranked titles can be fallback."),
         (body, "Save draft shares the reviewed proposal; publishing is a separate step. Manual overrides can require warnings and may create infeasible schedules."),
     ]
     editor = [

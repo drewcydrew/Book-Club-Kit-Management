@@ -89,3 +89,28 @@ test('full regeneration keeps other-cycle assignments as kit availability constr
     assert.ok(draft({ ...input, assignments: [] }, reset, false, undefined, mode).assignments.some((item) => item.cycleId === cycle.id));
   }
 });
+
+test('full regeneration staggers six-week clubs for both scheduling modes', () => {
+  const data = seed();
+  data.clubs = data.clubs.map((club, index) => ({ ...club, cadence: 1.5, cadenceOffset: index === 0 ? 1 : 2, history: [] }));
+  data.ballots = [];
+  const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-04-30', deadline: '2026-12-01',
+    finalized: { c1: ['t1', 't2', 't3'], c2: ['t1', 't2', 't3'] }, slots: [
+      { id: 'old-c1', clubId: 'c1', month: '2027-01', meeting: null },
+      { id: 'old-c2', clubId: 'c2', month: '2027-01', meeting: null },
+    ] };
+  data.cycles = [cycle];
+  data.assignments = [];
+  for (const mode of ['clubs', 'utilisation'] as const) {
+    let sequence = 0;
+    const prepared = prepareFullRegeneration(data, cycle, [], () => `${mode}-${++sequence}`);
+    assert.deepEqual(prepared.cycle.slots.filter((slot) => slot.clubId === 'c1').map((slot) => slot.month), ['2027-02', '2027-03']);
+    assert.deepEqual(prepared.cycle.slots.filter((slot) => slot.clubId === 'c2').map((slot) => slot.month), ['2027-01', '2027-03', '2027-04']);
+    const generated = draft(prepared.data, prepared.cycle, false, undefined, mode);
+    for (const assignment of generated.assignments.filter((item) => item.cycleId === cycle.id)) {
+      assert.ok(prepared.cycle.slots.some((slot) => slot.id === assignment.slotId && slot.clubId === assignment.clubId));
+    }
+    assert.ok(generated.assignments.some((item) => item.clubId === 'c1'));
+    assert.ok(generated.assignments.some((item) => item.clubId === 'c2'));
+  }
+});

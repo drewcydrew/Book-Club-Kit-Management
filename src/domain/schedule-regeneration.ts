@@ -9,7 +9,7 @@ export function prepareFullRegeneration(data: Data, cycle: Cycle, excludedClubId
   for (const clubId of participating) {
     const club = data.clubs.find((item) => item.id === clubId);
     if (!club) throw new Error('Some meetings reference unavailable clubs. Refresh before generating.');
-    for (const month of cadenceMonths(cycle, club.cadence)) {
+    for (const month of cadenceMonths(cycle, club)) {
       replacements.push({ id: makeId(), clubId, month, meeting: null });
     }
   }

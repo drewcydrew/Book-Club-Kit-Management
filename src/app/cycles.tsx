@@ -90,7 +90,7 @@ function CyclesContent() {
 
   function fillMonths() {
     if (!cycle || (cycle.status !== 'open' && cycle.status !== 'collecting')) return;
-    const added = data.clubs.flatMap((club) => cadenceMonths(cycle, club.cadence)
+    const added = data.clubs.flatMap((club) => cadenceMonths(cycle, club)
       .filter((month) => !cycle.slots.some((slot) => slot.clubId === club.id && slot.month === month))
       .map((month) => ({ id: id(), clubId: club.id, month, meeting: null })));
     if (added.length === 0) { setMessage('Every club already has a slot for each cadence month.'); return; }

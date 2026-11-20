@@ -14,6 +14,7 @@ const last = migrations[migrations.length - 1];
 const dataMigrations = ['010_demo_preferences_2027_aligned.sql', '011_demo_preferences_2028.sql', '012_demo_cycles_2027_2028.sql'];
 const cadenceMigration = '013_club_cadence.sql';
 const meetingRuleMigration = '014_club_meeting_rule.sql';
+const cadenceOffsetMigration = '015_club_cadence_offset.sql';
 
 async function inspect(client, schema) {
   const actual = await inventory(client, schema);
@@ -32,13 +33,17 @@ async function inspect(client, schema) {
     expectedSchema.clubs.constraints.clubs_meeting_weekday_check = { definition: 'CHECK (((meeting_weekday >= 0) AND (meeting_weekday <= 6)))' };
     expectedSchema.clubs.constraints.clubs_meeting_occurrence_check = { definition: "CHECK ((meeting_occurrence = ANY (ARRAY[1, 2, 3, 4, '-1'::integer])))" };
   }
+  if (ledger.includes(cadenceOffsetMigration)) {
+    expectedSchema.clubs.columns.cadence_offset = { type: 'integer', not_null: true, default_value: '0' };
+    expectedSchema.clubs.constraints.clubs_cadence_offset_check = { definition: 'CHECK (((cadence_offset >= 0) AND (cadence_offset <= 2)))' };
+  }
   const issues = compareInventory(expectedSchema, actual, ['title_label_assignments', 'kit_label_assignments']);
   if (issues.some((item) => item.includes('schema_migrations'))) return { issues, state: 'blocked' };
   for (const name of migrations.slice(0, -1)) {
     if (!ledger.includes(name)) issues.push(`Migration ${name} is not recorded; inspect its effects before proceeding.`);
   }
   for (const name of ledger) {
-    if (!name.startsWith('seed:') && !migrations.includes(name) && !dataMigrations.includes(name) && name !== cadenceMigration && name !== meetingRuleMigration) issues.push(`Unknown migration ${name}; this repair cannot verify a newer or different schema.`);
+    if (!name.startsWith('seed:') && !migrations.includes(name) && !dataMigrations.includes(name) && name !== cadenceMigration && name !== meetingRuleMigration && name !== cadenceOffsetMigration) issues.push(`Unknown migration ${name}; this repair cannot verify a newer or different schema.`);
   }
   const applied = ledger.includes(last);
   const titleExists = !!actual.title_label_assignments;

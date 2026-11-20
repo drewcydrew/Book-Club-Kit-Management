@@ -1,12 +1,12 @@
 import { monthsInRange } from './cycle-overview';
 import type { Club, Cycle, Slot } from './model';
 
-export function cadenceLabel(cadence: Club['cadence']): string {
-  return cadence === 1 ? 'Monthly' : 'Six weeks';
+export function cadenceLabel(cadence: Club['cadence'], offset: Club['cadenceOffset']): string {
+  return cadence === 1 ? 'Monthly' : `Six weeks · offset ${offset}`;
 }
 
-export function cadenceMonths(cycle: Cycle, cadence: Club['cadence']): string[] {
-  return monthsInRange(cycle.startsOn, cycle.endsOn).filter((_, index) => cadence === 1 || index % 3 !== 2);
+export function cadenceMonths(cycle: Cycle, club: Pick<Club, 'cadence' | 'cadenceOffset'>): string[] {
+  return monthsInRange(cycle.startsOn, cycle.endsOn).filter((_, index) => club.cadence === 1 || (index + 3 - club.cadenceOffset) % 3 !== 2);
 }
 
 export function reconcileCadence(cycle: Cycle, clubs: Club[], clubIds: readonly string[], makeId: () => string) {
@@ -15,7 +15,7 @@ export function reconcileCadence(cycle: Cycle, clubs: Club[], clubIds: readonly 
   const missing = [...participating].filter((clubId) => !clubs.some((club) => club.id === clubId));
   if (missing.length) throw new Error('Some meetings reference unavailable clubs. Refresh before generating.');
   const wanted = new Map(clubs.filter((club) => participating.has(club.id))
-    .map((club) => [club.id, new Set(cadenceMonths(cycle, club.cadence))]));
+    .map((club) => [club.id, new Set(cadenceMonths(cycle, club))]));
   const removed = cycle.slots.filter((slot) => wanted.has(slot.clubId) && !wanted.get(slot.clubId)!.has(slot.month));
   const removedIds = new Set(removed.map((slot) => slot.id));
   const added: Slot[] = [];

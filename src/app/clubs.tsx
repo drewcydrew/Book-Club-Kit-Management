@@ -78,6 +78,7 @@ const blankClub = (branch: string): Club => ({
   leaderId: "",
   size: 1,
   cadence: 1,
+  cadenceOffset: 0,
   meetingWeekday: 1,
   meetingOccurrence: 1,
   pickup: "pickup",
@@ -102,6 +103,7 @@ function detailsKey(value: Draft) {
     club.branch,
     sizeText,
     club.cadence,
+    club.cadenceOffset,
     club.meetingWeekday,
     club.meetingOccurrence,
     club.pickup,
@@ -333,6 +335,8 @@ function ClubsContent() {
     !draft.club.id &&
     (draft.club.name.trim() !== "" ||
       draft.club.address.trim() !== "" ||
+      draft.club.cadence !== 1 ||
+      draft.club.cadenceOffset !== 0 ||
       draft.sizeText !== "1");
 
   const states = Object.values(status);
@@ -895,7 +899,7 @@ function ClubsContent() {
             {openClubs[value.id] && (
               <>
                 <Note>
-                  {value.branch} · {value.size} members · {cadenceLabel(value.cadence)} · {meetingRuleLabel(value)} ·{" "}
+                  {value.branch} · {value.size} members · {cadenceLabel(value.cadence, value.cadenceOffset)} · {meetingRuleLabel(value)} ·{" "}
                   {value.pickup}
                 </Note>
                 {value.pickup === "delivery" ? (
@@ -1056,7 +1060,7 @@ function ClubsContent() {
                   )}
                   <Fold
                     title="Details"
-                    summary={`${cadenceLabel(draft.club.cadence)} · ${meetingRuleLabel(draft.club)} · ${draft.club.pickup}`}
+                    summary={`${cadenceLabel(draft.club.cadence, draft.club.cadenceOffset)} · ${meetingRuleLabel(draft.club)} · ${draft.club.pickup}`}
                     open={open.details}
                     onToggle={() => toggleSection("details")}
                   >
@@ -1080,7 +1084,14 @@ function ClubsContent() {
                       <Action title="Monthly" selected={draft.club.cadence === 1} onPress={() => changeDetails({ cadence: 1 })} />
                       <Action title="Six weeks" selected={draft.club.cadence === 1.5} onPress={() => changeDetails({ cadence: 1.5 })} />
                     </Actions>
-                    <Note>Six weeks schedules two months, then skips one, starting with the cycle&apos;s first month. It does not calculate exact six-week meeting dates.</Note>
+                    <Note>Six weeks skips one month in each three-month group, restarting at the first month of each cycle. This is an approximation, not exact six-week dates.</Note>
+                    {draft.club.cadence === 1.5 && <>
+                      <Label>Skipped-month offset</Label>
+                      <Actions>{([0, 1, 2] as const).map((offset) => <Action key={offset}
+                        title={offset === 0 ? '0 · skip month 3' : offset === 1 ? '1 · skip month 1' : '2 · skip month 2'}
+                        selected={draft.club.cadenceOffset === offset} onPress={() => changeDetails({ cadenceOffset: offset })} />)}</Actions>
+                      <Note>The offset shifts skipped months later, wrapping within each three-month group. Saving it does not change existing meetings; regenerate to apply it.</Note>
+                    </>}
                     <Label>Meeting occurrence</Label>
                     <Actions>{meetingOccurrences.map(({ value, label }) => <Action key={value} title={label} selected={draft.club.meetingOccurrence === value} onPress={() => changeDetails({ meetingOccurrence: value })} />)}</Actions>
                     <Label>Meeting weekday</Label>
