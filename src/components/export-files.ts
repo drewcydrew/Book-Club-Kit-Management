@@ -84,6 +84,6 @@ export async function deliver(content: string | Uint8Array, filename: string, mi
   await file.write(content);
   await Sharing.shareAsync(file.uri, {
     mimeType, dialogTitle, UTI: mimeType === 'application/pdf' ? 'com.adobe.pdf'
-      : mimeType === 'text/html' ? 'public.html' : 'public.comma-separated-values-text',
+      : mimeType === 'text/html' ? 'public.html' : mimeType === 'application/zip' ? 'public.zip-archive' : 'public.comma-separated-values-text',
   });
 }

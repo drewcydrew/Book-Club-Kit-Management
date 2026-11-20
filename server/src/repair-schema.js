@@ -11,7 +11,7 @@ const migrations = [
 ];
 const last = migrations[migrations.length - 1];
 // Data-only migrations that do not change the schema this repair verifies.
-const dataMigrations = ['010_demo_preferences_2027_aligned.sql'];
+const dataMigrations = ['010_demo_preferences_2027_aligned.sql', '011_demo_preferences_2028.sql', '012_demo_cycles_2027_2028.sql'];
 
 async function inspect(client, schema) {
   const actual = await inventory(client, schema);

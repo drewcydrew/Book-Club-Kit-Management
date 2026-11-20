@@ -7,6 +7,7 @@ import { NativeScheduleGridView } from '../components/schedule-grid-native';
 import { SCHEDULE_DESKTOP_WIDTH } from '../components/schedule-layout';
 import { ScheduleInstructions } from '../components/schedule-instructions';
 import { ScheduleExportActions } from '../components/schedule-export';
+import { ScheduleHandouts } from '../components/schedule-handouts';
 import { useScheduleWorkspace } from '../components/schedule-workspace';
 import { MemberSchedule, type MemberView } from '../components/member-schedule';
 import { TitleCover } from '../components/title-cover';
@@ -415,6 +416,8 @@ function ScheduleContent() {
           disabled={editor.busy || validating || !!publication} staffClubCount={gridClubs.length} />
         : <ScheduleExportActions schedule={makeScheduleExport(viewData, gridClubs.map((club) => club.id), staff ? cycle : undefined, staff && editor.dirty, staff ? staffViewMode : undefined, staff && mode === 'grid' ? highlightTitleId : null)}
           disabled={staff && (editor.busy || validating || !!publication)} staffClubCount={staff ? gridClubs.length : undefined} />}
+      {staff && <ScheduleHandouts data={viewData} cycle={cycle} clubIds={gridClubs.map((club) => club.id)}
+        unsaved={editor.dirty} pending={editor.hasPending} disabled={editor.busy || validating || !!publication} />}
     </Card>
     {!staff && <MemberSchedule key={JSON.stringify([person.id, gridClubKey, memberMeetings.map((meeting) =>
       [meeting.key, meeting.assignment ? kitById.get(meeting.assignment.kitId)?.titleId : null,
