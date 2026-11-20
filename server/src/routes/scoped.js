@@ -181,4 +181,53 @@ router.get('/users/:personId/clubs/:clubId/cycles/:cycleId/review', async (req, 
   }
 });
 
+router.get('/clubs/schedule-index', async (_req, res) => {
+  const c = await getPool().connect();
+  try {
+    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const clubs = (await c.query('SELECT id,name,branch FROM clubs ORDER BY name,id')).rows;
+    await c.query('COMMIT');
+    res.json(clubs);
+  } catch (error) {
+    await c.query('ROLLBACK');
+    throw error;
+  } finally {
+    c.release();
+  }
+});
+
+router.get('/clubs/:clubId/schedule', async (req, res) => {
+  const clubId = id(req.params.clubId, 'clubId');
+  const c = await getPool().connect();
+  try {
+    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const club = await one(c, `SELECT ${clubColumns} FROM clubs WHERE id=$1`, [clubId], 'Club');
+    const allCycles = (await c.query(`SELECT id,name,to_char(deadline,'YYYY-MM-DD') AS deadline,
+      to_char(starts_on,'YYYY-MM-DD') AS "startsOn",to_char(ends_on,'YYYY-MM-DD') AS "endsOn",status,revision
+      FROM cycles WHERE status IN ('drafted','published') ORDER BY id`)).rows.map((cycle) => ({ ...cycle, slots: [], finalized: {} }));
+    const cycleById = new Map(allCycles.map((cycle) => [cycle.id, cycle]));
+    const slots = (await c.query(`SELECT cycle_id,id,club_id AS "clubId",month,to_char(meeting,'YYYY-MM-DD') AS meeting
+      FROM meeting_slots WHERE club_id=$1 AND cycle_id=ANY($2::text[]) ORDER BY month,id`, [clubId, [...cycleById.keys()]])).rows;
+    for (const { cycle_id, ...slot } of slots) cycleById.get(cycle_id).slots.push(slot);
+    const cycles = allCycles.filter((cycle) => cycle.slots.length > 0);
+    const assignments = (await c.query(`SELECT id,cycle_id AS "cycleId",slot_id AS "slotId",club_id AS "clubId",kit_id AS "kitId",
+      to_char(ready,'YYYY-MM-DD') AS ready,to_char(meeting,'YYYY-MM-DD') AS meeting,to_char(due,'YYYY-MM-DD') AS due,locked
+      FROM schedule_assignments WHERE club_id=$1 AND cycle_id=ANY($2::text[]) ORDER BY cycle_id,slot_id`, [clubId, [...cycleById.keys()]])).rows;
+    const kitIds = [...new Set(assignments.map((assignment) => assignment.kitId))];
+    const kits = (await c.query(`${kitSelect} WHERE k.id=ANY($1::text[]) ORDER BY k.id`, [kitIds])).rows;
+    const titleIds = [...new Set(kits.map((kit) => kit.titleId))];
+    const titles = (await c.query(`SELECT ${titleColumns} FROM titles WHERE id=ANY($1::text[]) ORDER BY id`, [titleIds])).rows;
+    const kitLabels = (await c.query(`SELECT id,category,name,revision FROM kit_labels
+      WHERE id IN (SELECT label_id FROM title_label_assignments WHERE title_id=ANY($1::text[]))
+      ORDER BY category,lower(name),id`, [titleIds])).rows;
+    await c.query('COMMIT');
+    res.json({ club, cycles, assignments, kits, titles, kitLabels });
+  } catch (error) {
+    await c.query('ROLLBACK');
+    throw error;
+  } finally {
+    c.release();
+  }
+});
+
 module.exports = router;

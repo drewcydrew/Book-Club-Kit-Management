@@ -29,16 +29,19 @@ function SelectedShell() {
       <Text style={styles.brand}>Book club kits</Text>
       <Text style={styles.context}>Public writable demo · {person ? `${person.name} · ${person.role}` : 'no user selected'}</Text>
       {saving && <Text style={styles.context}>Saving changes; wait before changing pages or users.</Text>}
-      {person && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.navigation}>
-        <NavigationLink disabled={saving} href="/">Home</NavigationLink>
-        {!member && <NavigationLink disabled={saving} href="/catalog">Catalog & kits</NavigationLink>}
-        <NavigationLink disabled={saving} href="/preferences">Preferences</NavigationLink>
-        <NavigationLink disabled={saving} href="/schedule">Schedule</NavigationLink>
-        {!member && <NavigationLink disabled={saving} href="/clubs">Clubs</NavigationLink>}
-        {!member && <NavigationLink disabled={saving} href="/cycles">Cycles</NavigationLink>}
-        {!member && <NavigationLink disabled={saving} href="/circulation">Circulation</NavigationLink>}
-        {!member && <NavigationLink disabled={saving} href="/admin">Admin</NavigationLink>}
-      </ScrollView>}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.navigation}>
+        {person && <>
+          <NavigationLink disabled={saving} href="/">Home</NavigationLink>
+          {!member && <NavigationLink disabled={saving} href="/catalog">Catalog & kits</NavigationLink>}
+          <NavigationLink disabled={saving} href="/preferences">Preferences</NavigationLink>
+          <NavigationLink disabled={saving} href="/schedule">Schedule</NavigationLink>
+          {!member && <NavigationLink disabled={saving} href="/clubs">Clubs</NavigationLink>}
+          {!member && <NavigationLink disabled={saving} href="/cycles">Cycles</NavigationLink>}
+          {!member && <NavigationLink disabled={saving} href="/circulation">Circulation</NavigationLink>}
+          {!member && <NavigationLink disabled={saving} href="/admin">Admin</NavigationLink>}
+        </>}
+        <NavigationLink disabled={saving} href="/club-schedule">Club schedule</NavigationLink>
+      </ScrollView>
     </View>
     <Slot />
   </View>;

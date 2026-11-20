@@ -88,6 +88,21 @@ test('scoped views load only relevant member data and retain complete staff sche
   assert.deepEqual(schedule.ballots, []);
   assert.deepEqual(schedule.events, []);
 
+  const clubOne = await get('/api/clubs/c1/schedule');
+  assert.equal(clubOne.club.id, 'c1');
+  assert.ok(!('leaderId' in clubOne.club));
+  assert.deepEqual(clubOne.cycles.map((cycle) => cycle.id), ['drafted', 'published']);
+  assert.deepEqual(clubOne.cycles.flatMap((cycle) => cycle.slots.map((slot) => slot.id)), ['draft1', 'pub1']);
+  assert.deepEqual(clubOne.assignments.map((item) => item.id), ['a3', 'a1']);
+  assert.deepEqual(clubOne.kits.map((item) => item.id), ['k1', 'k2']);
+  assert.deepEqual(clubOne.titles.map((item) => item.id), ['t1']);
+  assert.deepEqual(clubOne.kitLabels.map((label) => label.id), ['schedule-genre', 'schedule-vibe']);
+  const clubTwo = await get('/api/clubs/c2/schedule');
+  assert.deepEqual(clubTwo.cycles.map((cycle) => cycle.id), ['published']);
+  assert.deepEqual(clubTwo.assignments.map((item) => item.id), ['a2']);
+  await get('/api/clubs/missing-club/schedule', 404);
+  assert.deepEqual((await get('/api/clubs/schedule-index')).map((club) => club.id).sort(), ['c1', 'c2']);
+
   const full = await get('/api/shared');
   const staff = await get('/api/users/p2/views/schedule');
   for (const key of ['clubs', 'cycles', 'ballots', 'assignments', 'kits', 'titles', 'history']) {

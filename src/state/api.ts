@@ -182,6 +182,41 @@ export async function loadView(personId: string, scope: ViewScope, signal?: Abor
   return data;
 }
 
+export type ClubSchedule = {
+  club: SharedClub;
+  cycles: Cycle[];
+  assignments: Assignment[];
+  kits: SharedKit[];
+  titles: SharedTitle[];
+  kitLabels: KitLabel[];
+};
+export type ClubIndexItem = { id: string; name: string; branch: string };
+
+export async function loadClubSchedule(clubId: string, signal?: AbortSignal): Promise<ClubSchedule> {
+  const path = `/api/clubs/${encodeURIComponent(clubId)}/schedule`;
+  const value = await request(path, 'GET', undefined, undefined, signal);
+  if (!isObject(value) || !isClub(value.club) || value.club.id !== clubId ||
+      !Array.isArray(value.cycles) || !value.cycles.every(isCycle) ||
+      !Array.isArray(value.assignments) || !value.assignments.every(isAssignment) ||
+      !Array.isArray(value.kits) || !value.kits.every(isKit) ||
+      !Array.isArray(value.titles) || !value.titles.every(isTitle) ||
+      !Array.isArray(value.kitLabels) || !value.kitLabels.every(isKitLabel)) {
+    throw new Error(`Server returned invalid data for ${path}.`);
+  }
+  return {
+    club: value.club, cycles: value.cycles, assignments: value.assignments,
+    kits: value.kits, titles: value.titles, kitLabels: value.kitLabels,
+  };
+}
+
+export async function loadClubIndex(signal?: AbortSignal): Promise<ClubIndexItem[]> {
+  const value = await request('/api/clubs/schedule-index', 'GET', undefined, undefined, signal);
+  if (!Array.isArray(value) || !value.every((club) => isObject(club) && isString(club.id) && isString(club.name) && isString(club.branch))) {
+    throw new Error('Server returned invalid data for /api/clubs/schedule-index.');
+  }
+  return value as ClubIndexItem[];
+}
+
 export async function loadLeaderReview(personId: string, clubId: string, cycleId: string, signal?: AbortSignal): Promise<Ballot[]> {
   const path = `/api/users/${encodeURIComponent(personId)}/clubs/${encodeURIComponent(clubId)}/cycles/${encodeURIComponent(cycleId)}/review`;
   const value = await request(path, 'GET', undefined, undefined, signal);

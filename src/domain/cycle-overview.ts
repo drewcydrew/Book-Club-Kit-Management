@@ -294,7 +294,7 @@ export interface MemberScheduleMeeting {
   assignment?: Assignment;
 }
 
-export function memberScheduleMeetings(data: Data, clubIds: string[]): MemberScheduleMeeting[] {
+export function memberScheduleMeetings(data: Pick<Data, 'cycles' | 'assignments'>, clubIds: string[]): MemberScheduleMeeting[] {
   const clubs = new Set(clubIds);
   const cycles = data.cycles.filter(memberVisibleCycle);
   const cycleById = new Map(cycles.map((cycle) => [cycle.id, cycle]));
