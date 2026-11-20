@@ -25,6 +25,7 @@ import {
 } from "../components/ui";
 import type { Club, Membership } from "../domain/model";
 import { cadenceLabel } from "../domain/cadence";
+import { meetingOccurrences, meetingRuleLabel, meetingWeekdays } from "../domain/meeting-rule";
 import type { PickerOption } from "../domain/search";
 import {
   ApiError,
@@ -77,6 +78,8 @@ const blankClub = (branch: string): Club => ({
   leaderId: "",
   size: 1,
   cadence: 1,
+  meetingWeekday: 1,
+  meetingOccurrence: 1,
   pickup: "pickup",
   address: "",
   history: [],
@@ -99,6 +102,8 @@ function detailsKey(value: Draft) {
     club.branch,
     sizeText,
     club.cadence,
+    club.meetingWeekday,
+    club.meetingOccurrence,
     club.pickup,
     club.address,
   ]);
@@ -890,7 +895,7 @@ function ClubsContent() {
             {openClubs[value.id] && (
               <>
                 <Note>
-                  {value.branch} · {value.size} members · {cadenceLabel(value.cadence)} ·{" "}
+                  {value.branch} · {value.size} members · {cadenceLabel(value.cadence)} · {meetingRuleLabel(value)} ·{" "}
                   {value.pickup}
                 </Note>
                 {value.pickup === "delivery" ? (
@@ -1051,7 +1056,7 @@ function ClubsContent() {
                   )}
                   <Fold
                     title="Details"
-                    summary={`${cadenceLabel(draft.club.cadence)} · ${draft.club.pickup}`}
+                    summary={`${cadenceLabel(draft.club.cadence)} · ${meetingRuleLabel(draft.club)} · ${draft.club.pickup}`}
                     open={open.details}
                     onToggle={() => toggleSection("details")}
                   >
@@ -1076,6 +1081,11 @@ function ClubsContent() {
                       <Action title="Six weeks" selected={draft.club.cadence === 1.5} onPress={() => changeDetails({ cadence: 1.5 })} />
                     </Actions>
                     <Note>Six weeks schedules two months, then skips one, starting with the cycle&apos;s first month. It does not calculate exact six-week meeting dates.</Note>
+                    <Label>Meeting occurrence</Label>
+                    <Actions>{meetingOccurrences.map(({ value, label }) => <Action key={value} title={label} selected={draft.club.meetingOccurrence === value} onPress={() => changeDetails({ meetingOccurrence: value })} />)}</Actions>
+                    <Label>Meeting weekday</Label>
+                    <Actions>{meetingWeekdays.map(({ value, label }) => <Action key={value} title={label} selected={draft.club.meetingWeekday === value} onPress={() => changeDetails({ meetingWeekday: value })} />)}</Actions>
+                    <Note>Undated meetings use {meetingRuleLabel(draft.club)}. Changing this rule does not move dated meetings; cadence changes may remove them after confirmation.</Note>
                     <Action
                       title={`Method: ${draft.club.pickup}`}
                       onPress={() =>

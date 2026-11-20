@@ -3,6 +3,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { Platform, Pressable, Text, View } from 'react-native';
 import { assignmentProblems, draftAsync, exclusionUnlockIds, generationClubScope, id, meetingFor, prepareDraftExclusions, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
 import { reconcileCadence } from '../domain/cadence';
+import { preserveUnassignedMeetingDates } from '../domain/meeting-rule';
 import { scheduleHasChanges, slotChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
 import { generationConfirmation, scheduleSelectionPending } from '../domain/schedule-pending';
@@ -68,7 +69,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   useLayoutEffect(() => { latest.current = { data, workspace, currentCycle }; }, [data, workspace, currentCycle]);
   const busy = generating || checking || shared.saving || !!pendingAction;
   const slotDiff = workspace ? slotDiffOf(workspace) : null;
-  const slotsChanged = !!slotDiff && (slotDiff.newSlots.length > 0 || slotDiff.removedSlotIds.length > 0);
+  const slotsChanged = !!slotDiff && (slotDiff.newSlots.length > 0 || slotDiff.removedSlotIds.length > 0 || slotDiff.datedSlots.length > 0);
   const dirty = !!workspace && (slotsChanged || scheduleHasChanges(workspace.base.assignments.filter((a) => a.cycleId === workspace.cycle.id), workspace.assignments, workspace.unlockIds));
   const selectedAssignment = workspace?.assignments.find((item) => item.slotId === selectedSlotId);
   const pending = selectedSlotId ? scheduleSelectionPending(selectedAssignment, initialMeeting, kitId, meeting, swapId) : { selection: false, swap: false };
@@ -147,11 +148,13 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     if (!next) return;
     const slot = next.cycle.slots.find((item) => item.id === slotId);
     if (!slot) { setMessage('This meeting is no longer available. Refresh the schedule.'); return; }
+    const club = next.base.clubs.find((item) => item.id === slot.clubId);
+    if (!club) { setMessage('This meeting references an unavailable club. Refresh the schedule.'); return; }
     const assignment = next.assignments.find((item) => item.slotId === slotId);
     setWorkspace(next);
     setSelectedSlotId(slotId);
-    setMeeting(assignment?.meeting ?? meetingFor(slot));
-    setInitialMeeting(assignment?.meeting ?? meetingFor(slot));
+    setMeeting(meetingFor(slot, club, assignment?.meeting));
+    setInitialMeeting(meetingFor(slot, club, assignment?.meeting));
     setKitId(assignment?.kitId ?? '');
     setSwapId('');
     setMessage('');
@@ -195,7 +198,8 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
       const result = await draftAsync(input.data, input.cycle, true, scope, generationMode);
       const generated = result.assignments.filter((a) => a.cycleId === source.cycle.id);
       const unlockIds = exclusionUnlockIds(source.base.assignments.filter((assignment) => assignment.cycleId === source.cycle.id), [...input.removed, ...cadenceRemoved], source.unlockIds);
-      setWorkspace({ ...source, cycle: cadence.cycle, assignments: generated, unlockIds, generationProblems: result.problems });
+      const cycle = preserveUnassignedMeetingDates(cadence.cycle, source.assignments, generated);
+      setWorkspace({ ...source, cycle, assignments: generated, unlockIds, generationProblems: result.problems });
       setValidation(null); closeSlot();
       if (scope) {
         const before = unassignedInScope(cadence.cycle, source.assignments, scope);
@@ -226,7 +230,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     const additions = cadence.added.map((slot) => `${source.base.clubs.find((club) => club.id === slot.clubId)?.name ?? slot.clubId} ${slot.month}`);
     return [
       details.length ? `Cadence removes meetings: ${details.join('; ')}.` : '',
-      additions.length ? `Cadence adds undated meetings: ${additions.join('; ')}. Default meeting dates will be used.` : '',
+      additions.length ? `Cadence adds undated meetings: ${additions.join('; ')}. Club meeting rules will be used.` : '',
     ].filter(Boolean).join('\n');
   }
 

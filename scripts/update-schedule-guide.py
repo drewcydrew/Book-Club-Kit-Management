@@ -85,7 +85,7 @@ def main():
         (subheading, "Shared first step: fill meetings"),
         (body, "Both strategies fill meetings for shown clubs using eligible ranked titles. They use final club rankings when available, otherwise combined member rankings. Already-read titles are excluded. Other cycles and locks are retained except when a cadence change removes a meeting after confirmation."),
         (body, "Full generation requires confirmation when clubs are hidden. Their assignments, including locked assignments, are removed locally; meetings and ballots remain. Save draft shares the removals. Show and assign every club's meetings before publication. Title highlighting does not change this selection."),
-        (body, "Slots are considered by month; within a month, clubs with greater historical satisfaction debt from published assignments go first. The search checks kit status, checked-out loans, history, repeated titles and overlapping loan windows including the turnaround buffer. A meeting without a fixed date uses the first Monday of its month, which must be after the preference deadline."),
+        (body, "Slots are considered by month; within a month, clubs with greater historical satisfaction debt from published assignments go first. The search checks kit status, checked-out loans, history, repeated titles and actual loan windows including the turnaround buffer. Undated meetings use the club's weekday rule (first Monday by default); dates on or before the deadline remain unassigned."),
         (subheading, "Prioritise clubs"),
         (body, "After filling meetings, this default strategy tries to improve the lowest club fairness score first, then the next lowest, without reducing coverage. It considers the club's preferred titles in rank order and favours its branch when choosing between kits of the same title. See page 5 for the fairness calculation."),
         (subheading, "Prioritise utilisation"),
@@ -93,7 +93,7 @@ def main():
         (body, "Locked kits count towards this cycle's usage; other-cycle assignments do not count towards it but still block conflicting loans. Less popular ranked titles can still be used. This strategy does not delete kits or guarantee that any kit can be removed from inventory."),
         (subheading, "What to expect"),
         (body, "Both strategies use bounded rearrangements, so results are practical proposals, not guaranteed global optima. Search-limit messages mean more improvements or filled meetings may be possible. Review unassigned slots and each club's fairness; utilisation may give a club a lower-ranked choice. Fairness uses the full scoring ranking, including previously read titles, even though generation excludes those titles."),
-        (body, "Single-club generation first reconciles its cadence, then fills empty meetings without changing other clubs. Six weeks means two cycle months on, one off, not exact six-week dates. Added meetings are undated. The mode affects ranked order and unread unranked titles can be fallback."),
+        (body, "Single-club generation first reconciles its cadence, then fills empty meetings without changing other clubs. Six weeks means two cycle months on, one off, not exact six-week dates. On Clubs, choose first to fourth or last weekday; existing dated meetings stay unchanged. The mode affects ranked order and unread unranked titles can be fallback."),
         (body, "Save draft shares the reviewed proposal; publishing is a separate step. Manual overrides can require warnings and may create infeasible schedules."),
     ]
     editor = [
@@ -104,7 +104,7 @@ def main():
         (body, "4. Tap Choose a title and kit to open the picker. Follow the next page to compare kits and apply the selection. Changes remain local until a draft is saved."),
         illustration(5, 0, 430),
         (caption, "2027 meeting editor: clear, lock, and choose a title and kit. Club-identifying labels obscured."),
-        (body, "Date rules: an undated slot has a Meeting date (YYYY-MM-DD) field; enter a date in that month and after the deadline. A configured fixed date is not editable here. Changing a slot on Cycles can remove its assignment, including locked or in-use assignments."),
+        (body, "Date rules: an undated slot defaults to its club's meeting rule. Enter a date in that month and after the deadline if needed. A configured fixed date is not editable here; changing the club rule does not move it. Changing a slot on Cycles can remove its assignment, including locked or in-use assignments."),
     ]
     replacements = {1: page(inspect, reader.pages[1]), 2: page(generate, reader.pages[2]),
                     3: page(items, reader.pages[3]), 5: page(editor, reader.pages[5])}

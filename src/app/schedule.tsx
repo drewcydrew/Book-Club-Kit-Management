@@ -341,7 +341,7 @@ function ScheduleContent() {
       {editor.stale && editor.dirty && <Text style={{ color: '#a22525' }}>Shared data has changed. Refresh if needed, then discard these changes and start again before saving.</Text>}
       <Note>Full-cycle generation includes {generationScope.shownCount} of {clubChoices.length} clubs selected in Clubs shown. Hiding a club does not change its assignments until you regenerate.</Note>
       {generationScope.excludedClubIds.length > 0 && <Note>After confirmation, regeneration clears hidden clubs&apos; assignments locally, including locked assignments. Their meetings and ballots remain. Saving shares these removals; every meeting must be assigned before publication.</Note>}
-      <Note>Generation applies each participating club&apos;s cadence. Six weeks skips every third cycle month; changes to meetings and assignments are shown for confirmation.</Note>
+      <Note>Generation applies each participating club&apos;s cadence and meeting-day rule. The rule does not move dated meetings; six weeks skips every third cycle month. Meeting removals are shown for confirmation.</Note>
       {generationScope.shownCount === 0 && <Note>Show at least one club before generating a schedule.</Note>}
       {generationScope.missingClubIds.length > 0 && <Text style={{ color: '#a22525' }}>Some meetings or assignments reference unavailable clubs. Refresh the schedule before generating.</Text>}
       <Actions>

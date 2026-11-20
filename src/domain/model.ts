@@ -54,6 +54,9 @@ export interface KitLabel {
   revision: number;
 }
 
+export type MeetingWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export type MeetingOccurrence = 1 | 2 | 3 | 4 | -1;
+
 export interface Club {
   id: string;
   name: string;
@@ -61,6 +64,8 @@ export interface Club {
   leaderId: string;
   size: number;
   cadence: 1 | 1.5;
+  meetingWeekday: MeetingWeekday;
+  meetingOccurrence: MeetingOccurrence;
   pickup: 'pickup' | 'delivery';
   address: string;
   history: string[];

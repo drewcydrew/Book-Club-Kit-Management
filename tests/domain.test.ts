@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { addDays, today } from '../src/domain/dates';
-import { assignmentProblem, assignmentProblems, circulate, draft, fairness, firstMonday, meetingFor, rankings, satisfactionDebt } from '../src/domain/logic';
+import { assignmentProblem, assignmentProblems, circulate, draft, fairness, meetingFor, rankings, satisfactionDebt } from '../src/domain/logic';
 import { filterOptions, type PickerOption } from '../src/domain/search';
 import { seed } from '../src/domain/seed';
 import { ballotKey, emptyBallot, moveInRanking, setMark, undoDismissal } from '../src/domain/ballot-draft';
@@ -524,11 +524,10 @@ test('monthsInRange lists every month inclusively, across year boundaries', () =
 });
 
 test('dateless slots fall back to the first Monday of their month', () => {
-  assert.equal(firstMonday('2026-06'), '2026-06-01');
-  assert.equal(firstMonday('2026-02'), '2026-02-02');
   const slot = { id: 's', clubId: 'c', month: '2026-02', meeting: null };
-  assert.equal(meetingFor(slot), '2026-02-02');
-  assert.equal(meetingFor({ ...slot, meeting: '2026-02-20' }), '2026-02-20');
+  const club = seed().clubs[0];
+  assert.equal(meetingFor(slot, club), '2026-02-02');
+  assert.equal(meetingFor({ ...slot, meeting: '2026-02-20' }, club), '2026-02-20');
 });
 
 test('background ballot sync sends the latest draft with the latest server revision', async () => {

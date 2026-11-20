@@ -55,6 +55,8 @@ function isKitLabel(value: unknown): value is KitLabel {
 function isClub(value: unknown): value is SharedClub {
   return isObject(value) && isString(value.id) && isString(value.name) && isString(value.branch) &&
     isNumber(value.size) && (value.cadence === 1 || value.cadence === 1.5) &&
+    isNumber(value.meetingWeekday) && Number.isInteger(value.meetingWeekday) && value.meetingWeekday >= 0 && value.meetingWeekday <= 6 &&
+    (value.meetingOccurrence === -1 || value.meetingOccurrence === 1 || value.meetingOccurrence === 2 || value.meetingOccurrence === 3 || value.meetingOccurrence === 4) &&
     (value.pickup === 'pickup' || value.pickup === 'delivery') && isString(value.address) && isNumber(value.revision);
 }
 function isLink(value: unknown): value is ClubKit {
@@ -405,8 +407,8 @@ export async function saveSchedule(cycleId: string, assignments: Assignment[], r
 
 export type ScheduleValidation = { token: string; warnings: { slotId: string; message: string }[] };
 export type ScheduleBasis = { cycles: { id: string; revision: number }[]; kits: { id: string; revision: number }[]; clubs: { id: string; revision: number }[]; settings: number };
-export type SlotChanges = { newSlots: { id: string; clubId: string; month: string }[]; removedSlotIds: string[] };
-export const noSlotChanges: SlotChanges = { newSlots: [], removedSlotIds: [] };
+export type SlotChanges = { newSlots: { id: string; clubId: string; month: string }[]; removedSlotIds: string[]; datedSlots: { id: string; meeting: string }[] };
+export const noSlotChanges: SlotChanges = { newSlots: [], removedSlotIds: [], datedSlots: [] };
 
 export async function validateSchedule(cycleId: string, assignments: Assignment[], revision: number, publish: boolean, unlockIds: string[], basis?: ScheduleBasis, slotChanges: SlotChanges = noSlotChanges): Promise<ScheduleValidation> {
   const value = await request(`/api/cycles/${encodeURIComponent(cycleId)}/schedule/validate`, 'POST', { assignments, revision, publish, unlockIds, ...slotChanges, ...(basis ? { basis } : {}) });

@@ -350,13 +350,16 @@ export function scheduleHasChanges(initial: Assignment[], current: Assignment[],
   return unlockIds.length > 0 || snapshot(initial) !== snapshot(current);
 }
 
-// Local-only meeting slots are sent as creations; slots missing locally are sent as removals.
-export function slotChanges(initial: Slot[], current: Slot[]): { newSlots: { id: string; clubId: string; month: string }[]; removedSlotIds: string[] } {
+// Include newly fixed dates when a staged assignment is no longer present.
+export function slotChanges(initial: Slot[], current: Slot[]): { newSlots: { id: string; clubId: string; month: string }[]; removedSlotIds: string[]; datedSlots: { id: string; meeting: string }[] } {
   const initialIds = new Set(initial.map((slot) => slot.id));
+  const initialById = new Map(initial.map((slot) => [slot.id, slot]));
   const currentIds = new Set(current.map((slot) => slot.id));
   return {
     newSlots: current.filter((slot) => !initialIds.has(slot.id)).map(({ id, clubId, month }) => ({ id, clubId, month })),
     removedSlotIds: initial.filter((slot) => !currentIds.has(slot.id)).map((slot) => slot.id),
+    datedSlots: current.filter((slot) => slot.meeting !== null && !initialById.get(slot.id)?.meeting)
+      .map((slot) => ({ id: slot.id, meeting: slot.meeting! })),
   };
 }
 

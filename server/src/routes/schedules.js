@@ -26,13 +26,18 @@ async function schedule(req, res, validateOnly) {
     return { id:id(s.id), clubId:id(s.clubId,'clubId'), month };
   });
   const removedSlotIds = unique(list(b.removedSlotIds ?? [],'removedSlotIds',MAX_ASSIGNMENTS).map((value) => id(value,'removedSlotIds')),'removedSlotIds').sort();
+  const datedSlots = list(b.datedSlots ?? [],'datedSlots',MAX_ASSIGNMENTS).map((s) => {
+    object(s);
+    return { id:id(s.id), meeting:date(s.meeting,'meeting') };
+  }).sort((a,b) => a.id.localeCompare(b.id));
+  unique(datedSlots.map((s) => s.id),'datedSlots');
   unique(newSlots.map((s) => s.id),'newSlots'); unique(newSlots.map((s) => `${s.clubId}\0${s.month}`),'newSlots');
   const result = await transaction(async (c) => {
     const cycle = await one(c,`SELECT revision,status,to_char(deadline,'YYYY-MM-DD') AS deadline,to_char(starts_on,'YYYY-MM') AS "startMonth",to_char(ends_on,'YYYY-MM') AS "endMonth" FROM cycles WHERE id=$1 FOR UPDATE`,[cycleId],'Cycle'); stale(cycle.revision,rev);
     if (!['collecting','drafted','published'].includes(cycle.status)) throw new HttpError(409,'Cycle must be collecting before drafting.');
     if (publish && cycle.status === 'collecting') throw new HttpError(409,'Save a draft before publishing.');
     if (cycle.status === 'published' && !publish) throw new HttpError(409,'A published schedule cannot be reverted to a draft.');
-    if (cycle.status === 'published' && (newSlots.length || removedSlotIds.length)) throw new HttpError(409,'Meetings can only change before publication.');
+    if (cycle.status === 'published' && (newSlots.length || removedSlotIds.length || datedSlots.length)) throw new HttpError(409,'Meetings can only change before publication.');
     const settings = await one(c,'SELECT loan_days,buffer_days FROM lending_settings WHERE singleton=true',[],'Settings');
     if (basis) {
       const sortIds = (rows) => rows.sort((a,b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -84,6 +89,13 @@ async function schedule(req, res, validateOnly) {
     }
     const slots = [...kept, ...newSlots.map((s) => ({ id:s.id, clubId:s.clubId, month:s.month, meeting:null }))];
     const slotById = new Map(slots.map((r) => [r.id,r]));
+    for (const change of datedSlots) {
+      const slot = found(slotById,change.id,'Slot');
+      if (slot.meeting || change.meeting.slice(0,7) !== slot.month || change.meeting <= cycle.deadline) {
+        throw new HttpError(409,'A date can only be set on an undated meeting in its month and after the voting deadline.');
+      }
+      slot.meeting = change.meeting;
+    }
     const activeByKit = new Map(active.map((r) => [r.kitId,r]));
     const enriched = [];
     const dateless = [];
@@ -126,7 +138,7 @@ async function schedule(req, res, validateOnly) {
     if (publish) {
       if (!slots.length || slots.length !== assignments.length) throw new HttpError(409,'Every meeting needs an assignment before publication.');
     }
-    const token = createHash('sha256').update(JSON.stringify({ cycleId,cycle,settings,assignments,unlockIds,publish,basis,slots,newSlots,removedSlotIds,kits,history,existing,locked,active,allOther,dbToday,warnings })).digest('hex');
+    const token = createHash('sha256').update(JSON.stringify({ cycleId,cycle,settings,assignments,unlockIds,publish,basis,slots,newSlots,removedSlotIds,datedSlots,kits,history,existing,locked,active,allOther,dbToday,warnings })).digest('hex');
     if (validateOnly) return { warnings, token };
     if (b.validationToken === undefined) {
       if (unlockIds.length) throw new HttpError(409,'Validate and confirm unlocked assignments before saving.');
@@ -137,6 +149,7 @@ async function schedule(req, res, validateOnly) {
     await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1',[cycleId]);
     if (removedSlotIds.length) await c.query('DELETE FROM meeting_slots WHERE cycle_id=$1 AND id=ANY($2)',[cycleId,removedSlotIds]);
     for (const s of newSlots) await c.query('INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES($1,$2,$3,$4,NULL)',[s.id,cycleId,s.clubId,s.month]);
+    for (const d of datedSlots) await c.query('UPDATE meeting_slots SET meeting=$3 WHERE cycle_id=$1 AND id=$2',[cycleId,d.id,d.meeting]);
     for (const d of dateless) await c.query('UPDATE meeting_slots SET meeting=$3 WHERE cycle_id=$1 AND id=$2',[cycleId,d.slotId,d.meeting]);
     const column = (key) => assignments.map((a) => a[key]);
     await c.query(`INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked)

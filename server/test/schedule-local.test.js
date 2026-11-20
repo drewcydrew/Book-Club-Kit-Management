@@ -63,6 +63,11 @@ test('local schedule overrides require current specific validation and explicit 
     const snapshot = await state();
     return { cycles:revisions(snapshot.cycles), kits:revisions(snapshot.kits), clubs:revisions(snapshot.clubs), settings:snapshot.library.revision };
   };
+  const beforeRule = { ...based, basis:await updatedBasis() };
+  const ruleValidation = await req(`${route}/validate`, 'POST', beforeRule);
+  const ruleClub = (await state()).clubs.find((item) => item.id === 'c1');
+  assert.equal((await req('/api/clubs/c1', 'PUT', { ...ruleClub, meetingOccurrence:3, meetingWeekday:4 })).status, 200);
+  assert.equal((await req(route, 'PUT', { ...beforeRule, validationToken:ruleValidation.json.token, acknowledge:true })).status, 409);
   const beforeSettings = { ...based, basis:await updatedBasis() };
   const settingsValidation = await req(`${route}/validate`, 'POST', beforeSettings);
   const currentSettings = (await state()).library;

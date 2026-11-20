@@ -1,5 +1,6 @@
 import { addDays, today, validDate } from './dates';
-import type { Assignment, Cycle, Data, Event, Kit, Slot } from './model';
+import type { Assignment, Club, Cycle, Data, Event, Kit, Slot } from './model';
+import { meetingDate } from './meeting-rule';
 
 export function id(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -21,14 +22,8 @@ export function preferences(data: Data, cycle: Cycle, clubId: string): string[] 
     .filter((titleId) => !history.includes(titleId) && data.titles.some((title) => title.id === titleId));
 }
 
-export function firstMonday(month: string): string {
-  const first = `${month}-01`;
-  const weekday = new Date(`${first}T00:00:00Z`).getUTCDay();
-  return addDays(first, (8 - weekday) % 7);
-}
-
-export function meetingFor(slot: Slot): string {
-  return slot.meeting ?? firstMonday(slot.month);
+export function meetingFor(slot: Slot, club: Club, stagedMeeting?: string): string {
+  return slot.meeting ?? stagedMeeting ?? meetingDate(slot.month, club);
 }
 
 export function windowFor(data: Data, meeting: string): Pick<Assignment, 'ready' | 'meeting' | 'due'> {
@@ -191,6 +186,8 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
   const windows = new Map<string, Pick<Assignment, 'ready' | 'meeting' | 'due'>>();
   const slotErrors = new Map<string, string>();
   const candidateIds = new Map<string, string>();
+  const stagedMeetings = new Map(data.assignments.filter((assignment) => assignment.cycleId === cycle.id)
+    .map((assignment) => [assignment.slotId, assignment.meeting]));
   for (const slot of slots) {
     const club = clubs.get(slot.clubId);
     if (!club) {
@@ -201,13 +198,18 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
       slotErrors.set(slot.id, `${club.name}: meeting month ${slot.month} is invalid.`);
       continue;
     }
-    const meeting = meetingFor(slot);
+    let meeting: string;
+    try { meeting = meetingFor(slot, club, stagedMeetings.get(slot.id)); }
+    catch {
+      slotErrors.set(slot.id, `${club.name} in ${slot.month}: the club meeting rule is invalid. Check the club details.`);
+      continue;
+    }
     if (!validDate(meeting)) {
       slotErrors.set(slot.id, `${club.name}: meeting month ${slot.month} is invalid.`);
       continue;
     }
     if (!slot.meeting && meeting <= cycle.deadline) {
-      slotErrors.set(slot.id, `${club.name} in ${slot.month}: the default meeting must be after the preference deadline.`);
+      slotErrors.set(slot.id, `${club.name} in ${slot.month}: the meeting date ${meeting} must be after the preference deadline. Adjust the meeting date or deadline.`);
       continue;
     }
     windows.set(slot.id, windowFor(data, meeting));
