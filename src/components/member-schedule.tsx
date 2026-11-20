@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note } from './ui';
+import { MemberOverview } from './member-overview';
 import { TitleCover } from './title-cover';
 import { TitleDetails } from './title-details';
 import type { MemberScheduleMeeting } from '../domain/cycle-overview';
-import { calendarDateLabel, calendarMonthLabel, isPastMemberMeeting, memberCalendarMonths } from '../domain/member-calendar';
+import { calendarDateLabel, calendarMonthLabel, isPastMemberMeeting, memberCalendarMonths, memberOverviewMonths } from '../domain/member-calendar';
 import type { Assignment, KitLabel, Title } from '../domain/model';
 
-export type MemberView = 'meetings' | 'books';
+export type MemberView = 'overview' | 'meetings' | 'books';
 
 type Props = {
   view: MemberView;
@@ -101,6 +102,7 @@ export function MemberSchedule({ view, onViewChange, meetings, today, emptyMessa
   const detailMeetings = detailMeeting ? [detailMeeting] : detailBook?.meetings ?? [];
   const allMonths = useMemo(() => memberCalendarMonths(meetings, today, true), [meetings, today]);
   const calendarMonths = useMemo(() => showPast ? allMonths : memberCalendarMonths(meetings, today, false), [allMonths, meetings, today, showPast]);
+  const overviewMonths = useMemo(() => memberOverviewMonths(meetings, today, showPast), [meetings, today, showPast]);
   const pastCount = meetings.filter((meeting) => isPastMemberMeeting(meeting, today)).length;
   const hasPast = pastCount > 0 || allMonths.some(({ month }) => month < today.slice(0, 7));
   const columns = Platform.OS === 'web' && calendarWidth >= 800 ? 4
@@ -139,10 +141,16 @@ export function MemberSchedule({ view, onViewChange, meetings, today, emptyMessa
     </TitleDetails>}
     <Card>
       <Actions>
+        <Action selected={view === 'overview'} title="Overview" onPress={() => onViewChange('overview')} />
         <Action selected={view === 'meetings'} title="Meetings" onPress={() => onViewChange('meetings')} />
         <Action selected={view === 'books'} title="Books" onPress={() => onViewChange('books')} />
       </Actions>
     </Card>
+    {view === 'overview' && <MemberOverview months={overviewMonths} today={today}
+      emptyMessage={emptyMessage} hasPast={hasPast} pastCount={pastCount} showPast={showPast}
+      onTogglePast={() => { setShowPast(!showPast); setSelectedDay(null); setSelectedUndatedMonth(null); setSelectedMeeting(null); setDetail(null); }}
+      titleFor={titleFor} clubNameFor={clubNameFor}
+      onOpenMeeting={(meeting) => setDetail({ kind: 'meeting', key: meeting.key })} />}
     {view === 'meetings' && <Card>
       <Label>Meetings</Label>
       {hasPast && <Actions><Action title={showPast ? 'Hide past months and meetings' : `Show past months and meetings (${pastCount})`}

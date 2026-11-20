@@ -22,12 +22,14 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unable to load the club schedule.';
 }
 
+const pageStyle = [uiStyles.page, uiStyles.widePage];
+
 export default function ClubSchedulePage() {
   const { clubId } = useLocalSearchParams<{ clubId?: string }>();
   const { person } = useSelection();
   const [loaded, setLoaded] = useState<LoadState | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [view, setView] = useState<MemberView>('meetings');
+  const [view, setView] = useState<MemberView>('overview');
   const [copied, setCopied] = useState(false);
   const selectedClubId = typeof clubId === 'string' && clubId ? clubId : null;
   const requestKey = `${selectedClubId ?? ''}:${reloadKey}`;
@@ -71,7 +73,7 @@ export default function ClubSchedulePage() {
   const header = <Text accessibilityRole="header" style={uiStyles.heading}>Club schedule</Text>;
 
   if (!selectedClubId) {
-    return <ScrollView contentContainerStyle={uiStyles.page} keyboardShouldPersistTaps="handled">
+    return <ScrollView contentContainerStyle={pageStyle} keyboardShouldPersistTaps="handled">
       {header}
       <Note>Choose a club to see its complete planning schedule.</Note>
       {error ? <Text style={uiStyles.error}>{error}</Text> : null}
@@ -85,7 +87,7 @@ export default function ClubSchedulePage() {
   }
 
   if (error) {
-    return <ScrollView contentContainerStyle={uiStyles.page}>
+    return <ScrollView contentContainerStyle={pageStyle}>
       {header}
       <Text style={uiStyles.error}>{error}</Text>
       <Action title="Try again" onPress={refresh} />
@@ -93,7 +95,7 @@ export default function ClubSchedulePage() {
   }
 
   if (!schedule) {
-    return <ScrollView contentContainerStyle={uiStyles.page}>{header}<Note>Loading club schedule…</Note></ScrollView>;
+    return <ScrollView contentContainerStyle={pageStyle}>{header}<Note>Loading club schedule…</Note></ScrollView>;
   }
 
   const { club, cycles } = schedule;
@@ -103,7 +105,7 @@ export default function ClubSchedulePage() {
     ? cycles.map((cycle) => `${cycle.name} (${cycle.status})`).join(', ')
     : 'No drafted or published schedules are available yet.';
 
-  return <ScrollView contentContainerStyle={uiStyles.page} keyboardShouldPersistTaps="handled">
+  return <ScrollView contentContainerStyle={pageStyle} keyboardShouldPersistTaps="handled">
     {header}
     <Card>
       <Text accessibilityRole="header" style={[uiStyles.heading, { fontSize: 24 }]}>{club.name}</Text>

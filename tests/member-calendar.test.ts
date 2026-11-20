@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { selectMemberScheduleCycle, type MemberScheduleMeeting } from '../src/domain/cycle-overview';
-import { calendarDateLabel, calendarMonthLabel, calendarWeeks, memberCalendarMonths } from '../src/domain/member-calendar';
-import type { Cycle } from '../src/domain/model';
+import { calendarDateLabel, calendarMonthLabel, calendarWeeks, memberCalendarMonths, memberOverviewMonths } from '../src/domain/member-calendar';
+import type { Assignment, Cycle } from '../src/domain/model';
 
 const cycle = (id: string, startsOn: string, endsOn: string): Cycle => ({
   id, name: id, startsOn, endsOn, deadline: startsOn, status: 'published', slots: [], finalized: {}, revision: 1,
@@ -53,6 +53,34 @@ test('hiding past retains today, current undated meetings, and future empty mont
   assert.deepEqual(months[0].undated.map((item) => item.key), ['current-undated']);
   assert.equal(months[1].dated.size, 0);
   assert.equal(memberCalendarMonths(meetings, '2027-04-01', false).length, 0);
+});
+
+test('overview months pick the first assigned book, keep skipped months, and mark checkout, meeting and return dates', () => {
+  const c = cycle('c', '2027-01-01', '2027-03-31');
+  const booked = (key: string, date: string, ready: string, due: string): MemberScheduleMeeting => ({
+    ...meeting(key, c, date.slice(0, 7), date),
+    assignment: { id: key, cycleId: 'c', slotId: key, clubId: 'c1', kitId: 'k', ready, meeting: date, due } as Assignment,
+  });
+  const late = booked('late', '2027-01-20', '2027-01-13', '2027-01-27');
+  const early = booked('early', '2027-01-05', '2027-01-02', '2027-02-02');
+  const months = memberOverviewMonths([late, early, meeting('open', c, '2027-03', '2027-03-10')], '2027-01-01', true);
+  assert.deepEqual(months.map((entry) => entry.month), ['2027-01', '2027-02', '2027-03']);
+  assert.equal(months[0].book?.key, 'early');
+  assert.deepEqual(months[0].meetings.map((item) => item.key), ['early', 'late']);
+  assert.deepEqual(months[0].markers.get('2027-01-02')?.map((marker) => marker.kind), ['ready']);
+  assert.deepEqual(months[0].markers.get('2027-01-27')?.map((marker) => marker.kind), ['due']);
+  assert.equal(months[0].markers.get('2027-02-02'), undefined);
+  assert.deepEqual(months[1].markers.get('2027-02-02')?.map((marker) => marker.kind), ['due']);
+  assert.equal(months[1].book, undefined);
+  assert.equal(months[1].meetings.length, 0);
+  assert.equal(months[2].book, undefined);
+  assert.deepEqual(memberOverviewMonths([late, early], '2027-02-15', false).map((entry) => entry.month), ['2027-02', '2027-03']);
+
+  const spill = { ...booked('spill', '2027-03-02', '2027-02-27', '2027-03-20'), cycle: cycle('late', '2027-03-01', '2027-03-31') };
+  const spilled = memberOverviewMonths([spill], '2027-01-01', true);
+  assert.deepEqual(spilled.map((entry) => entry.month), ['2027-02', '2027-03']);
+  assert.deepEqual(spilled[0].markers.get('2027-02-27')?.map((marker) => marker.kind), ['ready']);
+  assert.equal(spilled[0].meetings.length, 0);
 });
 
 test('member cycle selection keeps a valid choice and falls back to current, upcoming, then past', () => {
