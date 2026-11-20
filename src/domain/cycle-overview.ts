@@ -322,6 +322,18 @@ export function memberScheduleMeetings(data: Data, clubIds: string[]): MemberSch
     || a.clubId.localeCompare(b.clubId) || a.cycle.id.localeCompare(b.cycle.id) || a.key.localeCompare(b.key));
 }
 
+export function selectMemberScheduleCycle(cycles: readonly Cycle[], selectedId: string, day: string): Cycle | undefined {
+  const selected = cycles.find((cycle) => cycle.id === selectedId);
+  if (selected) return selected;
+  const current = cycles.filter((cycle) => cycle.startsOn <= day && cycle.endsOn >= day)
+    .sort((a, b) => b.startsOn.localeCompare(a.startsOn) || a.endsOn.localeCompare(b.endsOn) || a.id.localeCompare(b.id));
+  if (current.length) return current[0];
+  const upcoming = cycles.filter((cycle) => cycle.startsOn > day)
+    .sort((a, b) => a.startsOn.localeCompare(b.startsOn) || a.endsOn.localeCompare(b.endsOn) || a.id.localeCompare(b.id));
+  if (upcoming.length) return upcoming[0];
+  return [...cycles].sort((a, b) => b.endsOn.localeCompare(a.endsOn) || b.startsOn.localeCompare(a.startsOn) || a.id.localeCompare(b.id))[0];
+}
+
 export function scheduleByKit(data: Data, cycleId: string, clubIds: string[]): { kitId: string; assignments: Assignment[] }[] {
   const clubs = new Set(clubIds);
   const groups = new Map<string, Assignment[]>();

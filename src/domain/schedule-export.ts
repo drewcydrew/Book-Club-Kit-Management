@@ -1,4 +1,4 @@
-import { highlightedGrid, memberScheduleMeetings, scheduleByKit, scheduleGrid, type MemberScheduleMeeting } from './cycle-overview';
+import { highlightedGrid, memberScheduleMeetings, memberVisibleCycle, scheduleByKit, scheduleGrid, type MemberScheduleMeeting } from './cycle-overview';
 import { fairness, rankings } from './logic';
 import type { Cycle, Data } from './model';
 import { csvCell } from './csv';
@@ -138,6 +138,12 @@ export function makeScheduleExport(data: Data, clubIds: string[], staffCycle?: C
     label: staffCycle ? `${staffCycle.name} · ${staffCycle.status}${unsaved ? ' · Unsaved local schedule' : ''}` : 'Your schedule · Drafted and published cycles',
     meetings: rows, mode: staffCycle ? mode : undefined, grid, highlight,
   };
+}
+
+export function makeMemberScheduleExport(data: Data, clubIds: string[], cycleId: string | undefined): ScheduleExport {
+  const cycle = data.cycles.find((item) => item.id === cycleId && memberVisibleCycle(item));
+  const schedule = makeScheduleExport({ ...data, cycles: cycle ? [cycle] : [] }, clubIds);
+  return { ...schedule, label: cycle ? `${cycle.name} · ${cycle.status}` : 'Your schedule · No cycle selected' };
 }
 
 export function scheduleCsv(schedule: ScheduleExport): string {

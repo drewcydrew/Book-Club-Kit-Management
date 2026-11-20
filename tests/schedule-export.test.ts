@@ -4,7 +4,7 @@ import test from 'node:test';
 import fontkit from '@pdf-lib/fontkit';
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream } from 'pdf-lib';
 import { seed } from '../src/domain/seed';
-import { makeScheduleExport, scheduleCsv } from '../src/domain/schedule-export';
+import { makeMemberScheduleExport, makeScheduleExport, scheduleCsv } from '../src/domain/schedule-export';
 import { makeSchedulePdf } from '../src/domain/schedule-pdf';
 import { focusedScheduleClub, scheduleClubsMatchingTitle, scheduleGrid } from '../src/domain/cycle-overview';
 
@@ -128,6 +128,19 @@ test('member export includes selected clubs and visible cycles, including unassi
   const result = makeScheduleExport(data, ['c1']);
   assert.deepEqual(result.meetings.map((row) => row.slotId), ['s1', 's2', 's4']);
   assert.deepEqual(result.meetings.map((row) => row.cycleStatus), ['drafted', 'drafted', 'published']);
+});
+
+test('member exports include only the selected visible cycle and shown clubs', () => {
+  const data = fixture();
+  const selected = makeMemberScheduleExport(data, ['c1'], 'cycle1');
+  assert.deepEqual(selected.meetings.map((row) => row.slotId), ['s1', 's2']);
+  assert.match(selected.label, /Draft cycle · drafted/);
+  assert.ok(!scheduleCsv(selected).includes('Published cycle'));
+  const published = makeMemberScheduleExport(data, ['c1'], 'published');
+  assert.deepEqual(published.meetings.map((row) => row.slotId), ['s4']);
+  assert.deepEqual(makeMemberScheduleExport(data, [], 'cycle1').meetings, []);
+  assert.deepEqual(makeMemberScheduleExport(data, ['c1'], 'hidden').meetings, []);
+  assert.deepEqual(makeMemberScheduleExport(data, ['c1'], undefined).meetings, []);
 });
 
 test('staff export modes match their views and preserve the selected club scope', () => {

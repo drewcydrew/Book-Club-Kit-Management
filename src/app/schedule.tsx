@@ -11,10 +11,10 @@ import { ScheduleHandouts } from '../components/schedule-handouts';
 import { useScheduleWorkspace } from '../components/schedule-workspace';
 import { MemberSchedule, type MemberView } from '../components/member-schedule';
 import { TitleCover } from '../components/title-cover';
-import { focusedScheduleClub, memberScheduleMeetings, memberVisibleCycle, scheduleByKit, scheduleClubsMatchingTitle, scheduleGrid } from '../domain/cycle-overview';
+import { focusedScheduleClub, memberScheduleMeetings, memberVisibleCycle, scheduleByKit, scheduleClubsMatchingTitle, scheduleGrid, selectMemberScheduleCycle } from '../domain/cycle-overview';
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
-import { makeScheduleExport, type StaffScheduleView } from '../domain/schedule-export';
+import { makeMemberScheduleExport, makeScheduleExport, type StaffScheduleView } from '../domain/schedule-export';
 import { assignmentProblem, fairness, generationClubScope, rankings } from '../domain/logic';
 import type { Assignment } from '../domain/model';
 import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
@@ -50,6 +50,8 @@ function ScheduleContent() {
   const [highlightTitleId, setHighlightTitleId] = useState<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
   const [memberViewMode, setMemberViewMode] = useState<MemberView>('meetings');
+  const [memberCycleId, setMemberCycleId] = useState('');
+  const [memberCycleOpen, setMemberCycleOpen] = useState(false);
   const [staffViewMode, setStaffViewMode] = useState<StaffScheduleView>('grid');
   const [focusedClubId, setFocusedClubId] = useState('');
   const [publication, setPublication] = useState<{ cycleId: string; revision: number; assignments: Assignment[]; validation: ScheduleValidation } | null>(null);
@@ -106,7 +108,13 @@ function ScheduleContent() {
       [clubId, new Map((gridCycle.finalized[clubId] ?? rankings(viewData, gridCycle, clubId, true))
         .map((titleId, index) => [titleId, index + 1] as const))] as const))
     : null, [staff, mode, gridCycle, nativeGrid, focusedId, gridClubKey, viewData]);
-  const memberMeetings = staff ? [] : memberScheduleMeetings(data, gridClubs.map((club) => club.id));
+  const allMemberMeetings = staff ? [] : memberScheduleMeetings(data, enrolledClubIds);
+  const memberCycleIds = new Set(allMemberMeetings.map((meeting) => meeting.cycle.id));
+  const memberCycles = data.cycles.filter((value) => memberCycleIds.has(value.id));
+  const memberCycle = selectMemberScheduleCycle(memberCycles, memberCycleId, today());
+  if (!staff && memberCycleId !== (memberCycle?.id ?? '')) setMemberCycleId(memberCycle?.id ?? '');
+  const shownMemberClubs = new Set(gridClubs.map((club) => club.id));
+  const memberMeetings = allMemberMeetings.filter((meeting) => meeting.cycle.id === memberCycle?.id && shownMemberClubs.has(meeting.clubId));
   const kits = staff && mode === 'kits' && cycle ? scheduleByKit(viewData, cycle.id, gridClubs.map((club) => club.id)) : [];
   const discardPending = editor.pendingAction?.kind === 'discard';
   const regeneratePending = editor.pendingAction?.kind === 'regenerate';
@@ -272,12 +280,17 @@ function ScheduleContent() {
       <Action title="Discard unsaved staff changes" disabled={editor.busy} onPress={requestDiscard} />
     </Card>}
     <Card>
-      <Label>{staff ? `${cycle.name} · ${cycle.status}` : 'Your schedule'}</Label>
+      <Label>{staff ? `${cycle.name} · ${cycle.status}` : memberCycle ? `${memberCycle.name} · ${memberCycle.status}` : 'Your schedule'}</Label>
       <Actions>
         {staff && data.cycles.length > 1 && <Action title={cycleOpen ? 'Close cycles' : 'Change cycle'} onPress={() => setCycleOpen(!cycleOpen)} />}
+        {!staff && memberCycles.length > 1 && <Action title={memberCycleOpen ? 'Close cycles' : 'Change cycle'} expanded={memberCycleOpen} onPress={() => setMemberCycleOpen(!memberCycleOpen)} />}
         {staff && <Action title={toolsOpen ? 'Hide schedule actions' : 'Schedule actions'} onPress={() => setToolsOpen(!toolsOpen)} />}
         {staff && <ScheduleInstructions />}
       </Actions>
+      {!staff && memberCycleOpen && memberCycles.length > 1 && <Actions>{memberCycles.map((value) =>
+        <Action key={value.id} selected={value.id === memberCycle?.id} title={`${value.name} · ${value.status}`} onPress={() => {
+          setMemberCycleId(value.id); setMemberCycleOpen(false);
+        }} />)}</Actions>}
       {staff && cycleOpen && <Actions>{data.cycles.map((value) => <Action key={value.id} selected={value.id === cycle.id} disabled={editor.busy || validating} title={value.name} onPress={() => {
         if (value.id !== cycle.id) {
           editor.requestCycleChange(() => {
@@ -416,17 +429,19 @@ function ScheduleContent() {
           highlight: highlightTitleId ? { title: highlightTitle?.name ?? 'Unavailable title', count: highlightCount } : undefined,
         }} makeSchedule={() => makeScheduleExport(viewData, gridClubs.map((club) => club.id), cycle, editor.dirty, 'grid', highlightTitleId)}
           disabled={editor.busy || validating || !!publication} staffClubCount={gridClubs.length} />
-        : <ScheduleExportActions schedule={makeScheduleExport(viewData, gridClubs.map((club) => club.id), staff ? cycle : undefined, staff && editor.dirty, staff ? staffViewMode : undefined, staff && mode === 'grid' ? highlightTitleId : null)}
+        : <ScheduleExportActions schedule={staff
+          ? makeScheduleExport(viewData, gridClubs.map((club) => club.id), cycle, editor.dirty, staffViewMode, mode === 'grid' ? highlightTitleId : null)
+          : makeMemberScheduleExport(data, gridClubs.map((club) => club.id), memberCycle?.id)}
           disabled={staff && (editor.busy || validating || !!publication)} staffClubCount={staff ? gridClubs.length : undefined} />}
       {staff && <ScheduleHandouts data={viewData} cycle={cycle} clubIds={gridClubs.map((club) => club.id)}
         unsaved={editor.dirty} pending={editor.hasPending} disabled={editor.busy || validating || !!publication} />}
     </Card>
-    {!staff && <MemberSchedule key={JSON.stringify([person.id, gridClubKey, memberMeetings.map((meeting) =>
+    {!staff && <MemberSchedule key={JSON.stringify([person.id, memberCycle?.id, gridClubKey, memberMeetings.map((meeting) =>
       [meeting.key, meeting.date, meeting.month, meeting.cycle.startsOn, meeting.cycle.endsOn,
         meeting.assignment ? kitById.get(meeting.assignment.kitId)?.titleId : null,
         meeting.assignment ? titleById.has(kitById.get(meeting.assignment.kitId)?.titleId ?? '') : false])])}
       view={memberViewMode} onViewChange={setMemberViewMode} meetings={memberMeetings} today={today()}
-      emptyMessage={clubChoices.length === 0 ? 'You are not enrolled in any clubs. Enrol in a club on Home.' : gridClubs.length === 0 ? 'Select clubs to see their schedule.' : 'No drafted or published meetings are available for the selected clubs.'}
+      emptyMessage={clubChoices.length === 0 ? 'You are not enrolled in any clubs. Enrol in a club on Home.' : !memberCycle ? 'No drafted or published schedules are available for your clubs.' : gridClubs.length === 0 ? 'Select clubs to see their schedule.' : 'No meetings are available for the selected clubs in this cycle.'}
       labels={data.kitLabels}
       titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
       titleIdFor={(assignment) => kitById.get(assignment.kitId)?.titleId}

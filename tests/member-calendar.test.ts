@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { MemberScheduleMeeting } from '../src/domain/cycle-overview';
+import { selectMemberScheduleCycle, type MemberScheduleMeeting } from '../src/domain/cycle-overview';
 import { calendarDateLabel, calendarMonthLabel, calendarWeeks, memberCalendarMonths } from '../src/domain/member-calendar';
 import type { Cycle } from '../src/domain/model';
 
@@ -53,4 +53,18 @@ test('hiding past retains today, current undated meetings, and future empty mont
   assert.deepEqual(months[0].undated.map((item) => item.key), ['current-undated']);
   assert.equal(months[1].dated.size, 0);
   assert.equal(memberCalendarMonths(meetings, '2027-04-01', false).length, 0);
+});
+
+test('member cycle selection keeps a valid choice and falls back to current, upcoming, then past', () => {
+  const past = cycle('past', '2026-01-01', '2026-12-31');
+  const current = cycle('current', '2027-01-01', '2027-03-31');
+  const upcoming = cycle('upcoming', '2027-04-01', '2027-06-30');
+  const cycles = [upcoming, past, current];
+  assert.equal(selectMemberScheduleCycle(cycles, 'past', '2027-01-01')?.id, 'past');
+  assert.equal(selectMemberScheduleCycle(cycles, '', '2027-03-31')?.id, 'current');
+  assert.equal(selectMemberScheduleCycle([past, upcoming], 'removed', '2027-01-01')?.id, 'upcoming');
+  assert.equal(selectMemberScheduleCycle([past, current], '', '2028-01-01')?.id, 'current');
+  assert.equal(selectMemberScheduleCycle([], 'removed', '2027-01-01'), undefined);
+  const tied = [cycle('b', '2027-01-01', '2027-03-31'), cycle('a', '2027-01-01', '2027-03-31')];
+  assert.equal(selectMemberScheduleCycle(tied, '', '2027-02-01')?.id, 'a');
 });
