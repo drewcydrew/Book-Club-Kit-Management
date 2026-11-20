@@ -120,4 +120,47 @@ test('local schedule overrides require current specific validation and explicit 
   const published = await Promise.all([1,2].map(() => req(route, 'PUT', { ...publication, validationToken:result.json.token, acknowledge:true })));
   assert.deepEqual(published.map((response) => response.status).sort(), [200,409]);
   assert.equal((await state()).cycles.find((item) => item.id === 'cycle1').status, 'published');
+
+  await pool.query("INSERT INTO cycles(id,name,deadline,starts_on,ends_on,status) VALUES('regen','Regeneration','2031-12-01','2032-01-01','2032-02-29','collecting')");
+  await pool.query(`INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES
+    ('regen-jan','regen','c1','2032-01','2032-01-03'),
+    ('regen-feb','regen','c1','2032-02','2032-02-07'),
+    ('regen-hidden','regen','c2','2032-01',NULL)`);
+  const old = { id:'regen-old', cycleId:'regen', slotId:'regen-jan', clubId:'c1', kitId:'k3',
+    ready:'2031-12-13', meeting:'2032-01-03', due:'2032-01-10', locked:true };
+  await pool.query(`INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, Object.values(old));
+  const regenRoute = '/api/cycles/regen/schedule';
+  const fresh = { id:'regen-new-a', cycleId:'regen', slotId:'regen-new-jan', clubId:'c1', kitId:'k3',
+    ready:'2031-12-25', meeting:'2032-01-15', due:'2032-01-22', locked:false };
+  const replacement = { revision:1, publish:false, assignments:[fresh], unlockIds:[old.id], basis:await updatedBasis(),
+    removedSlotIds:['regen-jan','regen-feb'],
+    newSlots:[{ id:'regen-new-jan', clubId:'c1', month:'2032-01' }, { id:'regen-new-feb', clubId:'c1', month:'2032-02' }],
+    datedSlots:[{ id:'regen-new-jan', meeting:'2032-01-15' }, { id:'regen-new-feb', meeting:'2032-02-19' }] };
+  assert.equal((await req(`${regenRoute}/validate`, 'POST', { ...replacement, unlockIds:[] })).status, 409);
+  const preview = await req(`${regenRoute}/validate`, 'POST', replacement);
+  assert.equal(preview.status, 200, JSON.stringify(preview.json));
+  assert.equal((await req(regenRoute, 'PUT', { ...replacement, datedSlots:replacement.datedSlots.slice(0, 1),
+    validationToken:preview.json.token, acknowledge:true })).status, 409);
+  const before = await state();
+  const collision = { ...replacement,
+    newSlots:[replacement.newSlots[0], { ...replacement.newSlots[1], id:'other-slot' }],
+    datedSlots:[replacement.datedSlots[0], { ...replacement.datedSlots[1], id:'other-slot' }] };
+  const collisionPreview = await req(`${regenRoute}/validate`, 'POST', collision);
+  assert.equal(collisionPreview.status, 200, JSON.stringify(collisionPreview.json));
+  assert.ok((await req(regenRoute, 'PUT', { ...collision, validationToken:collisionPreview.json.token, acknowledge:true })).status >= 400);
+  const rolledBack = await state();
+  assert.deepEqual(rolledBack.cycles.find((item) => item.id === 'regen'), before.cycles.find((item) => item.id === 'regen'));
+  assert.deepEqual(rolledBack.assignments.filter((item) => item.cycleId === 'regen'), [old]);
+  const regenSaved = await req(regenRoute, 'PUT', { ...replacement, validationToken:preview.json.token, acknowledge:true });
+  assert.equal(regenSaved.status, 200, JSON.stringify(regenSaved.json));
+  const after = await state();
+  const newCycle = after.cycles.find((item) => item.id === 'regen');
+  assert.deepEqual(newCycle.slots.map(({ id, meeting }) => ({ id, meeting })).sort((a,b) => a.id.localeCompare(b.id)), [
+    { id:'regen-hidden', meeting:null }, { id:'regen-new-feb', meeting:'2032-02-19' }, { id:'regen-new-jan', meeting:'2032-01-15' },
+  ]);
+  assert.deepEqual(after.assignments.filter((item) => item.cycleId === 'regen'), [fresh]);
+  assert.equal((await req(`${regenRoute}/validate`, 'POST', replacement)).status, 409);
+  await pool.query("UPDATE cycles SET status='published' WHERE id='regen'");
+  assert.equal((await req(`${regenRoute}/validate`, 'POST', { ...replacement, revision:regenSaved.json.revision, publish:true })).status, 409);
 });

@@ -116,7 +116,7 @@ function CyclesContent() {
           : 'Voting is closed because the deadline has passed. Edit the deadline and any incompatible meeting dates to reopen voting.'}</Note>}
         {(cycle.status === 'drafted' || cycle.status === 'published') && (reopenId === cycle.id ? <>
           <Note>Reopen {cycle.name} from {cycle.status} to collecting? Published schedules disappear from member views. Active-loan due dates and associations can disappear, affecting overdue, history and availability checks. This is a development measure, not a production-safe loan workflow.</Note>
-          <Note>Slots, assignments, locks, ballots and finalized rankings are retained. Later changing or removing a slot deletes its assignment, even if locked or in use, without another confirmation. Redrafting can replace unlocked assignments.</Note>
+          <Note>Slots, assignments, locks, ballots and finalized rankings are retained. Later changing or removing a slot deletes its assignment, even if locked or in use, without another confirmation. Full schedule regeneration replaces dates and assignments, including locks, after confirmation.</Note>
           <Actions>
             <Action tone="danger" title="Confirm reopen for editing" disabled={shared.saving} onPress={() => {
               void shared.mutate(() => reopenCycle(cycle.id, cycle.revision)).then(() => {
@@ -148,7 +148,7 @@ function CyclesContent() {
       {cycle.status === 'open' && <Action title="Open member voting" disabled={shared.saving} onPress={() => { void persist({ ...cycle, status: 'collecting' }, 'Voting opened.'); }} />}
       {editable && <Label>Kit slots by month</Label>}
       {editable && data.assignments.some((assignment) => assignment.cycleId === cycle.id) && <Note>
-        Assignments may be provisional. Changing or removing a slot deletes its assignment, including locked or in-use assignments, without another confirmation. To clear an invalid locked assignment, remove its slot and add it again. Redrafting can replace unlocked assignments.
+        Assignments may be provisional. Changing or removing a slot deletes its assignment, including locked or in-use assignments, without another confirmation. Full schedule regeneration replaces dates and assignments, including locks, after confirmation.
       </Note>}
       {editable && cycle.slots.length === 0 && <Note>No kit slots yet. Add slots below, or fill each club&apos;s cadence months in the range.</Note>}
       {editable && monthsInRange(cycle.startsOn, cycle.endsOn).map((month) => {

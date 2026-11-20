@@ -1085,7 +1085,7 @@ function ClubsContent() {
                     <Actions>{meetingOccurrences.map(({ value, label }) => <Action key={value} title={label} selected={draft.club.meetingOccurrence === value} onPress={() => changeDetails({ meetingOccurrence: value })} />)}</Actions>
                     <Label>Meeting weekday</Label>
                     <Actions>{meetingWeekdays.map(({ value, label }) => <Action key={value} title={label} selected={draft.club.meetingWeekday === value} onPress={() => changeDetails({ meetingWeekday: value })} />)}</Actions>
-                    <Note>Undated meetings use {meetingRuleLabel(draft.club)}. Changing this rule does not move dated meetings; cadence changes may remove them after confirmation.</Note>
+                    <Note>Undated meetings use {meetingRuleLabel(draft.club)}. Changing this rule alone does not move dated meetings. Full schedule generation replaces shown clubs&apos; dates after confirmation.</Note>
                     <Action
                       title={`Method: ${draft.club.pickup}`}
                       onPress={() =>

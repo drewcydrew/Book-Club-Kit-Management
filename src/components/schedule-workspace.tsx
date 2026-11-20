@@ -4,6 +4,7 @@ import { Platform, Pressable, Text, View } from 'react-native';
 import { assignmentProblems, draftAsync, exclusionUnlockIds, generationClubScope, id, meetingFor, prepareDraftExclusions, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
 import { reconcileCadence } from '../domain/cadence';
 import { preserveUnassignedMeetingDates } from '../domain/meeting-rule';
+import { dateRegeneratedSlots, prepareFullRegeneration, regenerationUnlockIds } from '../domain/schedule-regeneration';
 import { scheduleHasChanges, slotChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
 import { generationConfirmation, scheduleSelectionPending } from '../domain/schedule-pending';
@@ -189,6 +190,17 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     generatingRef.current = true;
     setGenerating(true); setMessage(scope ? 'Generating assignments...' : 'Generating schedule...');
     try {
+      if (!scope) {
+        const reset = prepareFullRegeneration(source.base, source.cycle, excludedClubIds, id);
+        const input = prepareDraftExclusions(reset.data, reset.cycle, excludedClubIds);
+        const result = await draftAsync(input.data, input.cycle, true, undefined, generationMode);
+        const dated = dateRegeneratedSlots(source.base, reset.cycle, excludedClubIds);
+        const unlockIds = regenerationUnlockIds(source.base.assignments, reset.cycle.id, source.unlockIds);
+        setWorkspace({ ...source, cycle: dated.cycle, assignments: result.assignments.filter((assignment) => assignment.cycleId === reset.cycle.id),
+          unlockIds, generationProblems: [...new Set([...result.problems, ...dated.problems])] });
+        setValidation(null); closeSlot(); setMessage(''); setClubResult(null);
+        return;
+      }
       const includedIds = scope ? [scope.clubId] : source.base.clubs.filter((club) => !excludedClubIds.includes(club.id)).map((club) => club.id);
       const cadence = reconcileCadence(source.cycle, source.base.clubs, includedIds, id);
       const removedSlotIds = new Set(cadence.removed.map((slot) => slot.id));
@@ -249,7 +261,8 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     }
     const excluded = scope.excludedClubIds;
     const cadenceDescription = cadenceConfirmation(source, source.base.clubs.filter((club) => !excluded.includes(club.id)).map((club) => club.id));
-    const description = [generationConfirmation(scope.shownCount, excluded, source.assignments, source.base.assignments, dirty, hasPending), cadenceDescription].filter(Boolean).join('\n');
+    const description = [generationConfirmation(scope.shownCount, excluded, source.assignments, source.base.assignments,
+      dirty, hasPending, source.cycle, source.base.clubs, source.base.kits), cadenceDescription].filter(Boolean).join('\n');
     const capturedData = snapshot(data);
     const run = () => {
       if (latest.current.workspace !== workspace || latest.current.currentCycle?.id !== currentCycle?.id || snapshot(latest.current.data) !== capturedData) {
