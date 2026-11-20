@@ -113,11 +113,11 @@ test('confirmed club deletion is atomic, persistent and rejects changed previews
   assert.equal(shared.json.cycles.find((cycle) => cycle.id === 'solo').status, 'published');
   assert.equal(shared.json.cycles.find((cycle) => cycle.id === 'solo').slots.length, 0);
 
-  await pool.query("INSERT INTO clubs(id,name,branch,size,cadence,pickup,address) VALUES('empty','Empty','Central',1,'','pickup','')");
+  await pool.query("INSERT INTO clubs(id,name,branch,size,cadence,pickup,address) VALUES('empty','Empty','Central',1,1,'pickup','')");
   const emptyPreview = await preview('empty');
   assert.equal(emptyPreview.json.counts.memberships, 0);
   assert.equal((await remove(emptyPreview.json, 'empty')).status, 204);
-  await pool.query("INSERT INTO clubs(id,name,branch,size,cadence,pickup,address) VALUES('race','Race','Central',1,'','pickup','')");
+  await pool.query("INSERT INTO clubs(id,name,branch,size,cadence,pickup,address) VALUES('race','Race','Central',1,1,'pickup','')");
   const racePreview = (await preview('race')).json;
   const [linked, removed] = await Promise.all([req('/api/clubs/race/kits/k3', 'PUT'), remove(racePreview, 'race')]);
   assert.ok((linked.status === 204 && removed.status === 409) || (linked.status === 404 && removed.status === 204));

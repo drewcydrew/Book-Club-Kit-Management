@@ -24,6 +24,7 @@ import {
   styles as uiStyles,
 } from "../components/ui";
 import type { Club, Membership } from "../domain/model";
+import { cadenceLabel } from "../domain/cadence";
 import type { PickerOption } from "../domain/search";
 import {
   ApiError,
@@ -75,7 +76,7 @@ const blankClub = (branch: string): Club => ({
   branch,
   leaderId: "",
   size: 1,
-  cadence: "Monthly",
+  cadence: 1,
   pickup: "pickup",
   address: "",
   history: [],
@@ -889,7 +890,7 @@ function ClubsContent() {
             {openClubs[value.id] && (
               <>
                 <Note>
-                  {value.branch} · {value.size} members · {value.cadence} ·{" "}
+                  {value.branch} · {value.size} members · {cadenceLabel(value.cadence)} ·{" "}
                   {value.pickup}
                 </Note>
                 {value.pickup === "delivery" ? (
@@ -1050,7 +1051,7 @@ function ClubsContent() {
                   )}
                   <Fold
                     title="Details"
-                    summary={`${draft.club.cadence} · ${draft.club.pickup}`}
+                    summary={`${cadenceLabel(draft.club.cadence)} · ${draft.club.pickup}`}
                     open={open.details}
                     onToggle={() => toggleSection("details")}
                   >
@@ -1069,11 +1070,12 @@ function ClubsContent() {
                       value={draft.sizeText}
                       onChangeText={(text) => changeDetails({}, text)}
                     />
-                    <Field
-                      label="Meeting cadence"
-                      value={draft.club.cadence}
-                      onChangeText={(cadence) => changeDetails({ cadence })}
-                    />
+                    <Label>Meeting cadence</Label>
+                    <Actions>
+                      <Action title="Monthly" selected={draft.club.cadence === 1} onPress={() => changeDetails({ cadence: 1 })} />
+                      <Action title="Six weeks" selected={draft.club.cadence === 1.5} onPress={() => changeDetails({ cadence: 1.5 })} />
+                    </Actions>
+                    <Note>Six weeks schedules two months, then skips one, starting with the cycle&apos;s first month. It does not calculate exact six-week meeting dates.</Note>
                     <Action
                       title={`Method: ${draft.club.pickup}`}
                       onPress={() =>

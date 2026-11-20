@@ -54,7 +54,7 @@ function isKitLabel(value: unknown): value is KitLabel {
 }
 function isClub(value: unknown): value is SharedClub {
   return isObject(value) && isString(value.id) && isString(value.name) && isString(value.branch) &&
-    isNumber(value.size) && isString(value.cadence) &&
+    isNumber(value.size) && (value.cadence === 1 || value.cadence === 1.5) &&
     (value.pickup === 'pickup' || value.pickup === 'delivery') && isString(value.address) && isNumber(value.revision);
 }
 function isLink(value: unknown): value is ClubKit {

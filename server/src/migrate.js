@@ -30,7 +30,7 @@ if (require.main === module) {
     const pool = getPool();
     try { await migrate(pool); console.log('Migrations complete.'); }
     finally { await pool.end(); }
-  })().catch((error) => { console.error('Migration failed:', error.code || (error.message.startsWith('DATABASE_URL') ? error.message : 'unknown')); process.exitCode = 1; });
+  })().catch((error) => { console.error('Migration failed:', error.code === 'P0001' && error.message.startsWith('Unrecognized club cadence values:') ? error.message : error.code || (error.message.startsWith('DATABASE_URL') ? error.message : 'unknown')); process.exitCode = 1; });
 }
 
 module.exports = { migrate };

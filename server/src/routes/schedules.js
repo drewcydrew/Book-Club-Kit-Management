@@ -74,7 +74,7 @@ async function schedule(req, res, validateOnly) {
     const removedSet = new Set(removedSlotIds);
     for (const slotId of removedSlotIds) {
       if (!cycleSlotIds.has(slotId)) throw new HttpError(409,'A meeting to remove is no longer available. Refresh and retry.');
-      if (existing.some((e) => e.slotId === slotId) || assignments.some((a) => a.slotId === slotId)) throw new HttpError(409,'Clear the assignment before removing its meeting.');
+      if (assignments.some((a) => a.slotId === slotId)) throw new HttpError(409,'Clear the assignment before removing its meeting.');
     }
     const kept = cycleSlots.filter((s) => !removedSet.has(s.id));
     for (const s of newSlots) {
@@ -134,10 +134,10 @@ async function schedule(req, res, validateOnly) {
     } else if (typeof b.validationToken !== 'string' || b.validationToken !== token || (warnings.length && b.acknowledge !== true)) {
       throw new HttpError(409,'Schedule validation changed or warnings were not acknowledged. Review and validate again.');
     }
+    await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1',[cycleId]);
     if (removedSlotIds.length) await c.query('DELETE FROM meeting_slots WHERE cycle_id=$1 AND id=ANY($2)',[cycleId,removedSlotIds]);
     for (const s of newSlots) await c.query('INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES($1,$2,$3,$4,NULL)',[s.id,cycleId,s.clubId,s.month]);
     for (const d of dateless) await c.query('UPDATE meeting_slots SET meeting=$3 WHERE cycle_id=$1 AND id=$2',[cycleId,d.slotId,d.meeting]);
-    await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1',[cycleId]);
     const column = (key) => assignments.map((a) => a[key]);
     await c.query(`INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked)
       SELECT * FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::date[],$7::date[],$8::date[],$9::boolean[])`,

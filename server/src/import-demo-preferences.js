@@ -198,7 +198,7 @@ async function importDemoPreferences(pool, input, { dryRun = false } = {}) {
 
     if (dryRun) { await c.query('ROLLBACK'); return report; }
     for (const club of clubs) {
-      if (club.create) await c.query("INSERT INTO clubs(id,name,branch,size,cadence,pickup,address) VALUES($1,$2,'Central',10,'','pickup','')", [club.id, club.name]);
+      if (club.create) await c.query("INSERT INTO clubs(id,name,branch,size,cadence,pickup,address) VALUES($1,$2,'Central',10,1,'pickup','')", [club.id, club.name]);
       if (club.createPerson) {
         await c.query("INSERT INTO people(id,name,role) VALUES($1,$2,'member')", [club.personId, `Sample member (${club.name})`]);
         await c.query('INSERT INTO memberships(club_id,person_id,leader) VALUES($1,$2,false)', [club.id, club.personId]);

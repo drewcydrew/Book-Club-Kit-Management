@@ -2,6 +2,7 @@ import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
 import { assignmentProblems, draftAsync, exclusionUnlockIds, generationClubScope, id, meetingFor, prepareDraftExclusions, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
+import { reconcileCadence } from '../domain/cadence';
 import { scheduleHasChanges, slotChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
 import { generationConfirmation, scheduleSelectionPending } from '../domain/schedule-pending';
@@ -75,6 +76,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   const stale = !!workspace && (reconciliationRequired || !!shared.error || snapshot(data) !== workspace.snapshot);
   const proposalData = useMemo(() => workspace && dirty ? {
     ...workspace.base,
+    cycles: workspace.base.cycles.map((cycle) => cycle.id === workspace.cycle.id ? workspace.cycle : cycle),
     assignments: [...workspace.base.assignments.filter((a) => a.cycleId !== workspace.cycle.id), ...workspace.assignments],
   } : null, [workspace, dirty]);
   useEffect(() => {
@@ -181,19 +183,23 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   async function regenerate(scope?: DraftScope, excludedClubIds: readonly string[] = []) {
     if (!currentCycle || (stale && dirty) || generatingRef.current) return;
     const source = workspace && (dirty || !stale) ? workspace : createWorkspace(currentCycle);
-    const allAssignments = [...source.base.assignments.filter((a) => a.cycleId !== source.cycle.id), ...source.assignments];
-    const input = prepareDraftExclusions({ ...source.base, assignments: allAssignments }, source.cycle, excludedClubIds);
     generatingRef.current = true;
     setGenerating(true); setMessage(scope ? 'Generating assignments...' : 'Generating schedule...');
     try {
+      const includedIds = scope ? [scope.clubId] : source.base.clubs.filter((club) => !excludedClubIds.includes(club.id)).map((club) => club.id);
+      const cadence = reconcileCadence(source.cycle, source.base.clubs, includedIds, id);
+      const removedSlotIds = new Set(cadence.removed.map((slot) => slot.id));
+      const cadenceRemoved = source.assignments.filter((assignment) => removedSlotIds.has(assignment.slotId));
+      const allAssignments = [...source.base.assignments.filter((a) => a.cycleId !== source.cycle.id), ...source.assignments.filter((a) => !removedSlotIds.has(a.slotId))];
+      const input = prepareDraftExclusions({ ...source.base, cycles: source.base.cycles.map((cycle) => cycle.id === cadence.cycle.id ? cadence.cycle : cycle), assignments: allAssignments }, cadence.cycle, excludedClubIds);
       const result = await draftAsync(input.data, input.cycle, true, scope, generationMode);
       const generated = result.assignments.filter((a) => a.cycleId === source.cycle.id);
-      const unlockIds = exclusionUnlockIds(source.base.assignments.filter((assignment) => assignment.cycleId === source.cycle.id), input.removed, source.unlockIds);
-      setWorkspace({ ...source, assignments: generated, unlockIds, generationProblems: result.problems });
+      const unlockIds = exclusionUnlockIds(source.base.assignments.filter((assignment) => assignment.cycleId === source.cycle.id), [...input.removed, ...cadenceRemoved], source.unlockIds);
+      setWorkspace({ ...source, cycle: cadence.cycle, assignments: generated, unlockIds, generationProblems: result.problems });
       setValidation(null); closeSlot();
       if (scope) {
-        const before = unassignedInScope(source.cycle, source.assignments, scope);
-        const after = unassignedInScope(source.cycle, generated, scope);
+        const before = unassignedInScope(cadence.cycle, source.assignments, scope);
+        const after = unassignedInScope(cadence.cycle, generated, scope);
         const name = source.base.clubs.find((club) => club.id === scope.clubId)?.name ?? 'this club';
         const text = before === 0 ? `No unassigned meetings for ${name}.`
           : `Assigned ${before - after} of ${before} unassigned meetings for ${name}.${after ? ' See the reasons below.' : ''}`;
@@ -206,6 +212,22 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
       generatingRef.current = false;
       setGenerating(false);
     }
+  }
+
+  function cadenceConfirmation(source: Workspace, clubIds: readonly string[]) {
+    const cadence = reconcileCadence(source.cycle, source.base.clubs, clubIds, id);
+    const details = cadence.removed.map((slot) => {
+      const club = source.base.clubs.find((item) => item.id === slot.clubId);
+      const assignment = source.assignments.find((item) => item.slotId === slot.id);
+      const sharedLock = assignment && source.base.assignments.some((item) => item.id === assignment.id && item.locked);
+      const date = assignment?.meeting ?? slot.meeting;
+      return `${club?.name ?? slot.clubId} ${slot.month}${date ? ` (dated ${date})` : ''}${assignment ? assignment.locked || sharedLock ? ' (locked assignment will be unlocked and removed)' : ' (assignment will be removed)' : ''}`;
+    });
+    const additions = cadence.added.map((slot) => `${source.base.clubs.find((club) => club.id === slot.clubId)?.name ?? slot.clubId} ${slot.month}`);
+    return [
+      details.length ? `Cadence removes meetings: ${details.join('; ')}.` : '',
+      additions.length ? `Cadence adds undated meetings: ${additions.join('; ')}. Default meeting dates will be used.` : '',
+    ].filter(Boolean).join('\n');
   }
 
   function requestGenerate(shownClubIds: readonly string[]) {
@@ -222,7 +244,8 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
       return;
     }
     const excluded = scope.excludedClubIds;
-    const description = generationConfirmation(scope.shownCount, excluded, source.assignments, source.base.assignments, dirty, hasPending);
+    const cadenceDescription = cadenceConfirmation(source, source.base.clubs.filter((club) => !excluded.includes(club.id)).map((club) => club.id));
+    const description = [generationConfirmation(scope.shownCount, excluded, source.assignments, source.base.assignments, dirty, hasPending), cadenceDescription].filter(Boolean).join('\n');
     const capturedData = snapshot(data);
     const run = () => {
       if (latest.current.workspace !== workspace || latest.current.currentCycle?.id !== currentCycle?.id || snapshot(latest.current.data) !== capturedData) {
@@ -240,8 +263,18 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   function requestGenerateClub(scope: DraftScope) {
     if (stale && dirty) { setMessage('The schedule changed elsewhere. Refresh, then discard local changes before generating.'); return; }
     if (busy || generatingRef.current) return;
-    const run = () => { void regenerate(scope); };
-    if (hasPending) setPendingAction({ description: 'Generate assignments and discard unapplied selections?', confirmLabel: 'Confirm generate', run });
+    const source = workspace && (dirty || !stale) ? workspace : currentCycle ? createWorkspace(currentCycle) : null;
+    if (!source) return;
+    const description = cadenceConfirmation(source, [scope.clubId]);
+    const capturedData = snapshot(data);
+    const run = () => {
+      if (latest.current.workspace !== workspace || latest.current.currentCycle?.id !== currentCycle?.id || snapshot(latest.current.data) !== capturedData) {
+        setMessage('The schedule changed while confirmation was open. Review and generate again.');
+        return;
+      }
+      void regenerate(scope);
+    };
+    if (hasPending || description) setPendingAction({ kind: 'regenerate', description: [description, hasPending ? 'Discard unapplied selections?' : 'Generate assignments for this club?'].filter(Boolean).join('\n'), confirmLabel: 'Confirm generate', run });
     else run();
   }
 

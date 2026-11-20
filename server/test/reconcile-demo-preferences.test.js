@@ -68,10 +68,10 @@ test('2027 reconciliation previews, applies and safely repeats partial rankings'
   await migrate(pool);
   await pool.query(`
     INSERT INTO clubs(id,name,branch,size,cadence,pickup,address) VALUES
-      ('target','Alpha Example Club','Central',10,'','pickup',''),
-      ('empty','Empty Example Club','Central',10,'','pickup',''),
-      ('collision','Collision Example Club','Central',10,'','pickup',''),
-      ('fuzzy','Fuzzy Example Club','Central',10,'','pickup','');
+      ('target','Alpha Example Club','Central',10,1,'pickup',''),
+      ('empty','Empty Example Club','Central',10,1,'pickup',''),
+      ('collision','Collision Example Club','Central',10,1,'pickup',''),
+      ('fuzzy','Fuzzy Example Club','Central',10,1,'pickup','');
     INSERT INTO people(id,name,role) VALUES
       ('a','Member A','member'),('b','Member B','member'),('c','Member C','member'),('d','Member D','member');
     INSERT INTO memberships(club_id,person_id) VALUES

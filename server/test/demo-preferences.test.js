@@ -77,7 +77,7 @@ test('2027 import is atomic, repeatable and available to preferences and schedul
   await pool.query("INSERT INTO cycles(id,name,deadline,starts_on,ends_on,status) VALUES($1,'Conflict','2026-12-15','2027-01-01','2027-12-31','collecting')", [CYCLE_ID]);
   await assert.rejects(importDemoPreferences(pool, parsed), /already exists without the import gate/);
   await pool.query('DELETE FROM cycles WHERE id=$1', [CYCLE_ID]);
-  await pool.query("INSERT INTO clubs(id,name,branch,size,cadence,pickup,address) VALUES('duplicate','Pascoe vale readers','Central',10,'','pickup','')");
+  await pool.query("INSERT INTO clubs(id,name,branch,size,cadence,pickup,address) VALUES('duplicate','Pascoe vale readers','Central',10,1,'pickup','')");
   await assert.rejects(importDemoPreferences(pool, parsed), /Ambiguous database club/);
   await pool.query("DELETE FROM clubs WHERE id='duplicate'");
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM ballots')).rows[0].n, 0);

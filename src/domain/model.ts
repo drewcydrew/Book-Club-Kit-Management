@@ -60,7 +60,7 @@ export interface Club {
   branch: string;
   leaderId: string;
   size: number;
-  cadence: string;
+  cadence: 1 | 1.5;
   pickup: 'pickup' | 'delivery';
   address: string;
   history: string[];

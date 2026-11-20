@@ -12,19 +12,26 @@ const migrations = [
 const last = migrations[migrations.length - 1];
 // Data-only migrations that do not change the schema this repair verifies.
 const dataMigrations = ['010_demo_preferences_2027_aligned.sql', '011_demo_preferences_2028.sql', '012_demo_cycles_2027_2028.sql'];
+const cadenceMigration = '013_club_cadence.sql';
 
 async function inspect(client, schema) {
   const actual = await inventory(client, schema);
-  const issues = compareInventory(expected, actual, ['title_label_assignments', 'kit_label_assignments']);
-  if (!actual.schema_migrations || issues.some((item) => item.includes('schema_migrations'))) {
-    return { issues, state: 'blocked' };
+  if (!actual.schema_migrations) {
+    return { issues: ['Missing table schema_migrations.'], state: 'blocked' };
   }
   const ledger = (await client.query('SELECT name FROM schema_migrations ORDER BY name')).rows.map((row) => row.name);
+  const expectedSchema = structuredClone(expected);
+  if (ledger.includes(cadenceMigration)) {
+    expectedSchema.clubs.columns.cadence = { type: 'double precision', not_null: true, default_value: '1' };
+    expectedSchema.clubs.constraints.clubs_cadence_check = { definition: 'CHECK ((cadence = ANY (ARRAY[(1)::double precision, (1.5)::double precision])))' };
+  }
+  const issues = compareInventory(expectedSchema, actual, ['title_label_assignments', 'kit_label_assignments']);
+  if (issues.some((item) => item.includes('schema_migrations'))) return { issues, state: 'blocked' };
   for (const name of migrations.slice(0, -1)) {
     if (!ledger.includes(name)) issues.push(`Migration ${name} is not recorded; inspect its effects before proceeding.`);
   }
   for (const name of ledger) {
-    if (!name.startsWith('seed:') && !migrations.includes(name) && !dataMigrations.includes(name)) issues.push(`Unknown migration ${name}; this repair cannot verify a newer or different schema.`);
+    if (!name.startsWith('seed:') && !migrations.includes(name) && !dataMigrations.includes(name) && name !== cadenceMigration) issues.push(`Unknown migration ${name}; this repair cannot verify a newer or different schema.`);
   }
   const applied = ledger.includes(last);
   const titleExists = !!actual.title_label_assignments;

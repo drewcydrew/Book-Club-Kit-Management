@@ -3,6 +3,7 @@ import { Text, View } from 'react-native';
 import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
 import { today, validDate } from '../domain/dates';
 import { clubPriorities, clubStatuses, groupSlotsByMonth, lastDayOfMonth, memberVotes, monthsInRange, shiftMonth, type ClubStatus } from '../domain/cycle-overview';
+import { cadenceMonths } from '../domain/cadence';
 import { id } from '../domain/logic';
 import type { Club, Cycle, Data, Slot } from '../domain/model';
 import { deleteCycle, discardCycleSchedule, reopenCycle, saveCycle } from '../state/api';
@@ -89,11 +90,10 @@ function CyclesContent() {
 
   function fillMonths() {
     if (!cycle || (cycle.status !== 'open' && cycle.status !== 'collecting')) return;
-    const months = monthsInRange(cycle.startsOn, cycle.endsOn);
-    const added = data.clubs.flatMap((club) => months
+    const added = data.clubs.flatMap((club) => cadenceMonths(cycle, club.cadence)
       .filter((month) => !cycle.slots.some((slot) => slot.clubId === club.id && slot.month === month))
       .map((month) => ({ id: id(), clubId: club.id, month, meeting: null })));
-    if (added.length === 0) { setMessage('Every club already has a slot for each month.'); return; }
+    if (added.length === 0) { setMessage('Every club already has a slot for each cadence month.'); return; }
     void persist({ ...cycle, slots: [...cycle.slots, ...added] }, `Added ${added.length} kit slots.`);
   }
 
@@ -150,7 +150,7 @@ function CyclesContent() {
       {editable && data.assignments.some((assignment) => assignment.cycleId === cycle.id) && <Note>
         Assignments may be provisional. Changing or removing a slot deletes its assignment, including locked or in-use assignments, without another confirmation. To clear an invalid locked assignment, remove its slot and add it again. Redrafting can replace unlocked assignments.
       </Note>}
-      {editable && cycle.slots.length === 0 && <Note>No kit slots yet. Add slots below, or fill every club and month in the range.</Note>}
+      {editable && cycle.slots.length === 0 && <Note>No kit slots yet. Add slots below, or fill each club&apos;s cadence months in the range.</Note>}
       {editable && monthsInRange(cycle.startsOn, cycle.endsOn).map((month) => {
         const slots = cycle.slots.filter((slot) => slot.month === month);
         return <View key={month} style={{ gap: 8 }}><Label>{monthLabel(month)}{slots.length === 0 ? ': none' : ''}</Label>
@@ -173,10 +173,11 @@ function CyclesContent() {
         </View>;
       })}
       {(cycle.status === 'open' || cycle.status === 'collecting') && <>
+        <Note>Manual meetings can be changed by the next confirmed schedule generation to match club cadence.</Note>
         <Note>Select club:</Note><Actions>{data.clubs.map((club) => <Action key={club.id} selected={club.id === clubId} title={`${club.name}${club.id === clubId ? ' ✓' : ''}`} onPress={() => setClubId(club.id)} />)}</Actions>
         <Field label="Month (YYYY-MM)" value={slotMonth} onChangeText={setSlotMonth} />
         <Field label="Meeting date, optional (YYYY-MM-DD)" value={meeting} onChangeText={setMeeting} />
-        <Actions><Action title="Add kit slot" disabled={shared.saving} onPress={addSlot} /><Action title="Fill every club and month" disabled={shared.saving} onPress={fillMonths} /></Actions>
+        <Actions><Action title="Add kit slot" disabled={shared.saving} onPress={addSlot} /><Action title="Fill club cadence months" disabled={shared.saving} onPress={fillMonths} /></Actions>
       </>}
       {deleteId === cycle.id ? <Actions><Note>Delete this cycle? This removes its meetings, member preferences, finalized rankings and schedule. In-use cycles can be deleted; this cannot be undone.</Note>
         <Action tone="danger" title="Confirm delete cycle" disabled={shared.saving} onPress={() => {

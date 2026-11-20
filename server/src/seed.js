@@ -14,8 +14,8 @@ const kits = [
   ['k5', 't4', 'Central', 10, '', 'KIT-105'],
 ];
 const clubs = [
-  ['c1', 'Harbour Readers', 'Central', 8, 'Monthly', 'pickup', ''],
-  ['c2', 'Westside Stories', 'West', 10, 'Monthly', 'delivery', 'Fictional West Community Centre'],
+  ['c1', 'Harbour Readers', 'Central', 8, 1, 'pickup', ''],
+  ['c2', 'Westside Stories', 'West', 10, 1, 'delivery', 'Fictional West Community Centre'],
 ];
 
 async function seed(pool) {
