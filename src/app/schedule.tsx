@@ -421,7 +421,8 @@ function ScheduleContent() {
         unsaved={editor.dirty} pending={editor.hasPending} disabled={editor.busy || validating || !!publication} />}
     </Card>
     {!staff && <MemberSchedule key={JSON.stringify([person.id, gridClubKey, memberMeetings.map((meeting) =>
-      [meeting.key, meeting.assignment ? kitById.get(meeting.assignment.kitId)?.titleId : null,
+      [meeting.key, meeting.date, meeting.month, meeting.cycle.startsOn, meeting.cycle.endsOn,
+        meeting.assignment ? kitById.get(meeting.assignment.kitId)?.titleId : null,
         meeting.assignment ? titleById.has(kitById.get(meeting.assignment.kitId)?.titleId ?? '') : false])])}
       view={memberViewMode} onViewChange={setMemberViewMode} meetings={memberMeetings} today={today()}
       emptyMessage={clubChoices.length === 0 ? 'You are not enrolled in any clubs. Enrol in a club on Home.' : gridClubs.length === 0 ? 'Select clubs to see their schedule.' : 'No drafted or published meetings are available for the selected clubs.'}

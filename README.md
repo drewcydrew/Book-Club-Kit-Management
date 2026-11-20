@@ -110,6 +110,20 @@ Adjust the directory for your installation. The runner passes connection details
 
 Changed clubs lose their finalized rankings, matching the normal ballot-save workflow; preferences are recalculated from ballots. Schedule assignments and club reading history remain unchanged, so history may still exclude a selected title. A repeat run with unchanged data is a no-op, but running it again after later ballot edits will reconcile those edits again. Refresh the app and audit the results after applying.
 
+### Reconcile club meeting rules
+
+The standalone `server/scripts/reconcile-club-meeting-rules.sql` embeds the 43 club rules from the supplied workbook; it does not read the spreadsheet at runtime and is not a migration. It matches normalized names or the listed best-guess aliases, with no automatic fuzzy matching. Review every alias: unmatched names, multiple candidates, multiple source names targeting one club and revision-overflow clubs are reported and skipped. It does not create clubs. The preview shows each candidate, old and proposed values, and any retained unknown weekday or occurrence. For six-week rules without a complete monthly rule, it retains the existing unknown parts; six weeks remains the app's two-month-on, one-month-off approximation.
+
+Stop app writes, take a verified restorable backup, verify the target database and schema, and ensure migrations 013 and 014 have been applied. Install a compatible PostgreSQL `psql` client and set `DATABASE_URL` privately in the server environment or root `.env`. From `server`:
+
+```powershell
+npm run reconcile-club-meeting-rules
+```
+
+The runner passes connection details through the environment, not command-line arguments. The script prints the connected database, schema and user, locks the clubs table against writes, and displays a full preview. Type `APPLY` only after reviewing it; any other response rolls back. Do not leave the prompt open indefinitely. On a serialization failure, rerun and review a fresh preview. Changed clubs get a revision increment; unchanged clubs do not. Repeating the script is a no-op unless rules have since been edited, in which case it would overwrite those edits.
+
+All workbook rules start on 2027-01-01, but the app cannot store that effective date: updated rules apply to undated meetings in any cycle. The workbook's per-club pickup and return rules are printed for review, not applied; pickup dates are not modeled per club, and loan windows use library settings. Existing slots, dates and assignments are untouched by this script. Subsequent confirmed generation can reconcile cadence and remove meetings, including dated or locked ones. Refresh the app and review the resulting schedules.
+
 If the server connection is instead configured in a root `.env` file, Node 22 can load it explicitly:
 
 ```powershell

@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Platform, Pressable, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note } from './ui';
 import { TitleCover } from './title-cover';
 import { TitleDetails } from './title-details';
 import type { MemberScheduleMeeting } from '../domain/cycle-overview';
+import { calendarDateLabel, calendarMonthLabel, isPastMemberMeeting, memberCalendarMonths } from '../domain/member-calendar';
 import type { Assignment, KitLabel, Title } from '../domain/model';
 
 export type MemberView = 'meetings' | 'books';
@@ -24,8 +25,27 @@ function meetingDate(meeting: MemberScheduleMeeting): string {
   return meeting.date ?? `${meeting.month} (date not set)`;
 }
 
-function isPast(meeting: MemberScheduleMeeting, today: string): boolean {
-  return meeting.date ? meeting.date < today : meeting.month < today.slice(0, 7);
+const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+function CalendarDay({ date, count, selected, today, compact, onPress }: {
+  date: string; count: number; selected: boolean; today: boolean; compact: boolean; onPress: () => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const content = <>
+    <Text style={{ fontWeight: count || today ? '700' : '400', color: '#183a36' }}>{Number(date.slice(8))}</Text>
+    {count > 0 && <Text style={{ color: '#245e51', fontWeight: '700', fontSize: 11 }}>{count > 1 ? count : '•'}</Text>}
+  </>;
+  const style = {
+    flex: 1, minHeight: compact ? 30 : 48, alignItems: 'center' as const, justifyContent: 'center' as const,
+    borderWidth: focused || selected || today ? 2 : 1,
+    borderColor: focused || selected ? '#245e51' : today ? '#75958a' : '#e1e8e3',
+    backgroundColor: selected ? '#cce4d4' : count ? '#e4f2e7' : '#fffefa',
+  };
+  return count ? <Pressable accessibilityRole="button"
+    accessibilityLabel={`${calendarDateLabel(date)}, ${count} ${count === 1 ? 'meeting' : 'meetings'}${today ? ', today' : ''}`}
+    accessibilityState={{ expanded: selected }} aria-expanded={selected} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+    onPress={onPress} style={style}>{content}</Pressable>
+    : <View accessible accessibilityLabel={`${calendarDateLabel(date)}, no meetings${today ? ', today' : ''}`} style={style}>{content}</View>;
 }
 
 function MeetingDetails({ meeting, clubName }: { meeting: MemberScheduleMeeting; clubName: string }) {
@@ -59,7 +79,10 @@ function ScheduledMeetings({ meetings, clubNameFor }: { meetings: MemberSchedule
 export function MemberSchedule({ view, onViewChange, meetings, today, emptyMessage, labels, titleFor, titleIdFor, clubNameFor }: Props) {
   const [selectedMeeting, setSelectedMeeting] = useState<string | null>(null);
   const [selectedBook, setSelectedBook] = useState<string | null>(null);
-  const [showPast, setShowPast] = useState(false);
+  const [showPast, setShowPast] = useState(true);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [selectedUndatedMonth, setSelectedUndatedMonth] = useState<string | null>(null);
+  const [calendarWidth, setCalendarWidth] = useState(0);
   const [detail, setDetail] = useState<{ kind: 'meeting' | 'book'; key: string } | null>(null);
   const books = new Map<string, { title: Title | undefined; meetings: MemberScheduleMeeting[] }>();
   for (const meeting of meetings) {
@@ -76,9 +99,39 @@ export function MemberSchedule({ view, onViewChange, meetings, today, emptyMessa
   const detailBook = detail?.kind === 'book' ? books.get(detail.key) : undefined;
   const detailTitle = detailMeeting?.assignment ? titleFor(detailMeeting.assignment) : detailBook?.title;
   const detailMeetings = detailMeeting ? [detailMeeting] : detailBook?.meetings ?? [];
-  const visibleMeetings = showPast ? meetings : meetings.filter((meeting) => !isPast(meeting, today));
-  const pastCount = meetings.length - meetings.filter((meeting) => !isPast(meeting, today)).length;
-  const years = [...new Set(visibleMeetings.map((meeting) => meeting.month.slice(0, 4)))];
+  const allMonths = useMemo(() => memberCalendarMonths(meetings, today, true), [meetings, today]);
+  const calendarMonths = useMemo(() => showPast ? allMonths : memberCalendarMonths(meetings, today, false), [allMonths, meetings, today, showPast]);
+  const pastCount = meetings.filter((meeting) => isPastMemberMeeting(meeting, today)).length;
+  const hasPast = pastCount > 0 || allMonths.some(({ month }) => month < today.slice(0, 7));
+  const columns = Platform.OS === 'web' && calendarWidth >= 800 ? 4
+    : Platform.OS === 'web' && calendarWidth >= 500 ? 2 : 1;
+  const compact = columns > 1;
+  const monthWidth = calendarWidth ? (calendarWidth - (columns - 1) * 12) / columns : '100%';
+
+  function renderMeeting(meeting: MemberScheduleMeeting) {
+    const title = meeting.assignment ? titleFor(meeting.assignment) : undefined;
+    const clubName = clubNameFor(meeting.clubId);
+    const expanded = selectedMeeting === meeting.key;
+    return <View key={meeting.key} style={{ gap: 4 }}>
+      <Pressable accessibilityRole="button" accessibilityState={meeting.assignment && title ? undefined : { expanded }}
+        aria-expanded={meeting.assignment && title ? undefined : expanded}
+        accessibilityLabel={`${meetingDate(meeting)}, ${clubName}, ${meeting.assignment ? title?.name ?? 'Unavailable title' : 'No book assigned'}, ${meeting.cycle.name}, ${meeting.cycle.status}`}
+        onPress={() => meeting.assignment && title ? setDetail({ kind: 'meeting', key: meeting.key }) : setSelectedMeeting(expanded ? null : meeting.key)}
+        style={{ minHeight: 44, padding: 10, borderWidth: 1, borderColor: expanded ? '#183a36' : '#d6ddd9', flexDirection: 'row', gap: 10 }}>
+        {meeting.assignment && (title && (title.coverUrl || title.isbn.trim())
+          ? <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ marginRight: 0 }} />
+          : <View style={{ width: 48, height: 72, borderRadius: 4, backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 10, color: '#6b7280' }}>No cover</Text>
+          </View>)}
+        <View style={{ flex: 1, justifyContent: 'center', gap: 3 }}>
+          <Text style={{ fontWeight: '700', color: '#183a36' }}>{meetingDate(meeting)} · {clubName}</Text>
+          <Text>{meeting.assignment ? title?.name ?? 'Unavailable title' : 'No book assigned'}</Text>
+          <Text>{meeting.cycle.name} · {meeting.cycle.status}{isPastMemberMeeting(meeting, today) ? ' · Past' : ''}</Text>
+        </View>
+      </Pressable>
+      {expanded && !title && <MeetingDetails meeting={meeting} clubName={clubName} />}
+    </View>;
+  }
 
   return <>
     {detailTitle && <TitleDetails title={detailTitle} labels={labels} onClose={() => setDetail(null)}>
@@ -92,36 +145,43 @@ export function MemberSchedule({ view, onViewChange, meetings, today, emptyMessa
     </Card>
     {view === 'meetings' && <Card>
       <Label>Meetings</Label>
-      {pastCount > 0 && <Actions><Action title={showPast ? 'Hide past meetings' : `Show past meetings (${pastCount})`}
-        onPress={() => { setShowPast(!showPast); setSelectedMeeting(null); }} /></Actions>}
+      {hasPast && <Actions><Action title={showPast ? 'Hide past months and meetings' : `Show past months and meetings (${pastCount})`}
+        onPress={() => { setShowPast(!showPast); setSelectedDay(null); setSelectedUndatedMonth(null); setSelectedMeeting(null); setDetail(null); }} /></Actions>}
       {meetings.length === 0 ? <Note>{emptyMessage}</Note>
-        : visibleMeetings.length === 0 ? <Note>No upcoming meetings. Show past meetings to see earlier entries.</Note> : null}
-      {years.map((year) => <View key={year} style={{ gap: 8 }}>
-        <Label>{year}</Label>
-        {visibleMeetings.filter((meeting) => meeting.month.startsWith(year)).map((meeting) => {
-          const title = meeting.assignment ? titleFor(meeting.assignment) : undefined;
-          const clubName = clubNameFor(meeting.clubId);
-          const expanded = selectedMeeting === meeting.key;
-          return <View key={meeting.key} style={{ gap: 4 }}>
-            <Pressable accessibilityRole="button" accessibilityState={meeting.assignment && title ? undefined : { expanded }}
-              accessibilityLabel={`${meetingDate(meeting)}, ${clubName}, ${meeting.assignment ? title?.name ?? 'Unavailable title' : 'No book assigned'}, ${meeting.cycle.name}, ${meeting.cycle.status}`}
-              onPress={() => meeting.assignment && title ? setDetail({ kind: 'meeting', key: meeting.key }) : setSelectedMeeting(expanded ? null : meeting.key)}
-              style={{ minHeight: 44, padding: 10, borderWidth: 1, borderColor: expanded ? '#183a36' : '#d6ddd9', flexDirection: 'row', gap: 10 }}>
-              {meeting.assignment && (title && (title.coverUrl || title.isbn.trim())
-                ? <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ marginRight: 0 }} />
-                : <View style={{ width: 48, height: 72, borderRadius: 4, backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontSize: 10, color: '#6b7280' }}>No cover</Text>
-                </View>)}
-              <View style={{ flex: 1, justifyContent: 'center', gap: 3 }}>
-                <Text style={{ fontWeight: '700', color: '#183a36' }}>{meetingDate(meeting)} · {clubName}</Text>
-                <Text>{meeting.assignment ? title?.name ?? 'Unavailable title' : 'No book assigned'}</Text>
-                <Text>{meeting.cycle.name} · {meeting.cycle.status}{isPast(meeting, today) ? ' · Past' : ''}</Text>
-              </View>
-            </Pressable>
-            {expanded && !title && <MeetingDetails meeting={meeting} clubName={clubName} />}
-          </View>;
-        })}
-      </View>)}
+        : calendarMonths.length === 0 ? <Note>No upcoming meetings. Show past months and meetings to see earlier entries.</Note> : null}
+      {calendarMonths.length > 0 && <Note>Select a highlighted day to see its meetings. A number indicates multiple meetings.</Note>}
+      <View onLayout={(event) => setCalendarWidth(event.nativeEvent.layout.width)}
+        style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 12 }}>
+        {calendarMonths.map((month) => <View key={month.month} style={{ width: monthWidth, gap: compact ? 2 : 8, marginTop: 8 }}>
+          <Label>{calendarMonthLabel(month.month)}</Label>
+          <View style={{ flexDirection: 'row' }}>
+            {weekdays.map((day) => <View key={day} accessible accessibilityLabel={day} style={{ flex: 1, alignItems: 'center', paddingVertical: compact ? 2 : 6 }}>
+              <Text style={{ color: '#465c56', fontSize: 12, fontWeight: '600' }}>{day.slice(0, 1)}</Text>
+            </View>)}
+          </View>
+          {month.weeks.map((week, index) => <View key={index} style={{ flexDirection: 'row' }}>
+            {week.map((date, dayIndex) => date
+              ? <CalendarDay key={date} date={date} count={month.dated.get(date)?.length ?? 0}
+                selected={selectedDay === date} today={today === date} compact={compact}
+                onPress={() => { setSelectedDay(selectedDay === date ? null : date); setSelectedMeeting(null); }} />
+              : <View key={`empty:${dayIndex}`} style={{ flex: 1, minHeight: compact ? 30 : 48 }} />)}
+          </View>)}
+          {selectedDay && month.dated.has(selectedDay) && <View style={{ gap: 8, marginTop: 4 }}>
+            <Label>{calendarDateLabel(selectedDay)}</Label>
+            {month.dated.get(selectedDay)?.map(renderMeeting)}
+          </View>}
+          {month.undated.length > 0 && <View style={{ gap: 8, marginTop: 4 }}>
+            {compact ? <Pressable accessibilityRole="button"
+              accessibilityLabel={`${calendarMonthLabel(month.month)}, ${month.undated.length} ${month.undated.length === 1 ? 'meeting' : 'meetings'}, date not set`}
+              accessibilityState={{ expanded: selectedUndatedMonth === month.month }} aria-expanded={selectedUndatedMonth === month.month}
+              onPress={() => { setSelectedUndatedMonth(selectedUndatedMonth === month.month ? null : month.month); setSelectedMeeting(null); }}
+              style={{ minHeight: 30, justifyContent: 'center' }}>
+              <Text style={{ color: '#245e51', fontWeight: '600' }}>Date not set ({month.undated.length})</Text>
+            </Pressable> : <Label>Date not set</Label>}
+            {(!compact || selectedUndatedMonth === month.month) && month.undated.map(renderMeeting)}
+          </View>}
+        </View>)}
+      </View>
     </Card>}
     {view === 'books' && <Card>
       <Label>Books</Label>
