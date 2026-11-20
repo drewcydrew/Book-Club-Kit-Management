@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { Action, Actions, Card, Label, Note } from './ui';
+import { Action, Actions, Card, Label, Note, narrowWidth } from './ui';
 import { MemberOverview } from './member-overview';
 import { OverviewExport } from './overview-export';
 import { TitleCover } from './title-cover';
@@ -108,7 +108,7 @@ export function MemberSchedule({ view, onViewChange, meetings, today, emptyMessa
   const pastCount = meetings.filter((meeting) => isPastMemberMeeting(meeting, today)).length;
   const hasPast = pastCount > 0 || allMonths.some(({ month }) => month < today.slice(0, 7));
   const columns = Platform.OS === 'web' && calendarWidth >= 800 ? 4
-    : Platform.OS === 'web' && calendarWidth >= 500 ? 2 : 1;
+    : Platform.OS === 'web' && calendarWidth >= narrowWidth ? 2 : 1;
   const compact = columns > 1;
   const monthWidth = calendarWidth ? (calendarWidth - (columns - 1) * 12) / columns : '100%';
 

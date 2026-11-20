@@ -3,6 +3,8 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 import { useStore } from '../state/store';
 import { useShared } from '../state/shared';
 
+export const narrowWidth = 600;
+
 export function Page({ title, children, wide = false, scroll = true }: { title: string; children: React.ReactNode; wide?: boolean; scroll?: boolean }) {
   const { data, error } = useStore();
   const shared = useShared();

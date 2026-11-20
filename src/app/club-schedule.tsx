@@ -1,8 +1,8 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, ScrollView, Text } from 'react-native';
+import { Platform, ScrollView, Text, useWindowDimensions } from 'react-native';
 import { MemberSchedule, type MemberView } from '../components/member-schedule';
-import { Action, Actions, Card, Label, Note, styles as uiStyles } from '../components/ui';
+import { Action, Actions, Card, Label, Note, narrowWidth, styles as uiStyles } from '../components/ui';
 import { cadenceLabel } from '../domain/cadence';
 import { memberScheduleMeetings } from '../domain/cycle-overview';
 import { meetingRuleLabel } from '../domain/meeting-rule';
@@ -22,11 +22,11 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unable to load the club schedule.';
 }
 
-const pageStyle = [uiStyles.page, uiStyles.widePage];
-
 export default function ClubSchedulePage() {
   const { clubId } = useLocalSearchParams<{ clubId?: string }>();
   const { person } = useSelection();
+  const { width: windowWidth } = useWindowDimensions();
+  const pageStyle = [uiStyles.page, uiStyles.widePage, windowWidth < narrowWidth && { paddingHorizontal: 12 }];
   const [loaded, setLoaded] = useState<LoadState | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [view, setView] = useState<MemberView>('overview');

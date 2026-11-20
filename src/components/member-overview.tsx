@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, View, type HostInstance } from 'react-native';
-import { Action, Actions, Card, Label, Note } from './ui';
+import { Modal, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions, type HostInstance } from 'react-native';
+import { Action, Actions, Card, Label, Note, narrowWidth } from './ui';
 import { radius } from './design';
 import { TitleCover } from './title-cover';
 import type { MemberScheduleMeeting } from '../domain/cycle-overview';
@@ -62,10 +62,10 @@ function DayCell({ date, markers, isToday, onOpen, onHover }: {
     : <View accessible accessibilityLabel={accessibilityLabel} style={style}>{content}</View>;
 }
 
-function MiniCalendar({ entry, today, onOpen, onHover }: {
-  entry: MemberOverviewMonth; today: string; onOpen: (date: string) => void; onHover: (target: HoverTarget | null) => void;
+function MiniCalendar({ entry, today, narrow, onOpen, onHover }: {
+  entry: MemberOverviewMonth; today: string; narrow: boolean; onOpen: (date: string) => void; onHover: (target: HoverTarget | null) => void;
 }) {
-  return <View accessible accessibilityLabel={`${calendarMonthLabel(entry.month)} calendar`} style={{ width: 216, gap: 2 }}>
+  return <View accessible accessibilityLabel={`${calendarMonthLabel(entry.month)} calendar`} style={{ width: narrow ? '100%' : 216, maxWidth: 360, gap: 2 }}>
     <View style={{ flexDirection: 'row' }}>
       {weekdayLetters.map((letter, index) => <Text key={index} style={{ flex: 1, textAlign: 'center', fontSize: 11, color: '#465c56', fontWeight: '600' }}>{letter}</Text>)}
     </View>
@@ -94,8 +94,8 @@ function DayDetailLines({ date, markers, titleFor, clubNameFor }: DayDetailProps
   </>;
 }
 
-function DayPreview({ left, top, ...details }: DayDetailProps & { left: number; top: number }) {
-  return <View pointerEvents="none" style={[styles.preview, { left, top }]}>
+function DayPreview({ left, top, width, ...details }: DayDetailProps & { left: number; top: number; width: number }) {
+  return <View pointerEvents="none" style={[styles.preview, { left, top, width }]}>
     <DayDetailLines {...details} />
   </View>;
 }
@@ -127,11 +127,13 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#e1e8e3', borderRadius: radius.media, backgroundColor: '#ffffff', boxShadow: '0 6px 18px rgba(24, 58, 54, 0.18)' },
 });
 
-function MonthCard({ entry, today, titleFor, clubNameFor, onOpenMeeting, onHover }: {
-  entry: MemberOverviewMonth; today: string;
+function MonthCard({ entry, today, narrow, titleFor, clubNameFor, onOpenMeeting, onHover }: {
+  entry: MemberOverviewMonth; today: string; narrow: boolean;
   titleFor: Props['titleFor']; clubNameFor: Props['clubNameFor']; onOpenMeeting: Props['onOpenMeeting'];
   onHover: (target: HoverTarget | null) => void;
 }) {
+  const coverWidth = narrow ? 72 : 96;
+  const coverHeight = narrow ? 108 : 144;
   const book = entry.book;
   const assignment = book?.assignment;
   const title = assignment ? titleFor(assignment) : undefined;
@@ -147,8 +149,8 @@ function MonthCard({ entry, today, titleFor, clubNameFor, onOpenMeeting, onHover
           accessibilityLabel={`${title?.name ?? 'Unavailable title'}, ${clubNameFor(book.clubId)}, ${calendarMonthLabel(entry.month)}`}
           onPress={() => onOpenMeeting(book)} style={{ flexDirection: 'row', gap: 12 }}>
           {title && (title.coverUrl || title.isbn.trim())
-            ? <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ width: 96, height: 144, marginRight: 0, marginBottom: 0 }} />
-            : <View style={{ width: 96, height: 144, backgroundColor: '#e5e7eb', justifyContent: 'center', padding: 6 }}>
+            ? <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ width: coverWidth, height: coverHeight, marginRight: 0, marginBottom: 0 }} />
+            : <View style={{ width: coverWidth, height: coverHeight, backgroundColor: '#e5e7eb', justifyContent: 'center', padding: 6 }}>
               <Text numberOfLines={5} style={{ textAlign: 'center', fontSize: 11 }}>{title?.name ?? 'Unavailable title'}</Text>
             </View>}
           <View style={{ flex: 1, gap: 4 }}>
@@ -169,7 +171,7 @@ function MonthCard({ entry, today, titleFor, clubNameFor, onOpenMeeting, onHover
         </Text>)}
         {undatedCount > 0 && <Note>{undatedCount} {undatedCount === 1 ? 'meeting' : 'meetings'} without a date</Note>}
       </View>
-      <MiniCalendar entry={entry} today={today} onOpen={setActive} onHover={onHover} />
+      <MiniCalendar entry={entry} today={today} narrow={narrow} onOpen={setActive} onHover={onHover} />
     </View>
     {active && <DayPopup date={active} markers={entry.markers.get(active) ?? []} titleFor={titleFor} clubNameFor={clubNameFor}
       onOpen={onOpenMeeting} onClose={() => setActive(null)} />}
@@ -179,7 +181,9 @@ function MonthCard({ entry, today, titleFor, clubNameFor, onOpenMeeting, onHover
 export function MemberOverview({ months, today, emptyMessage, hasPast, pastCount, showPast, onTogglePast, titleFor, clubNameFor, onOpenMeeting }: Props) {
   const rootRef = useRef<HostInstance>(null);
   const [rootWidth, setRootWidth] = useState(0);
-  const [preview, setPreview] = useState<(HoverTarget & { left: number; top: number }) | null>(null);
+  const [preview, setPreview] = useState<(HoverTarget & { left: number; top: number; width: number }) | null>(null);
+  const { width: windowWidth } = useWindowDimensions();
+  const narrow = windowWidth < narrowWidth;
   const showPreview = (target: HoverTarget | null) => {
     if (!target) {
       setPreview(null);
@@ -187,8 +191,9 @@ export function MemberOverview({ months, today, emptyMessage, hasPast, pastCount
     }
     target.cell.measureInWindow((cellX, cellY, _width, cellHeight) => {
       rootRef.current?.measureInWindow((rootX, rootY) => {
-        const left = Math.max(0, Math.min(cellX - rootX, rootWidth - previewWidth));
-        setPreview({ ...target, left, top: cellY - rootY + cellHeight + 6 });
+        const width = rootWidth ? Math.min(previewWidth, rootWidth) : previewWidth;
+        const left = Math.max(0, Math.min(cellX - rootX, rootWidth - width));
+        setPreview({ ...target, left, top: cellY - rootY + cellHeight + 6, width });
       });
     });
   };
@@ -210,10 +215,10 @@ export function MemberOverview({ months, today, emptyMessage, hasPast, pastCount
     </Card>
     {months.length === 0 ? <Card><Note>{meetings.length === 0 ? emptyMessage : 'No upcoming months. Show past months and meetings to see earlier entries.'}</Note></Card>
       : <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
-        {months.map((entry) => <View key={entry.month} style={{ flexGrow: 1, flexBasis: 560, minWidth: 320 }}>
-          <MonthCard entry={entry} today={today} titleFor={titleFor} clubNameFor={clubNameFor} onOpenMeeting={onOpenMeeting} onHover={showPreview} />
+        {months.map((entry) => <View key={entry.month} style={{ flexGrow: 1, flexBasis: narrow ? '100%' : 560, minWidth: narrow ? undefined : 320 }}>
+          <MonthCard entry={entry} today={today} narrow={narrow} titleFor={titleFor} clubNameFor={clubNameFor} onOpenMeeting={onOpenMeeting} onHover={showPreview} />
         </View>)}
       </View>}
-    {preview && <DayPreview date={preview.date} markers={preview.markers} titleFor={titleFor} clubNameFor={clubNameFor} left={preview.left} top={preview.top} />}
+    {preview && <DayPreview date={preview.date} markers={preview.markers} titleFor={titleFor} clubNameFor={clubNameFor} left={preview.left} top={preview.top} width={preview.width} />}
   </View>;
 }
