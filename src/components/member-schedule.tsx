@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note } from './ui';
 import { MemberOverview } from './member-overview';
+import { OverviewExport } from './overview-export';
 import { TitleCover } from './title-cover';
 import { TitleDetails } from './title-details';
 import type { MemberScheduleMeeting } from '../domain/cycle-overview';
@@ -20,6 +21,7 @@ type Props = {
   titleFor: (assignment: Assignment) => Title | undefined;
   titleIdFor: (assignment: Assignment) => string | undefined;
   clubNameFor: (clubId: string) => string;
+  exportClub?: { name: string; details: string };
 };
 
 function meetingDate(meeting: MemberScheduleMeeting): string {
@@ -77,7 +79,7 @@ function ScheduledMeetings({ meetings, clubNameFor }: { meetings: MemberSchedule
   </View>;
 }
 
-export function MemberSchedule({ view, onViewChange, meetings, today, emptyMessage, labels, titleFor, titleIdFor, clubNameFor }: Props) {
+export function MemberSchedule({ view, onViewChange, meetings, today, emptyMessage, labels, titleFor, titleIdFor, clubNameFor, exportClub }: Props) {
   const [selectedMeeting, setSelectedMeeting] = useState<string | null>(null);
   const [selectedBook, setSelectedBook] = useState<string | null>(null);
   const [showPast, setShowPast] = useState(true);
@@ -151,6 +153,9 @@ export function MemberSchedule({ view, onViewChange, meetings, today, emptyMessa
       onTogglePast={() => { setShowPast(!showPast); setSelectedDay(null); setSelectedUndatedMonth(null); setSelectedMeeting(null); setDetail(null); }}
       titleFor={titleFor} clubNameFor={clubNameFor}
       onOpenMeeting={(meeting) => setDetail({ kind: 'meeting', key: meeting.key })} />}
+    {view === 'overview' && exportClub && <Card>
+      <OverviewExport club={exportClub.name} details={exportClub.details} months={overviewMonths} titleFor={titleFor} />
+    </Card>}
     {view === 'meetings' && <Card>
       <Label>Meetings</Label>
       {hasPast && <Actions><Action title={showPast ? 'Hide past months and meetings' : `Show past months and meetings (${pastCount})`}

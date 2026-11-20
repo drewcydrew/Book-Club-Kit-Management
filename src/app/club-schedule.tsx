@@ -127,7 +127,8 @@ export default function ClubSchedulePage() {
     <MemberSchedule view={view} onViewChange={setView} meetings={meetings} today={todayIso()}
       emptyMessage="No meetings are scheduled for this club yet."
       labels={schedule.kitLabels} titleFor={titleFor} titleIdFor={titleIdFor}
-      clubNameFor={() => club.name} />
+      clubNameFor={() => club.name}
+      exportClub={{ name: club.name, details: `${club.branch} · ${meetingRuleLabel(club)} · ${cadenceLabel(club.cadence, club.cadenceOffset)}` }} />
     <Actions>
       <Action title="Choose another club" onPress={() => router.navigate('/club-schedule')} />
       <Action title="Refresh" onPress={refresh} />

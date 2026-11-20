@@ -21,7 +21,7 @@ function displayDate(value: string): string {
   return month ? `${month[2]}-${month[1]}${month[3]}` : value;
 }
 
-function wrap(value: string, font: PDFFont, size: number, maxWidth: number): string[] {
+export function wrap(value: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const result: string[] = [];
   let line = '';
   for (const word of value.replace(/\s+/g, ' ').trim().split(' ')) {
@@ -39,7 +39,7 @@ function wrap(value: string, font: PDFFont, size: number, maxWidth: number): str
   return result;
 }
 
-function shorten(lines: string[], count: number, font: PDFFont, size: number, maxWidth: number): string[] {
+export function shorten(lines: string[], count: number, font: PDFFont, size: number, maxWidth: number): string[] {
   if (lines.length <= count) return lines;
   if (!count) return [];
   const visible = lines.slice(0, count);
