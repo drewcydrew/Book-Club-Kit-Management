@@ -14,10 +14,12 @@ test('ISBN lookup accepts valid ISBN-13 and ISBN-10 values and rejects bad check
 });
 
 async function withCoverServer(fetchStub, run, path = '/api/covers') {
-  const app = require('../src/app');
+  const app = require('../src/app').createApp(async () => ({ uid: 'test-user' }));
   const realFetch = globalThis.fetch;
   const originalKey = process.env.ISBNDB_API_KEY;
-  globalThis.fetch = (url, options) => (String(url).startsWith('http://127.0.0.1') ? realFetch(url, options) : fetchStub(url, options));
+  globalThis.fetch = (url, options) => (String(url).startsWith('http://127.0.0.1')
+    ? realFetch(url, { ...options, headers: { ...options?.headers, Authorization: 'Bearer test-token' } })
+    : fetchStub(url, options));
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try {

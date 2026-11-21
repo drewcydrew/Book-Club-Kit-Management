@@ -34,6 +34,7 @@ test('CORS permits only configured browser origins', async (t) => {
   const allowed = await fetch(url, { method: 'OPTIONS', headers: { Origin: 'https://example.test' } });
   assert.equal(allowed.status, 204);
   assert.equal(allowed.headers.get('access-control-allow-origin'), 'https://example.test');
+  assert.match(allowed.headers.get('access-control-allow-headers'), /Authorization/i);
   const denied = await fetch(url, { headers: { Origin: 'https://other.test' } });
   assert.equal(denied.status, 403);
   assert.deepEqual(await denied.json(), { error: 'Origin not allowed.' });
@@ -54,7 +55,7 @@ test('unavailable database returns a sanitized error', async (t) => {
     if (previous === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = previous;
   });
   await once(server, 'listening');
-  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/titles`);
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/users`);
   assert.equal(response.status, 503);
   assert.deepEqual(await response.json(), { error: 'Database unavailable.' });
 });

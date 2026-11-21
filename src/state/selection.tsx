@@ -1,7 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { Person } from '../domain/model';
 import { clearCoverCache } from '../components/title-cover';
-import { loadUsers } from './api';
+import { loadSession, loadUsers } from './api';
+import { useAuth } from './auth';
 
 type Selection = {
   people: Person[];
@@ -16,14 +17,19 @@ type Selection = {
 const Context = createContext<Selection | null>(null);
 
 export function SelectionProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [people, setPeople] = useState<Person[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const refreshUsers = useCallback(() => loadUsers().then(
-    (users) => {
+  const refreshUsers = useCallback(() => (async () => {
+    const admin = user ? await loadSession() : null;
+    const users = await loadUsers();
+    return { users, admin };
+  })().then(
+    ({ users, admin }) => {
       setPeople(users);
-      setSelectedId((id) => users.some((person) => person.id === id) ? id : '');
+      setSelectedId((id) => admin ? admin.id : users.some((person) => person.id === id && person.role === 'member') ? id : '');
       setError(null);
     },
     (reason: unknown) => {
@@ -31,13 +37,15 @@ export function SelectionProvider({ children }: { children: React.ReactNode }) {
       setError(message);
       throw new Error(message);
     },
-  ).finally(() => setLoading(false)), []);
+  ).finally(() => setLoading(false)), [user]);
   const reconcilePerson = useCallback((next: Person) => setPeople((current) => {
     const old = current.find((person) => person.id === next.id);
     if (!old || (old.revision === next.revision && old.name === next.name && old.role === next.role)) return current;
     return current.map((person) => person.id === next.id ? next : person);
   }), []);
-  const select = useCallback((id: string) => setSelectedId(id), []);
+  const select = useCallback((id: string) => {
+    if (!user && (!id || people.some((person) => person.id === id && person.role === 'member'))) setSelectedId(id);
+  }, [people, user]);
   useEffect(() => { clearCoverCache(); }, [selectedId]);
   useEffect(() => { void refreshUsers().catch(() => undefined); }, [refreshUsers]);
   return <Context.Provider value={{

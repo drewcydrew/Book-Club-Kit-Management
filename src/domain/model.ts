@@ -8,6 +8,7 @@ export interface Person {
   name: string;
   role: Role;
   revision: number;
+  firebaseManaged?: boolean;
 }
 
 export interface Membership {

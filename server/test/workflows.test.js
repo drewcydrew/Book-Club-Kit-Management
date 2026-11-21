@@ -5,6 +5,7 @@ const { readFile } = require('node:fs/promises');
 const path = require('node:path');
 const test = require('node:test');
 const { Pool } = require('pg');
+const { app, fetchAuthenticated: fetch } = require('../test-support/authenticated-app');
 const url = process.env.TEST_DATABASE_URL;
 const enabled = Boolean(url && process.env.TEST_DATABASE_CONFIRM === 'isolated');
 
@@ -18,7 +19,7 @@ test('shared workflows enforce membership, voting, schedules, circulation and re
   let server;
   t.after(async () => { if (server) await new Promise((resolve) => server.close(resolve)); await pool.end(); await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin.end(); });
   await migrate(pool); await seed(pool); await seed(pool);
-  server = require('../src/app').listen(0,'127.0.0.1'); await once(server,'listening');
+  server = app.listen(0,'127.0.0.1'); await once(server,'listening');
   const base = `http://127.0.0.1:${server.address().port}`;
   async function req(route,method='GET',body,rev) {
     const r = await fetch(base + route,{ method,headers:{ ...(body ? {'Content-Type':'application/json'} : {}),...(rev !== undefined ? {'If-Match':String(rev)} : {}) },...(body ? { body:JSON.stringify(body) } : {}) });

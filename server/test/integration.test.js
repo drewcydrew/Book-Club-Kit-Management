@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const test = require('node:test');
 const { Pool } = require('pg');
+const { app, fetchAuthenticated: fetch } = require('../test-support/authenticated-app');
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const enabled = Boolean(databaseUrl && process.env.TEST_DATABASE_CONFIRM === 'isolated');
@@ -19,7 +20,6 @@ test('shared records persist, enforce constraints and reject stale edits', { ski
   const pool = getPool();
   const { migrate } = require('../src/migrate');
   const { seed } = require('../src/seed');
-  const app = require('../src/app');
   let server;
   t.after(async () => {
     if (server) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

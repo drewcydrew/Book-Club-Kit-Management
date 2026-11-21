@@ -4,7 +4,7 @@ import test from 'node:test';
 import { seed } from '../src/domain/seed';
 import {
   ApiError, deleteClub, deleteCycle, deleteUser, finalizeRanking, loadEnrolment, loadLeaderReview, loadShared, loadUsers, loadView, previewClubDeletion, reopenCycle, saveBallot, saveCycle, saveEvent,
-  saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser, saveValidatedSchedule, validateSchedule, previewKitLabelDeletion,
+  saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser, saveValidatedSchedule, validateSchedule, previewKitLabelDeletion, setApiAuthentication,
 } from '../src/state/api';
 
 const demo = seed();
@@ -24,6 +24,31 @@ const payload = {
   clubs: demo.clubs.map(({ leaderId: _leaderId, history: _history, membershipRevision: _membershipRevision, ...club }) => club),
   links: [],
 };
+
+test('authenticated requests attach tokens only over secure API connections', async () => {
+  const oldUrl = process.env.EXPO_PUBLIC_API_URL;
+  const oldFetch = globalThis.fetch;
+  let calls = 0;
+  let invalidated = '';
+  setApiAuthentication(async () => 'firebase-token', (token) => { invalidated = token; });
+  globalThis.fetch = async (_input, init) => {
+    calls += 1;
+    assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer firebase-token');
+    return new Response(JSON.stringify({ error: 'Session expired.' }), { status: 401 });
+  };
+  try {
+    process.env.EXPO_PUBLIC_API_URL = 'https://demo.example';
+    await assert.rejects(loadUsers(), /Session expired/);
+    assert.equal(invalidated, 'firebase-token');
+    process.env.EXPO_PUBLIC_API_URL = 'http://remote.example';
+    await assert.rejects(loadUsers(), /HTTPS/);
+    assert.equal(calls, 1);
+  } finally {
+    setApiAuthentication(null, null);
+    globalThis.fetch = oldFetch;
+    if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL; else process.env.EXPO_PUBLIC_API_URL = oldUrl;
+  }
+});
 
 test('bootstrap and scoped loaders request only the chosen resources and validate their identities', async () => {
   const oldUrl = process.env.EXPO_PUBLIC_API_URL;

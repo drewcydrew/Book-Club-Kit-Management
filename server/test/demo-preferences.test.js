@@ -5,6 +5,7 @@ const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { Pool } = require('pg');
+const { app, fetchAuthenticated: fetch } = require('../test-support/authenticated-app');
 const { parseTitleList } = require('../src/import-titles');
 const { parseCsv, parsePreferences, importDemoPreferences, CYCLE_ID, GATE } = require('../src/import-demo-preferences');
 
@@ -102,7 +103,7 @@ test('2027 import is atomic, repeatable and available to preferences and schedul
   assert.deepEqual(await importDemoPreferences(pool, parsed), { skipped: true });
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM schema_migrations WHERE name=$1', [GATE])).rows[0].n, 1);
 
-  server = require('../src/app').listen(0, '127.0.0.1');
+  server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const response = await fetch(`http://127.0.0.1:${server.address().port}/api/shared`);
   assert.equal(response.status, 200);

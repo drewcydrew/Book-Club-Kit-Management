@@ -35,7 +35,7 @@ function AdminContent() {
   const person = data.people.find((p) => p.id === data.selectedPersonId);
   const managed = data.people.find((p) => p.id === managedId);
   const canManage = person?.role === 'admin';
-  const personOptions = useMemo<PickerOption[]>(() => data.people.map((value) => ({ id: value.id, label: `${value.name} · ${value.role}`, detail: value.role, group: value.role })), [data.people]);
+  const personOptions = useMemo<PickerOption[]>(() => data.people.map((value) => ({ id: value.id, label: `${value.name} · ${value.firebaseManaged ? 'Firebase account' : value.role}`, detail: value.role, group: value.role })), [data.people]);
   const navigationGuard = useNavigationGuard();
   const [formOpen, setFormOpen] = useState(false);
   const [formError, setFormError] = useState('');
@@ -122,7 +122,7 @@ function AdminContent() {
   if (!canManage) return <Page title="Admin">
     <Card>
       <Label>Admin controls</Label>
-      <Note>{person ? 'Shared user management and library lending settings need the admin role. Choose an admin on Home to manage them.' : 'Choose a user on Home.'}</Note>
+      <Note>{person ? 'Sign in on Home to manage users and lending settings.' : 'Choose a user on Home.'}</Note>
     </Card>
     {message ? <Text>{message}</Text> : null}
   </Page>;
@@ -130,13 +130,13 @@ function AdminContent() {
   return <Page title="Admin">
     <Card>
       <Label>Shared users · {data.people.length} users</Label>
-      <Note>Creating the first admin is an explicit server seed operation; users are not seeded by the app.</Note>
+      <Note>Firebase accounts are managed in Firebase. Demo roles do not grant sign-in access.</Note>
       <Actions><Action tone="primary" title="Add user" disabled={busy} onPress={() => openUserForm()} /></Actions>
       <SearchPicker label="Shared user" options={personOptions} selectedId={managedId} groups={roleGroups} summary="Select a user to edit or delete" disabled={busy}
         onSelect={(value) => { setManagedId(value); setDeleting(null); }} />
       {managed && <Actions>
-        <Action title="Edit" disabled={busy} onPress={() => openUserForm(managed)} />
-        <Action tone="danger" title="Delete" disabled={busy} onPress={() => setDeleting(managed)} />
+        {managed.firebaseManaged ? <Note>Firebase accounts are managed in Firebase.</Note> : <Action title="Edit" disabled={busy} onPress={() => openUserForm(managed)} />}
+        {!managed.firebaseManaged && <Action tone="danger" title="Delete" disabled={busy} onPress={() => setDeleting(managed)} />}
       </Actions>}
       {deleting && <><Note>Delete {deleting.name}? Existing preferences, memberships and history may restrict deletion.</Note>
         <Actions><Action tone="danger" title="Confirm delete" onPress={() => removePerson(deleting)} /><Action title="Cancel" onPress={() => setDeleting(null)} /></Actions></>}

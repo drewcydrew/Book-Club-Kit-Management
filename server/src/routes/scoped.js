@@ -130,6 +130,7 @@ router.get('/users/:personId/views/:view', async (req, res) => {
   const c = await getPool().connect();
   try {
     await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    if (!req.auth) await require('../auth').requireDemoMember(personId, c);
     const data = await loadView(c, personId, req.params.view);
     await c.query('COMMIT');
     res.json(data);
@@ -168,6 +169,7 @@ router.get('/users/:personId/clubs/:clubId/cycles/:cycleId/review', async (req, 
   const c = await getPool().connect();
   try {
     await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    if (!req.auth) await require('../auth').requireDemoMember(personId, c);
     await one(c, 'SELECT 1 FROM memberships WHERE person_id=$1 AND club_id=$2 AND leader=true', [personId, clubId], 'Club leader');
     await one(c, 'SELECT id FROM cycles WHERE id=$1', [cycleId], 'Cycle');
     const ballots = await loadBallots(c, ' WHERE b.club_id=$1 AND b.cycle_id=$2', [clubId, cycleId]);

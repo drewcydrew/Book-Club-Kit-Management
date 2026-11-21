@@ -27,6 +27,13 @@ export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
 
+let tokenProvider: (() => Promise<string | null>) | null = null;
+let onUnauthorized: ((token: string) => void) | null = null;
+export function setApiAuthentication(provider: (() => Promise<string | null>) | null, unauthorized: ((token: string) => void) | null): void {
+  tokenProvider = provider;
+  onUnauthorized = unauthorized;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -65,7 +72,8 @@ function isLink(value: unknown): value is ClubKit {
 }
 function isPerson(value: unknown): value is Person {
   return isObject(value) && isString(value.id) && isString(value.name) &&
-    (value.role === 'admin' || value.role === 'staff' || value.role === 'member') && isNumber(value.revision);
+    (value.role === 'admin' || value.role === 'staff' || value.role === 'member') && isNumber(value.revision) &&
+    (value.firebaseManaged === undefined || typeof value.firebaseManaged === 'boolean');
 }
 function isMembership(value: unknown): value is Membership {
   return isObject(value) && isString(value.personId) && isString(value.clubId) && typeof value.leader === 'boolean';
@@ -120,12 +128,16 @@ async function request(path: string, method = 'GET', body?: unknown, revision?: 
   let base: URL;
   try { base = new URL(configured); } catch { throw new Error('EXPO_PUBLIC_API_URL must be an absolute URL.'); }
   if (!['http:', 'https:'].includes(base.protocol)) throw new Error('EXPO_PUBLIC_API_URL must use HTTP or HTTPS.');
+  const token = tokenProvider ? await tokenProvider() : null;
+  if (token && base.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(base.hostname)) {
+    throw new Error('Firebase sign-in requires an HTTPS API URL.');
+  }
   let response: Response;
   try {
     response = await fetch(`${configured.replace(/\/+$/, '')}${path}`, {
       method,
       signal,
-      headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(revision === undefined ? {} : { 'If-Match': String(revision) }) },
+      headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(revision === undefined ? {} : { 'If-Match': String(revision) }), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch { throw new Error('Unable to reach the shared-data server. Check your connection and API URL.'); }
@@ -133,9 +145,16 @@ async function request(path: string, method = 'GET', body?: unknown, revision?: 
   let value: unknown;
   try { value = await response.json(); } catch { throw new Error(`Server returned an invalid response (HTTP ${response.status}).`); }
   if (!response.ok) {
+    if (response.status === 401 && token) onUnauthorized?.(token);
     const message = isObject(value) && typeof value.error === 'string' ? value.error : `Request failed (HTTP ${response.status}).`;
     throw new ApiError(message, response.status);
   }
+  return value;
+}
+
+export async function loadSession(): Promise<Person> {
+  const value = await request('/api/session');
+  if (!isPerson(value) || value.role !== 'admin') throw new Error('Server returned an invalid session.');
   return value;
 }
 
@@ -450,8 +469,8 @@ export async function saveBallot(ballot: Ballot): Promise<Ballot> {
   return value;
 }
 
-export async function finalizeRanking(cycleId: string, clubId: string, ranking: string[], revision: number): Promise<number> {
-  return requireRevision(await request(`/api/cycles/${encodeURIComponent(cycleId)}/clubs/${encodeURIComponent(clubId)}/ranking`, 'PUT', { ranking, revision }));
+export async function finalizeRanking(cycleId: string, clubId: string, ranking: string[], revision: number, personId?: string): Promise<number> {
+  return requireRevision(await request(`/api/cycles/${encodeURIComponent(cycleId)}/clubs/${encodeURIComponent(clubId)}/ranking`, 'PUT', { ranking, revision, ...(personId ? { personId } : {}) }));
 }
 
 export async function saveSchedule(cycleId: string, assignments: Assignment[], revision: number, publish: boolean): Promise<number> {

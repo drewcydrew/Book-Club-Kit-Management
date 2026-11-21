@@ -15,6 +15,8 @@ const dataMigrations = ['010_demo_preferences_2027_aligned.sql', '011_demo_prefe
 const cadenceMigration = '013_club_cadence.sql';
 const meetingRuleMigration = '014_club_meeting_rule.sql';
 const cadenceOffsetMigration = '015_club_cadence_offset.sql';
+const discussionNotesMigration = '016_title_discussion_notes.sql';
+const firebaseMigration = '017_firebase_identities.sql';
 
 async function inspect(client, schema) {
   const actual = await inventory(client, schema);
@@ -37,13 +39,43 @@ async function inspect(client, schema) {
     expectedSchema.clubs.columns.cadence_offset = { type: 'integer', not_null: true, default_value: '0' };
     expectedSchema.clubs.constraints.clubs_cadence_offset_check = { definition: 'CHECK (((cadence_offset >= 0) AND (cadence_offset <= 2)))' };
   }
+  if (ledger.includes(discussionNotesMigration)) {
+    expectedSchema.titles.columns.discussion_notes = { type: 'text', not_null: true, default_value: "''::text" };
+    expectedSchema.titles.columns.discussion_notes_revision = { type: 'integer', not_null: true, default_value: '1' };
+    expectedSchema.titles.constraints.titles_discussion_notes_check = { definition: 'CHECK ((length(discussion_notes) <= 4000))' };
+    expectedSchema.titles.constraints.titles_discussion_notes_revision_check = { definition: 'CHECK ((discussion_notes_revision > 0))' };
+  } else {
+    delete expectedSchema.titles.columns.discussion_notes;
+    delete expectedSchema.titles.columns.discussion_notes_revision;
+    delete expectedSchema.titles.constraints.titles_discussion_notes_check;
+    delete expectedSchema.titles.constraints.titles_discussion_notes_revision_check;
+  }
+  if (ledger.includes(firebaseMigration)) {
+    expectedSchema.firebase_identities = {
+      properties: { row_security: false, force_row_security: false },
+      columns: {
+        person_id: { type: 'text', not_null: true, default_value: null },
+        uid: { type: 'text', not_null: true, default_value: null },
+      },
+      constraints: {
+        firebase_identities_person_id_fkey: { definition: 'FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE RESTRICT' },
+        firebase_identities_person_id_key: { definition: 'UNIQUE (person_id)' },
+        firebase_identities_pkey: { definition: 'PRIMARY KEY (uid)' },
+      },
+      indexes: {
+        firebase_identities_person_id_key: { definition: 'CREATE UNIQUE INDEX firebase_identities_person_id_key ON firebase_identities USING btree (person_id)', valid: true, ready: true },
+        firebase_identities_pkey: { definition: 'CREATE UNIQUE INDEX firebase_identities_pkey ON firebase_identities USING btree (uid)', valid: true, ready: true },
+      },
+      triggers: {},
+    };
+  }
   const issues = compareInventory(expectedSchema, actual, ['title_label_assignments', 'kit_label_assignments']);
   if (issues.some((item) => item.includes('schema_migrations'))) return { issues, state: 'blocked' };
   for (const name of migrations.slice(0, -1)) {
     if (!ledger.includes(name)) issues.push(`Migration ${name} is not recorded; inspect its effects before proceeding.`);
   }
   for (const name of ledger) {
-    if (!name.startsWith('seed:') && !migrations.includes(name) && !dataMigrations.includes(name) && name !== cadenceMigration && name !== meetingRuleMigration && name !== cadenceOffsetMigration) issues.push(`Unknown migration ${name}; this repair cannot verify a newer or different schema.`);
+    if (!name.startsWith('seed:') && !migrations.includes(name) && !dataMigrations.includes(name) && ![cadenceMigration, meetingRuleMigration, cadenceOffsetMigration, discussionNotesMigration, firebaseMigration].includes(name)) issues.push(`Unknown migration ${name}; this repair cannot verify a newer or different schema.`);
   }
   const applied = ledger.includes(last);
   const titleExists = !!actual.title_label_assignments;

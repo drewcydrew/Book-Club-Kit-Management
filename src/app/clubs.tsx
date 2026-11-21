@@ -799,8 +799,8 @@ function ClubsContent() {
       </Actions>
       <Note>
         Clubs, membership, leadership, reading history and kit links are shared.
-        Kit links do not mean kits are checked out. Roles and leader controls
-        are interface-only; the API is publicly writable.
+        Kit links do not mean kits are checked out. Demo members and leaders
+        can be impersonated; use fictional information only.
       </Note>
       {data.clubs.length === 0 && (
         <Note>

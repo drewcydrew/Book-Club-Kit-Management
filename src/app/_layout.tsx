@@ -6,6 +6,7 @@ import { NavigationGuardProvider, useNavigationGuard } from '../components/navig
 import { SelectionProvider, useSelection } from '../state/selection';
 import { SharedProvider, useSharedStatus } from '../state/shared';
 import type { ViewScope } from '../state/api';
+import { AuthProvider, useAuth } from '../state/auth';
 
 const scopes: Record<string, ViewScope> = {
   '/': 'home', '/catalog': 'catalog', '/clubs': 'clubs', '/cycles': 'cycles',
@@ -27,11 +28,11 @@ function SelectedShell() {
   return <View style={styles.shell}>
     <View style={styles.header}>
       <Text style={styles.brand}>Book club kits</Text>
-      <Text style={styles.context}>Public writable demo · {person ? `${person.name} · ${person.role}` : 'no user selected'}</Text>
+      <Text style={styles.context}>Demo members are public · {person ? `${person.name} · ${person.role}` : 'no user selected'}</Text>
       {saving && <Text style={styles.context}>Saving changes; wait before changing pages or users.</Text>}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.navigation}>
+        <NavigationLink disabled={saving} href="/">Home</NavigationLink>
         {person && <>
-          <NavigationLink disabled={saving} href="/">Home</NavigationLink>
           {!member && <NavigationLink disabled={saving} href="/catalog">Catalog & kits</NavigationLink>}
           <NavigationLink disabled={saving} href="/preferences">Preferences</NavigationLink>
           <NavigationLink disabled={saving} href="/schedule">Schedule</NavigationLink>
@@ -66,6 +67,12 @@ const styles = StyleSheet.create({
   link: { color: '#fffefa', paddingVertical: 14, fontWeight: '600' },
 });
 
+function AuthenticatedLayout() {
+  const { user, loading } = useAuth();
+  if (loading) return <View style={styles.shell}><Text>Restoring session...</Text></View>;
+  return <SelectionProvider key={user?.uid ?? 'guest'}><NavigationGuardProvider><Shell /></NavigationGuardProvider></SelectionProvider>;
+}
+
 export default function Layout() {
-  return <SelectionProvider><NavigationGuardProvider><Shell /></NavigationGuardProvider></SelectionProvider>;
+  return <AuthProvider><AuthenticatedLayout /></AuthProvider>;
 }

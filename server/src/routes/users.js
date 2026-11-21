@@ -3,6 +3,7 @@ const { randomUUID } = require('node:crypto');
 const { getPool } = require('../db');
 const { HttpError, object, text, boolean } = require('../http');
 const { id, list, unique, expected, transaction, one, stale } = require('./workflow-util');
+const { requireDemoMember } = require('../auth');
 const router = express.Router();
 const person = 'id,name,role,revision';
 function validate(body) {
@@ -28,7 +29,9 @@ async function protectMembershipBallots(c, clubId, retainedPersonIds) {
   const result = await c.query('SELECT 1 FROM ballots WHERE club_id=$1 AND NOT (person_id=ANY($2::text[])) LIMIT 1', [clubId, retainedPersonIds]);
   if (result.rowCount) throw new HttpError(409, 'Cannot remove membership: saved preferences (ballots) exist for this member and club.');
 }
-router.get('/users', async (_req, res) => res.json((await getPool().query(`SELECT ${person} FROM people ORDER BY id`)).rows));
+router.get('/users', async (req, res) => res.json((await getPool().query(`SELECT ${person},
+  EXISTS (SELECT 1 FROM firebase_identities f WHERE f.person_id=people.id) AS "firebaseManaged"
+  FROM people ${req.auth ? '' : "WHERE role='member'"} ORDER BY id`)).rows));
 router.get('/users/:id', async (req, res) => res.json(await one(getPool(), `SELECT ${person} FROM people WHERE id=$1`, [id(req.params.id)], 'User')));
 router.post('/users', async (req, res) => {
   const b = object(req.body); const [name, role] = validate(b); const userId = b.id === undefined ? randomUUID() : id(b.id);
@@ -39,6 +42,7 @@ router.put('/users/:id', async (req, res) => {
   const [name, role] = validate(req.body); const rev = expected(req.body.revision); const userId = id(req.params.id);
   const user = await transaction(async (c) => {
     const row = await one(c, 'SELECT revision,role FROM people WHERE id=$1 FOR UPDATE', [userId], 'User'); stale(row.revision, rev);
+    if ((await c.query('SELECT 1 FROM firebase_identities WHERE person_id=$1', [userId])).rowCount) throw new HttpError(409, 'Firebase accounts are managed in Firebase.');
     if (role !== 'admin') await protectLastAdmin(c, row.role);
     return (await c.query(`UPDATE people SET name=$2,role=$3,revision=revision+1 WHERE id=$1 RETURNING ${person}`, [userId, name, role])).rows[0];
   });
@@ -48,6 +52,7 @@ router.delete('/users/:id', async (req, res) => {
   const rev = expected(Number(req.get('If-Match')));
   await transaction(async (c) => {
     const row = await one(c, 'SELECT revision,role FROM people WHERE id=$1 FOR UPDATE', [id(req.params.id)], 'User'); stale(row.revision, rev);
+    if ((await c.query('SELECT 1 FROM firebase_identities WHERE person_id=$1', [req.params.id])).rowCount) throw new HttpError(409, 'Firebase accounts are managed in Firebase.');
     await protectLastAdmin(c, row.role);
     await protectUserReferences(c, req.params.id);
     await c.query('DELETE FROM people WHERE id=$1', [req.params.id]);
@@ -110,6 +115,7 @@ async function memberRole(c, personId) {
 router.put('/users/:id/clubs/:clubId', async (req, res) => {
   const b = object(req.body); const rev = expected(b.revision, true); const personId = id(req.params.id); const clubId = id(req.params.clubId);
   const next = await transaction(async (c) => {
+    if (!req.auth) await requireDemoMember(personId, c);
     await memberRole(c, personId); await clubVersion(c, clubId, rev);
     await c.query('INSERT INTO memberships(club_id,person_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [clubId, personId]);
     return incrementClubVersion(c, clubId);
@@ -119,6 +125,7 @@ router.put('/users/:id/clubs/:clubId', async (req, res) => {
 router.delete('/users/:id/clubs/:clubId', async (req, res) => {
   const rev = expected(Number(req.get('If-Match')), true); const personId = id(req.params.id); const clubId = id(req.params.clubId);
   const next = await transaction(async (c) => {
+    if (!req.auth) await requireDemoMember(personId, c);
     await memberRole(c, personId); await clubVersion(c, clubId, rev);
     await one(c, 'SELECT person_id FROM memberships WHERE club_id=$1 AND person_id=$2', [clubId, personId], 'Membership');
     if ((await c.query('SELECT 1 FROM ballots WHERE club_id=$1 AND person_id=$2 LIMIT 1', [clubId, personId])).rowCount) {

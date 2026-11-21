@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const test = require('node:test');
 const { Pool } = require('pg');
+const { app, fetchAuthenticated: fetch } = require('../test-support/authenticated-app');
 
 const url = process.env.TEST_DATABASE_URL;
 const enabled = Boolean(url && process.env.TEST_DATABASE_CONFIRM === 'isolated');
@@ -50,7 +51,7 @@ test('title labels and legacy kit edits remain atomic and revision-safe', { skip
   t.after(async () => { if (server) await new Promise((resolve) => server.close(resolve)); await pool.end(); await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin.end(); });
   await require('../src/migrate').migrate(pool);
   await require('../src/seed').seed(pool);
-  server = require('../src/app').listen(0, '127.0.0.1');
+  server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}`;
   async function req(route, method = 'GET', body, revision) {

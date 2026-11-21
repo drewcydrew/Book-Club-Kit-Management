@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const test = require('node:test');
 const { Pool } = require('pg');
+const { app, fetchAuthenticated: fetch } = require('../test-support/authenticated-app');
 const { migrate } = require('../src/migrate');
 const { repairSchema } = require('../src/repair-schema');
 
@@ -56,7 +57,7 @@ test('validated draft removes an assigned slot atomically only with the required
   });
   await migrate(pool);
   await require('../src/seed').seed(pool);
-  server = require('../src/app').listen(0, '127.0.0.1');
+  server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}`;
   async function req(route, method = 'GET', body) {

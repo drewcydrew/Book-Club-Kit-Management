@@ -29,6 +29,7 @@ router.put('/cycles/:cycleId/clubs/:clubId/ballots/:personId', async (req, res) 
   const result = await transaction(async (c) => {
     const cycle = await one(c,"SELECT status, deadline >= CURRENT_DATE AS voting FROM cycles WHERE id=$1 FOR UPDATE",[cycleId],'Cycle');
     assertPreferencesOpen(cycle);
+    if (!req.auth) await require('../auth').requireDemoMember(personId, c);
     await one(c,'SELECT 1 FROM memberships WHERE club_id=$1 AND person_id=$2',[clubId,personId],'Membership');
     const existing = await c.query('SELECT revision FROM ballots WHERE cycle_id=$1 AND club_id=$2 AND person_id=$3',[cycleId,clubId,personId]);
     stale(existing.rowCount ? existing.rows[0].revision : 0,rev);
@@ -51,6 +52,11 @@ router.put('/cycles/:cycleId/clubs/:clubId/ranking', async (req, res) => {
   const next = await transaction(async (c) => {
     const cycle = await one(c,'SELECT revision,status,deadline >= CURRENT_DATE AS voting FROM cycles WHERE id=$1 FOR UPDATE',[cycleId],'Cycle'); stale(cycle.revision,rev);
     assertPreferencesOpen(cycle);
+    if (!req.auth) {
+      const personId = id(b.personId, 'personId');
+      await require('../auth').requireDemoMember(personId, c);
+      await one(c, 'SELECT 1 FROM memberships WHERE club_id=$1 AND person_id=$2 AND leader=true', [clubId, personId], 'Club leader');
+    }
     await one(c,'SELECT id FROM clubs WHERE id=$1',[clubId],'Club');
     for (const titleId of ranking) await one(c,'SELECT id FROM titles WHERE id=$1',[titleId],'Title');
     await c.query('DELETE FROM finalized_rankings WHERE cycle_id=$1 AND club_id=$2',[cycleId,clubId]);

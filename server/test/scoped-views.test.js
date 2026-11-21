@@ -3,6 +3,7 @@ const { randomBytes } = require('node:crypto');
 const { once } = require('node:events');
 const test = require('node:test');
 const { Pool } = require('pg');
+const { app, fetchAuthenticated: fetch } = require('../test-support/authenticated-app');
 
 const url = process.env.TEST_DATABASE_URL;
 const enabled = Boolean(url && process.env.TEST_DATABASE_CONFIRM === 'isolated');
@@ -43,7 +44,7 @@ test('scoped views load only relevant member data and retain complete staff sche
     VALUES('draft1','drafted','c1','2032-01','2032-01-10')`);
   await pool.query(`INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked)
     VALUES('a3','drafted','draft1','c1','k2','2032-01-01','2032-01-10','2032-01-20',false)`);
-  server = require('../src/app').listen(0, '127.0.0.1');
+  server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}`;
   async function get(path, status = 200) {

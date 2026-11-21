@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
-import React from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { ScrollView, Text, TextInput, View } from 'react-native';
 import { Action, Card, Label, Note, styles } from '../components/ui';
 import { MemberClubs } from '../components/member-clubs';
 import { useStore } from '../state/store';
@@ -8,12 +8,49 @@ import { useSelection } from '../state/selection';
 import { useShared, useSharedStatus } from '../state/shared';
 import { ScreenGate } from '../components/screen-gate';
 import { UserSelection } from '../components/user-selection';
+import { useAuth } from '../state/auth';
+import { useNavigationGuard } from '../components/navigation-guard';
 
 export default function Home() {
-  const { person } = useSelection();
+  const { person, loading, error, refreshUsers } = useSelection();
+  const auth = useAuth();
   const { saving } = useSharedStatus();
+  const guard = useNavigationGuard();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  function run(action: () => Promise<void>) {
+    const proceed = () => {
+      setBusy(true);
+      setMessage('');
+      void action().then(() => setPassword('')).catch((reason: unknown) => {
+        setMessage(reason instanceof Error ? reason.message : 'Authentication failed.');
+      }).finally(() => setBusy(false));
+    };
+    if (!saving && !guard.intercept(proceed)) proceed();
+  }
   return <ScrollView keyboardShouldPersistTaps="handled">
-    <UserSelection disabled={saving} />
+    <View style={[styles.page, { paddingBottom: 0 }]}>
+      <Text accessibilityRole="header" style={styles.heading}>Welcome</Text>
+      <Card><Label>Administrator sign-in</Label>
+        {auth.user ? <>
+          <Note>Signed in as {auth.user.email ?? 'Firebase user'}.</Note>
+          {loading && <Note>Loading administrator access...</Note>}
+          {error && <><Text style={styles.error}>{error}</Text><Action title="Retry" onPress={() => { void refreshUsers().catch(() => undefined); }} /></>}
+          <Action title="Sign out" disabled={saving || busy} onPress={() => run(auth.signOut)} />
+        </> : <>
+          <Note>Sign in with an existing Firebase account to manage the app.</Note>
+          <Label>Email</Label>
+          <TextInput accessibilityLabel="Email" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" editable={!busy} style={styles.input} />
+          <Label>Password</Label>
+          <TextInput accessibilityLabel="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" editable={!busy} style={styles.input} />
+          <Action title={busy ? 'Signing in...' : 'Sign in'} tone="primary" disabled={saving || busy || !email.trim() || !password || !auth.available} onPress={() => run(() => auth.signIn(email, password))} />
+        </>}
+        {(message || auth.error) && <Text accessibilityLiveRegion="polite" style={styles.error}>{message || auth.error}</Text>}
+      </Card>
+    </View>
+    {!auth.user && <UserSelection disabled={saving || busy} />}
     {person?.role === 'member' ? <ScreenGate><HomeContent /></ScreenGate> : person ? <HomeIntro staff /> : null}
   </ScrollView>;
 }
@@ -34,7 +71,7 @@ function HomeContent() {
 function HomeIntro({ staff }: { staff: boolean }) {
   return <View style={styles.page}>
     <Card><Label>Explore a fictional library</Label>
-      <Note>Users, memberships, preferences and schedules are shared and publicly writable. Use fictional data only.</Note>
+      <Note>Demo member access is public and impersonable. Use fictional data only.</Note>
     </Card>
     <Card><Label>Start here</Label>
       <Link href="/preferences" style={{ color: '#245e51', textDecorationLine: 'underline', paddingVertical: 8 }}>Vote and review preferences →</Link>

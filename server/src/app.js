@@ -1,6 +1,8 @@
 const express = require('express');
 const { errorHandler } = require('./http');
+const { authenticate, provisionPerson } = require('./auth');
 
+function createApp(verifyToken) {
 const app = express();
 
 app.use((request, response, next) => {
@@ -11,7 +13,7 @@ app.use((request, response, next) => {
   if (!allowed.includes(origin)) return response.status(403).json({ error: 'Origin not allowed.' });
   response.set('Access-Control-Allow-Origin', origin);
   response.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  response.set('Access-Control-Allow-Headers', 'Content-Type, If-Match');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, If-Match, Authorization');
   if (request.method === 'OPTIONS') return response.status(204).end();
   return next();
 });
@@ -21,6 +23,11 @@ app.use(express.json({ limit: '64kb' }));
 
 app.get('/health', (_request, response) => {
   response.status(200).json({ status: 'ok' });
+});
+
+app.use('/api', authenticate(verifyToken));
+app.get('/api/session', async (request, response) => {
+  response.json(await provisionPerson(request.auth.uid));
 });
 
 app.use('/api/titles', require('./routes/titles'));
@@ -41,4 +48,9 @@ app.use('/api', require('./routes/circulation'));
 app.use('/api', require('./routes/shared'));
 app.use(errorHandler);
 
+return app;
+}
+
+const app = createApp();
+app.createApp = createApp;
 module.exports = app;

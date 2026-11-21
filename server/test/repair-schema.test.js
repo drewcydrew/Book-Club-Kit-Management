@@ -8,6 +8,7 @@ const { Pool } = require('pg');
 const { repairSchema } = require('../src/repair-schema');
 const { migrate } = require('../src/migrate');
 const { seed } = require('../src/seed');
+const { app, fetchAuthenticated: fetch } = require('../test-support/authenticated-app');
 
 const url = process.env.TEST_DATABASE_URL;
 const enabled = Boolean(url && process.env.TEST_DATABASE_CONFIRM === 'isolated');
@@ -57,7 +58,7 @@ test('repair checks without writes and safely copies kit labels once', { skip: !
   process.env.DATABASE_URL = url;
   process.env.PGOPTIONS = `-c search_path=${schema}`;
   const appPool = require('../src/db').getPool();
-  const server = require('../src/app').listen(0, '127.0.0.1');
+  const server = app.listen(0, '127.0.0.1');
   try {
     await once(server, 'listening');
     const base = `http://127.0.0.1:${server.address().port}`;

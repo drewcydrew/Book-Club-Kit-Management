@@ -3,6 +3,7 @@ const { randomBytes } = require('node:crypto');
 const { once } = require('node:events');
 const test = require('node:test');
 const { Pool } = require('pg');
+const { app, fetchAuthenticated: fetch } = require('../test-support/authenticated-app');
 
 const url = process.env.TEST_DATABASE_URL;
 const enabled = Boolean(url && process.env.TEST_DATABASE_CONFIRM === 'isolated');
@@ -23,7 +24,6 @@ test('confirmed club deletion is atomic, persistent and rejects changed previews
   });
   await require('../src/migrate').migrate(pool);
   await require('../src/seed').seed(pool);
-  const app = require('../src/app');
   server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   let base = `http://127.0.0.1:${server.address().port}`;

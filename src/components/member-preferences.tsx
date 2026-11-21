@@ -571,7 +571,7 @@ export function MemberPreferences({ controller, wide }: { controller: ReturnType
                 rankings(reviewData, cycle, club.id);
               void shared
                 .mutate(() =>
-                  finalizeRanking(cycle.id, club.id, order, cycle.revision),
+                  finalizeRanking(cycle.id, club.id, order, cycle.revision, data.selectedPersonId),
                 )
                 .then(() => setReview(null))
                 .catch(() => undefined)
