@@ -1,31 +1,11 @@
+const { formatSynopsis } = require('./synopsis');
+
 const lookupTimeoutMs = 5000;
 
 function cleanText(value, max) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed ? trimmed.slice(0, max) : null;
-}
-
-const htmlEntities = new Map([['amp', '&'], ['lt', '<'], ['gt', '>'], ['quot', '"'], ['apos', "'"], ['nbsp', ' ']]);
-
-function decodeHtmlEntity(match, code) {
-  if (code[0] === '#') {
-    const point = code[1] === 'x' || code[1] === 'X' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
-    return Number.isSafeInteger(point) && point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : match;
-  }
-  return htmlEntities.get(code.toLowerCase()) ?? match;
-}
-
-// Synopses can arrive as HTML; this keeps the readable text and drops the markup.
-function cleanDescription(value, max) {
-  if (typeof value !== 'string') return null;
-  const text = value
-    .replace(/<\/?(p|div|br|li|h[1-6]|tr|blockquote)\b[^>]*>/gi, ' ')
-    .replace(/<[^>]*>/g, '')
-    .replace(/&(#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, decodeHtmlEntity)
-    .replace(/\s+/g, ' ')
-    .trim();
-  return text ? text.slice(0, max) : null;
 }
 
 function cleanList(value, max) {
@@ -82,7 +62,7 @@ async function lookupBookDetailed(isbn) {
       genres: cleanList(data.subjects, 2000),
       coverUrl: cleanCover(data.image),
       publisher: cleanText(data.publisher, 200),
-      synopsis: cleanDescription(data.synopsis, 4000),
+      synopsis: formatSynopsis(data.synopsis, 4000),
       datePublished: cleanText(data.date_published, 40),
       binding: cleanText(data.binding, 100),
       language: cleanText(data.language, 40),
@@ -137,4 +117,4 @@ async function searchBooks(title) {
   return { results };
 }
 
-module.exports = { lookupBook, lookupBookDetailed, searchBooks, cleanDescription };
+module.exports = { lookupBook, lookupBookDetailed, searchBooks };

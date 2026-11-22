@@ -30,11 +30,12 @@ function fakePool({ services = ['hume'], titles = [] }) {
 
 const quiet = { log: () => {}, wait: async () => {}, intervalMs: 0 };
 
-test('replacementFor prefers the ISBNdb synopsis and falls back to cleaning the stored text', () => {
-  const markup = { synopsis: '<p><b>NOW A</b></p><p>novel</p>' };
-  assert.deepEqual(replacementFor(markup, { synopsis: 'From ISBNdb.' }), { value: 'From ISBNdb.', source: 'isbndb' });
-  assert.deepEqual(replacementFor(markup, null), { value: 'NOW A novel', source: 'local' });
-  assert.equal(replacementFor({ synopsis: 'Plain text.' }, null), null);
+test('replacementFor leaves formatted synopses alone and formats older markup', () => {
+  const formatted = { synopsis: '<p><b>NOW A</b></p><p>novel</p>' };
+  assert.deepEqual(replacementFor(formatted, { synopsis: 'From ISBNdb.' }), { value: 'From ISBNdb.', source: 'isbndb' });
+  assert.equal(replacementFor(formatted, null), null);
+  assert.equal(replacementFor({ synopsis: '<p>Plain text.</p>' }, null), null);
+  assert.deepEqual(replacementFor({ synopsis: '<div>Old <i>text</i></div>' }, null), { value: '<p>Old text</p>', source: 'local' });
 });
 
 test('cleanSynopses updates markup titles with revision and service checks', async () => {

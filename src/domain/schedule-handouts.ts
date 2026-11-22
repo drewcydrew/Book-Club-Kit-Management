@@ -1,4 +1,5 @@
 import type { Cycle, Data } from './model';
+import { synopsisPlainText } from './synopsis';
 
 export interface HandoutMeeting {
   date: string;
@@ -47,7 +48,7 @@ export function makeHandoutSnapshot(data: Data, cycle: Cycle, clubIds: string[],
     byClub.get(slot.clubId)!.meetings.push({
       date: assignment?.meeting || slot.meeting || `${slot.month} · Date to be confirmed`,
       title: title?.name ?? 'Title to be confirmed', author: title?.author ?? '',
-      synopsis: title?.synopsis ?? '', titleId: title?.id ?? '', isbn: title?.isbn ?? '',
+      synopsis: synopsisPlainText(title?.synopsis), titleId: title?.id ?? '', isbn: title?.isbn ?? '',
       coverUrl: title?.coverUrl ?? '', assigned: !!assignment,
     });
   }

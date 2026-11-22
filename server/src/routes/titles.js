@@ -5,6 +5,7 @@ const { object, text, integer, boolean, HttpError, revision, checkUpdated } = re
 const { titleColumns } = require('./shared-selects');
 const { transaction } = require('./workflow-util');
 const { labelIds, setLabels } = require('./title-labels');
+const { formatSynopsis } = require('../synopsis');
 
 const router = express.Router();
 const columns = ['name', 'author', 'isbn', 'pages', 'genres', 'notes', 'large_print', 'audio', 'cover_url', 'publisher', 'synopsis', 'date_published', 'binding', 'language'];
@@ -20,6 +21,16 @@ function coverUrl(value) {
 function optionalText(value, field, max) {
   if (value === null || value === undefined || value === '') return null;
   return text(value, field, false, max);
+}
+
+// Synopses are saved in the formatted form (see synopsis.js). Formatting can add markup, so the
+// result is checked against the stored limit rather than cut short.
+function synopsis(value) {
+  const raw = optionalText(value, 'synopsis', 4000);
+  if (raw === null) return null;
+  const formatted = formatSynopsis(raw, Number.POSITIVE_INFINITY);
+  if (formatted && formatted.length > 4000) throw new HttpError(400, 'synopsis is too long once formatted.');
+  return formatted;
 }
 
 // Temporary development rule: deleting a title also removes its kits, their club links,
@@ -50,7 +61,7 @@ function validate(value) {
   const b = object(value);
   return [text(b.name, 'name', true, 200), text(b.author, 'author', true, 200), text(b.isbn, 'isbn', false, 40),
     integer(b.pages, 'pages', 0), text(b.genres, 'genres'), text(b.notes, 'notes'), boolean(b.largePrint, 'largePrint'), boolean(b.audio, 'audio'), coverUrl(b.coverUrl),
-    optionalText(b.publisher, 'publisher', 200), optionalText(b.synopsis, 'synopsis', 4000), optionalText(b.datePublished, 'datePublished', 40),
+    optionalText(b.publisher, 'publisher', 200), synopsis(b.synopsis), optionalText(b.datePublished, 'datePublished', 40),
     optionalText(b.binding, 'binding', 100), optionalText(b.language, 'language', 40)];
 }
 

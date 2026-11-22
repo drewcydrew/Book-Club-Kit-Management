@@ -3,6 +3,7 @@ import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type React
 import { createPortal } from 'react-dom';
 import type { KitLabel, Title } from '../domain/model';
 import { TitleCover } from './title-cover';
+import { SynopsisText } from './synopsis-text';
 import { titleDetailRows } from './title-details-rows';
 import { useDiscussionNotes } from './use-discussion-notes';
 import styles from './title-details.module.css';
@@ -67,7 +68,7 @@ export function TitleDetails({ title, labels, onClose, children }: { title: Titl
             </div>)}
           </dl>}
           <h3 className={styles.heading}>Description</h3>
-          <p className={styles.synopsis}>{title.synopsis || 'No description stored for this title.'}</p>
+          {title.synopsis ? <SynopsisText synopsis={title.synopsis} /> : <p className={styles.synopsis}>No description stored for this title.</p>}
           <h3 className={styles.heading}>Discussion notes</h3>
           <p className={styles.synopsis}>{discussionNotes}</p>
           {labels && <>

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions, type HostInstance } from 'react-native';
 import { Action, Actions, Card, Label, Note, narrowWidth } from './ui';
+import { SynopsisText } from './synopsis-text';
 import { radius } from './design';
 import { TitleCover } from './title-cover';
 import type { MemberScheduleMeeting } from '../domain/cycle-overview';
@@ -156,7 +157,7 @@ function MonthCard({ entry, today, narrow, titleFor, clubNameFor, onOpenMeeting,
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={{ fontWeight: '700', color: '#183a36' }}>{title?.name ?? 'Unavailable title'}</Text>
             <Text>{title?.author || 'Author unavailable'}</Text>
-            {title?.synopsis ? <Text numberOfLines={3} style={{ fontSize: 13, color: '#334e47' }}>{title.synopsis}</Text> : null}
+            {title?.synopsis ? <SynopsisText synopsis={title.synopsis} numberOfLines={3} /> : null}
             <Text style={{ fontSize: 12, color: '#465c56' }}>Checkout {assignment.ready}</Text>
             <Text style={{ fontSize: 12, color: '#465c56' }}>Meeting {assignment.meeting} · {clubNameFor(book.clubId)}</Text>
             <Text style={{ fontSize: 12, color: '#465c56' }}>Return {assignment.due}</Text>

@@ -4,6 +4,7 @@ import { catalogueMatches, indexKits, titleLabelSummary } from '../domain/kit-la
 import type { Kit, KitLabel, Title } from '../domain/model';
 import { KitPanel } from './kit-panel';
 import { PendingStatus, type PendingAction } from './pending-status';
+import { SynopsisText } from './synopsis-text';
 import { TitleCover } from './title-cover';
 import { Action, Actions, Card, Field, Label, Note } from './ui';
 
@@ -40,7 +41,7 @@ export function TitlePanel({ titles, kits, labels, query, onQueryChange, staff, 
           <Note>Source genres: {title.genres || 'None'} · {title.pages || 'Unknown'} pages · {title.largePrint ? 'Large print' : 'No large print'} · {title.audio ? 'Audio available' : 'No audio'}</Note>
           <Note>{titleLabelSummary(title, labelById)}</Note>
           {title.publisher || title.datePublished ? <Note>{[title.publisher, title.datePublished].filter(Boolean).join(' · ')}</Note> : null}
-          {title.synopsis ? <Text>{title.synopsis}</Text> : <Note>No description stored.</Note>}
+          {title.synopsis ? <SynopsisText synopsis={title.synopsis} /> : <Note>No description stored.</Note>}
           {title.notes ? <Text>Content notes: {title.notes}</Text> : null}
         </View></View>
         <Actions><Action title={`${isExpanded ? 'Hide' : 'Show'} kits for ${title.name} (${related.length})`}

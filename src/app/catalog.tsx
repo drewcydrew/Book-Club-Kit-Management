@@ -28,13 +28,13 @@ import {
   saveRecord,
   saveDiscussionNotes,
   searchIsbns,
-  type IsbnLookup,
   type TitleSearchResult,
 } from "../state/api";
 import { saveCatalogChange } from "../state/catalog-save";
 import { useShared } from "../state/shared";
 import { ScreenGate } from "../components/screen-gate";
 import { useStore } from "../state/store";
+import { replaceWithLookup } from "../domain/title-lookup";
 
 const blankTitle = (): Title => ({
   id: "",
@@ -142,34 +142,6 @@ function titleSearchMessage(status: TitleSearchStatus, count: number): string {
   }
 }
 
-// Fills only empty fields so that text the user has already typed is never replaced.
-function applyLookup(draft: TitleDraft, found: IsbnLookup): TitleDraft {
-  const { value } = draft;
-  const fillEmpty = (
-    current: string | null | undefined,
-    fromLookup: string | null,
-  ) => (current?.trim() ? current : (fromLookup ?? null));
-  return {
-    ...draft,
-    pages:
-      draft.pages.trim() || found.pages === null
-        ? draft.pages
-        : String(found.pages),
-    value: {
-      ...value,
-      name: value.name.trim() ? value.name : (found.title ?? ""),
-      author: value.author.trim() ? value.author : (found.author ?? ""),
-      genres: value.genres.trim() ? value.genres : (found.genres ?? ""),
-      coverUrl: value.coverUrl ?? found.coverUrl,
-      publisher: fillEmpty(value.publisher, found.publisher),
-      synopsis: fillEmpty(value.synopsis, found.synopsis),
-      datePublished: fillEmpty(value.datePublished, found.datePublished),
-      binding: fillEmpty(value.binding, found.binding),
-      language: fillEmpty(value.language, found.language),
-    },
-  };
-}
-
 export default function Catalog() {
   return <ScreenGate staffOnly><CatalogContent /></ScreenGate>;
 }
@@ -264,23 +236,31 @@ function CatalogContent() {
         .then((found) => {
           if (cancelled) return;
           setPreview({ isbn: pendingIsbn, status: "found" });
-          // Only fill the form while it still holds this ISBN.
+          // Only update the form while it still holds this ISBN.
           setDraft((current) =>
             current?.kind === "title" &&
             current.value.isbn.trim() === pendingIsbn
-              ? applyLookup(current, found)
+              ? { ...current, ...replaceWithLookup(current.value, current.pages, found) }
               : current,
           );
         })
         .catch((error: unknown) => {
           if (cancelled) return;
-          const status: LookupStatus =
-            error instanceof ApiError && error.status === 404
-              ? "none"
-              : error instanceof ApiError && error.status === 400
-                ? "invalid"
-                : "error";
+          const notFound = error instanceof ApiError && error.status === 404;
+          const status: LookupStatus = notFound
+            ? "none"
+            : error instanceof ApiError && error.status === 400
+              ? "invalid"
+              : "error";
           setPreview({ isbn: pendingIsbn, status });
+          if (notFound) {
+            setDraft((current) =>
+              current?.kind === "title" &&
+              current.value.isbn.trim() === pendingIsbn
+                ? { ...current, ...replaceWithLookup(current.value, current.pages, null) }
+                : current,
+            );
+          }
         });
     }, 600);
     return () => {
@@ -920,6 +900,7 @@ function CatalogContent() {
                             })
                           }
                         />
+                        <Note>Synopsis accepts &lt;p&gt; paragraphs and &lt;b&gt; bold text; other HTML is removed on save.</Note>
                         <Field
                           editable={!shared.saving}
                           label="Content notes"

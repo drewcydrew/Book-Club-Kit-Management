@@ -5,6 +5,7 @@ import type { KitLabel, Title } from '../domain/model';
 import { colors, radius, shadow } from './design';
 import { useReducedMotion } from './motion';
 import { TitleCover } from './title-cover';
+import { SynopsisText } from './synopsis-text';
 import { titleDetailRows } from './title-details-rows';
 import { useDiscussionNotes } from './use-discussion-notes';
 
@@ -80,7 +81,7 @@ export function TitleDetails({ title, labels, onClose, children }: { title: Titl
             </View>)}
           </View>}
           <Text style={styles.heading}>Description</Text>
-          <Text style={styles.synopsis}>{title.synopsis || 'No description stored for this title.'}</Text>
+          {title.synopsis ? <SynopsisText synopsis={title.synopsis} /> : <Text style={styles.synopsis}>No description stored for this title.</Text>}
           <Text style={styles.heading}>Discussion notes</Text>
           <Text style={styles.synopsis}>{discussionNotes}</Text>
           {labels && <>

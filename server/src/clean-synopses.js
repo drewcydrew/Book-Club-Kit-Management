@@ -1,11 +1,14 @@
 const { setTimeout: sleep } = require('node:timers/promises');
 const { getPool } = require('./db');
 const { normaliseIsbn } = require('./isbn');
-const { lookupBookDetailed, cleanDescription } = require('./isbndb');
+const { lookupBookDetailed } = require('./isbndb');
+const { formatSynopsis } = require('./synopsis');
 const { parseArgs } = require('./enrich-titles');
 
-// Matches HTML tags and named or numeric entities; the same pattern is used in SQL and in tests.
-const markupPattern = '<[^>]+>|&(#[0-9]+|#x[0-9a-f]+|[a-z]+);';
+// Matches tags other than <p>, <b>, and their closers, plus entities other than &amp;, &lt; and &gt;.
+// Synopses already in the formatted form (see synopsis.js) do not match, so a rerun leaves them alone.
+// The same pattern is used in SQL and in tests.
+const markupPattern = '<(?!/?[pb]>)[^>]+>|&(?!(?:amp|lt|gt);)(#[0-9]+|#x[0-9a-f]+|[a-z]+);';
 
 // Runs callback inside a transaction scoped to one library service, so row-level security applies.
 // The shared advisory lock matches the write lock taken by withTransaction in db.js.
@@ -32,7 +35,7 @@ async function inService(pool, serviceId, callback) {
 // Returns null when the stored value should stay as it is.
 function replacementFor(title, book) {
   const fromIsbndb = Boolean(book?.synopsis);
-  const value = fromIsbndb ? book.synopsis : cleanDescription(title.synopsis, 4000);
+  const value = fromIsbndb ? book.synopsis : formatSynopsis(title.synopsis, 4000);
   return value === title.synopsis ? null : { value, source: fromIsbndb ? 'isbndb' : 'local' };
 }
 

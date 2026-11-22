@@ -47,10 +47,10 @@ test('detailed ISBNdb lookup distinguishes missing books and service errors', as
     globalThis.fetch = async () => Response.json({ book: { synopsis: '  Description  ', pages: 120, subjects: ['Fiction'] } });
     const found = await lookupBookDetailed('9780306406157');
     assert.equal(found.status, 'found');
-    assert.equal(found.book.synopsis, 'Description');
+    assert.equal(found.book.synopsis, '<p>Description</p>');
     assert.equal(found.book.genres, 'Fiction');
     globalThis.fetch = async () => Response.json({ book: { synopsis: '<p><b>Now a</b> novel &amp; more.</p><p>Second&nbsp;paragraph &#8217;s end</p>' } });
-    assert.equal((await lookupBookDetailed('9780306406157')).book.synopsis, 'Now a novel & more. Second paragraph \u2019s end');
+    assert.equal((await lookupBookDetailed('9780306406157')).book.synopsis, '<p><b>Now a</b> novel &amp; more.</p><p>Second paragraph \u2019s end</p>');
   } finally {
     globalThis.fetch = oldFetch;
     if (oldKey === undefined) delete process.env.ISBNDB_API_KEY; else process.env.ISBNDB_API_KEY = oldKey;

@@ -2,6 +2,7 @@ import fontkit from '@pdf-lib/fontkit';
 import type { Color, PDFImage } from 'pdf-lib';
 import { calendarMonthLabel, type MemberOverviewMonth, type OverviewMarkerKind } from './member-calendar';
 import type { Assignment, Title } from './model';
+import { synopsisPlainText } from './synopsis';
 import { shorten, wrap } from './schedule-handouts-pdf';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -45,7 +46,7 @@ export function overviewPdfMonths(months: MemberOverviewMonth[], titleFor: (assi
       titleId: title?.id,
       name: title?.name ?? 'Unavailable title',
       author: title?.author ?? '',
-      synopsis: title?.synopsis ?? '',
+      synopsis: synopsisPlainText(title?.synopsis),
     };
     const markers = new Map([...entry.markers].map(([date, list]) => [date, list.map((marker) => marker.kind)] as const));
     return { month: entry.month, weeks: entry.weeks, markers, book };
