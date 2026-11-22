@@ -4,7 +4,7 @@ import test from 'node:test';
 import { seed } from '../src/domain/seed';
 import {
   ApiError, deleteClub, deleteCycle, deleteUser, finalizeRanking, loadEnrolment, loadLeaderReview, loadShared, loadUsers, loadView, previewClubDeletion, reopenCycle, saveBallot, saveCycle, saveEvent,
-  saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser, saveValidatedSchedule, validateSchedule, previewKitLabelDeletion, setApiAuthentication,
+  saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser, saveValidatedSchedule, validateSchedule, previewKitLabelDeletion, setApiAuthentication, setApiLibraryService,
 } from '../src/state/api';
 
 const demo = seed();
@@ -44,6 +44,30 @@ test('authenticated requests attach tokens only over secure API connections', as
     await assert.rejects(loadUsers(), /HTTPS/);
     assert.equal(calls, 1);
   } finally {
+    setApiAuthentication(null, null);
+    globalThis.fetch = oldFetch;
+    if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL; else process.env.EXPO_PUBLIC_API_URL = oldUrl;
+  }
+});
+
+test('a pending request retains the library selected when it started', async () => {
+  const oldUrl = process.env.EXPO_PUBLIC_API_URL;
+  const oldFetch = globalThis.fetch;
+  process.env.EXPO_PUBLIC_API_URL = 'https://demo.example';
+  let release: (token: string) => void = () => {};
+  setApiAuthentication(() => new Promise((resolve) => { release = resolve; }), null);
+  setApiLibraryService('first');
+  globalThis.fetch = async (_input, init) => {
+    assert.equal(new Headers(init?.headers).get('X-Library-Service-Id'), 'first');
+    return new Response(JSON.stringify(demo.people), { status: 200 });
+  };
+  try {
+    const pending = loadUsers();
+    setApiLibraryService('second');
+    release('firebase-token');
+    await pending;
+  } finally {
+    setApiLibraryService('');
     setApiAuthentication(null, null);
     globalThis.fetch = oldFetch;
     if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL; else process.env.EXPO_PUBLIC_API_URL = oldUrl;

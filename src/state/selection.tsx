@@ -3,6 +3,7 @@ import type { Person } from '../domain/model';
 import { clearCoverCache } from '../components/title-cover';
 import { loadSession, loadUsers } from './api';
 import { useAuth } from './auth';
+import { useLibraryService } from './library-service';
 
 type Selection = {
   people: Person[];
@@ -18,11 +19,13 @@ const Context = createContext<Selection | null>(null);
 
 export function SelectionProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { service } = useLibraryService();
   const [people, setPeople] = useState<Person[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const refreshUsers = useCallback(() => (async () => {
+    if (!service) return { users: [], admin: null };
     const admin = user ? await loadSession() : null;
     const users = await loadUsers();
     return { users, admin };
@@ -37,7 +40,7 @@ export function SelectionProvider({ children }: { children: React.ReactNode }) {
       setError(message);
       throw new Error(message);
     },
-  ).finally(() => setLoading(false)), [user]);
+  ).finally(() => setLoading(false)), [service, user]);
   const reconcilePerson = useCallback((next: Person) => setPeople((current) => {
     const old = current.find((person) => person.id === next.id);
     if (!old || (old.revision === next.revision && old.name === next.name && old.role === next.role)) return current;

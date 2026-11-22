@@ -4,7 +4,19 @@ This Expo prototype uses a separate Express API and PostgreSQL for shared users,
 
 **Public demo only:** Firebase sign-in is required for staff and administrator operations, but demo members and leaders are unauthenticated and impersonable. Anyone who can reach the API can act as a demo member, read member-accessible data, change member ballots and enrolments, and finalize leader rankings. Use fictional data only; do not enter real names, addresses or other sensitive information. CORS is not an access control.
 
-Users can belong to multiple clubs and have separate preferences for each club and cycle. Leaders are assigned per club. Reading history, lending settings, kit status and circulation events are shared because schedules depend on them. Choose a demo member or sign in on Home; club enrolment is shared. Standard members manage club enrolment on Home and see only their enrolled clubs in Preferences. Clubs, Catalog & kits and Cycles are hidden from members. Previous locally created users, preferences, cycles and schedules are not imported.
+Users can belong to multiple clubs and have separate preferences for each club and cycle. Leaders are assigned per club. Reading history, lending settings, kit status and circulation events are shared within the selected library service because schedules depend on them. Choose a library service on Home, then choose a demo member or sign in. Standard members manage club enrolment on Home and see only their enrolled clubs in Preferences. Clubs, Catalog & kits and Cycles are hidden from members. Previous locally created users, preferences, cycles and schedules are not imported.
+
+## Library services
+
+Each library service has its own catalogue, members, clubs, ballots, schedules, circulation and lending settings. A signed-in admin can create a service by supplying its name and first branch. The app remembers the last selected service on the device; switching services clears the previous selection and views.
+
+**Access limitation:** Every signed-in Firebase administrator can select and manage every service. Service names are public, and demo members and leaders remain unauthenticated and impersonable. Separation of datasets is not privacy or member authentication; use fictional data only. Service deletion and per-service administrator permissions are not available.
+
+Migration `018_library_services.sql` preserves the existing shared records and Firebase identities in a service named Hume. Before upgrading, stop all API instances and other writers, verify the target database, take a restorable backup and rehearse the migration on an isolated copy. Deploy the updated API and app together; old clients without a service selection cannot use service-dependent endpoints. No migration runs at server startup.
+
+The API database role must not be a PostgreSQL superuser or have `BYPASSRLS`; the API rejects requests if it can bypass row-level security. Use an appropriately privileged non-superuser role that can read and write the application tables and owns `circulation_events` for the existing trigger operations. Check the API connection's role with `SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user;`. Apply migrations with an appropriately privileged migration role. Configure database access privately and do not share connection strings.
+
+The legacy seed, import, enrichment, kit creation, reconciliation and schema-repair commands do **not** yet support library-service databases and explicitly refuse to run after migration 018. Do not run older copies of those scripts against a migrated database. Create new service data through the app.
 
 ## Configure Firebase sign-in
 
@@ -32,13 +44,16 @@ npm ci
 $env:DATABASE_URL = '<your-postgresql-connection-url>'
 $env:ALLOWED_ORIGINS = 'http://localhost:8081'
 npm run migrate
-npm run seed
 npm start
 ```
+
+The historical seed and import workflows described below apply **only before migration 018**. They are blocked for library-service databases.
 
 Migrations and the fictional demo seed are explicit commands; neither runs at startup. To import the title list in `server/data/titles-import.tsv` (title, author, ISBN-13), run `npm run import-titles -- --dry-run` to preview and then `npm run import-titles`. Titles whose ISBN already exists are skipped, so it is safe to rerun. Imported titles start with 0 pages, which can be edited in the catalogue. To create one kit per title that has no kit yet (10 copies each, at the first configured branch, barcode equal to the title name), run `npm run create-kits -- --dry-run` to preview and then `npm run create-kits`. If any title name clashes with an existing kit barcode, nothing is written and the clashing names are listed. To load the demo 2027 schedule in `server/data/demo-schedule.tsv` (club_id, ISBN-13, meeting date), run `npm run import-demo-schedule -- --dry-run` and then `npm run import-demo-schedule`. This creates one sample member per club, a `demo-cycle-2027` cycle with a 2026-12-15 voting deadline, meeting slots, and one ballot per club ranked by meeting order. It requires the clubs and titles to exist already, and it runs once; later runs report that it was already imported. Back up the target database and verify the connection before upgrading an existing deployment. The seed creates the initial demo admin and is repeatable without overwriting edits. Conflicting existing IDs or barcodes cause the affected seed step to fail transactionally. Use an appropriately scoped database account.
 
 ### Repair an outdated database safely
+
+The following repair procedure applies only before migration 018; the repair tool blocks library-service databases.
 
 If a database branch or restore may have lost schema changes, do **not** run `npm run migrate` blindly. Migration 007 can remove duplicate monthly meetings and their assignments, and migration 009 normally drops the old kit-label table. First stop app writes, take a verified restorable backup, and verify that the server's `DATABASE_URL` and PostgreSQL search path select the intended database and schema. Do not share the URL.
 
@@ -67,6 +82,8 @@ SELECT name, applied_at FROM schema_migrations ORDER BY name;
 
 ### Populate title descriptions from ISBNdb
 
+This legacy command is unavailable after migration 018.
+
 Back up the intended database first, verify `DATABASE_URL`, and set `ISBNDB_API_KEY` privately in the server environment or root `.env`. Run from `server`:
 
 ```powershell
@@ -81,6 +98,8 @@ Every valid ISBN is checked, including titles with existing descriptions. A none
 The command stops with a nonzero exit code on a service error such as a timeout, invalid response, authentication failure or rate limit. Successful earlier updates remain committed. Concurrently edited or removed titles are skipped and reported as conflicts, also producing a nonzero exit code. Resolve the cause and rerun; unchanged values do not create extra revisions. Each run requests ISBNdb data again, so a later result can replace a description again. A dry run is a point-in-time preview, not a guarantee of later responses or unchanged catalog records.
 
 ### Import 2027 demo preferences
+
+This legacy command is unavailable after migration 018.
 
 The separate preferences import uses `server/data/demo-preferences-2027.csv`, which contains the supplied club names and preferences. Review whether this data is appropriate for the target environment before publishing it. Back up the database, verify `DATABASE_URL`, run migrations, and configure at least one branch in Admin lending settings. From `server`:
 
@@ -107,6 +126,8 @@ Each migration does nothing when its input cycles are missing or it has already 
 
 ### Reconcile 2027 demo preference rankings
 
+This legacy command is unavailable after migration 018.
+
 The standalone `server/scripts/reconcile-demo-preferences-2027.sql` corrects existing ballots in `demo-preferences-cycle-2027` using the 223 club/title/rank rows embedded in the script. It does not read an external CSV. It is not a schema migration and does not run with `npm run migrate`. It updates all existing ballot holders in each matched club; it does not create missing ballots or people. For those ballots it clears all read/won't-read marks, selects matched titles from the embedded data, and preserves other selected titles in their existing relative order. Required positions take priority; if too few selections exist to fill earlier positions, the script compacts gaps and reports the resulting positions.
 
 The script tries normalized exact names and reviewed ISBN aliases, then fuzzy name matching. Fuzzy matching uses padded-trigram Dice similarity: club score must be at least 0.60; title name score at least 0.60, author score at least 0.35, and the weighted score (75% title, 25% author) at least 0.65. A missing source author or unknown database author receives an author score of 1. Review fuzzy matches and alternatives carefully. Weak or tied matches, and clubs with conflicting mappings, are skipped and reported. A club with no resolved titles is not changed. The input must have unique club/title and club/rank combinations and ranks from 1 through 500.
@@ -123,6 +144,8 @@ Adjust the directory for your installation. The runner passes connection details
 Changed clubs lose their finalized rankings, matching the normal ballot-save workflow; preferences are recalculated from ballots. Schedule assignments and club reading history remain unchanged, so history may still exclude a selected title. A repeat run with unchanged data is a no-op, but running it again after later ballot edits will reconcile those edits again. Refresh the app and audit the results after applying.
 
 ### Reconcile club meeting rules
+
+This legacy command is unavailable after migration 018.
 
 The standalone `server/scripts/reconcile-club-meeting-rules.sql` embeds the 43 club rules from the supplied workbook; it does not read the spreadsheet at runtime and is not a migration. It matches normalized names or the listed best-guess aliases, with no automatic fuzzy matching. Review every alias: unmatched names, multiple candidates, multiple source names targeting one club and revision-overflow clubs are reported and skipped. It does not create clubs. The preview shows each candidate, old and proposed values, and any retained unknown weekday or occurrence. For six-week rules without a complete monthly rule, it retains the existing unknown parts; six weeks remains the app's two-month-on, one-month-off approximation.
 
@@ -261,7 +284,7 @@ Connect the repository to a Node web service with:
 - `ISBNDB_API_KEY` set privately in Render's environment settings (optional, enables cover thumbnails)
 - `ALLOWED_ORIGINS` set to the exact deployed web origin and any other permitted browser origins
 
-Render supplies `PORT`. Run migrations deliberately against the intended database, then deploy the updated API before the app; the app requires the scoped user views, enrolment and leader-review endpoints. The legacy `/api/shared` endpoint remains available for older clients. Run the seed only when fictional demo data is wanted. Render's root directory contains only `server`, so it does not depend on root Expo files.
+Render supplies `PORT`. Run migrations deliberately against the intended database, then deploy the updated API and app together. The `/api/shared` endpoint requires a selected service, as do other service-dependent endpoints; older clients without service context cannot use them. The legacy seed is unavailable after migration 018. Render's root directory contains only `server`, so it does not depend on root Expo files.
 
 ## Checks
 

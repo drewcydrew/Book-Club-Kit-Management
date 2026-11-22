@@ -10,16 +10,20 @@ import { ScreenGate } from '../components/screen-gate';
 import { UserSelection } from '../components/user-selection';
 import { useAuth } from '../state/auth';
 import { useNavigationGuard } from '../components/navigation-guard';
+import { useLibraryService } from '../state/library-service';
 
 export default function Home() {
   const { person, loading, error, refreshUsers } = useSelection();
   const auth = useAuth();
+  const library = useLibraryService();
   const { saving } = useSharedStatus();
   const guard = useNavigationGuard();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [serviceName, setServiceName] = useState('');
+  const [branch, setBranch] = useState('');
   function run(action: () => Promise<void>) {
     const proceed = () => {
       setBusy(true);
@@ -49,8 +53,23 @@ export default function Home() {
         </>}
         {(message || auth.error) && <Text accessibilityLiveRegion="polite" style={styles.error}>{message || auth.error}</Text>}
       </Card>
+      <Card><Label>Library service</Label>
+        <Note>Service names are public. All signed-in administrators can manage every service.</Note>
+        {library.error && <><Text style={styles.error}>{library.error}</Text><Action title="Retry" onPress={() => { void library.refresh().catch(() => undefined); }} /></>}
+        {!library.error && library.services.length === 0 && <Note>No library services are available yet.</Note>}
+        {library.services.map((service) => <Action key={service.id} title={service.name} selected={library.service?.id === service.id}
+          disabled={saving || busy} onPress={() => run(() => library.select(service.id))} />)}
+        {auth.user && <>
+          <Label>Create a library service</Label>
+          <TextInput accessibilityLabel="Library service name" value={serviceName} onChangeText={setServiceName} editable={!busy} style={styles.input} />
+          <Label>First branch</Label>
+          <TextInput accessibilityLabel="First branch" value={branch} onChangeText={setBranch} editable={!busy} style={styles.input} />
+          <Action title="Create library service" tone="primary" disabled={saving || busy || !serviceName.trim() || !branch.trim()}
+            onPress={() => run(async () => { await library.create(serviceName, branch); setServiceName(''); setBranch(''); })} />
+        </>}
+      </Card>
     </View>
-    {!auth.user && <UserSelection disabled={saving || busy} />}
+    {!auth.user && library.service && <UserSelection disabled={saving || busy} />}
     {person?.role === 'member' ? <ScreenGate><HomeContent /></ScreenGate> : person ? <HomeIntro staff /> : null}
   </ScrollView>;
 }

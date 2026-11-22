@@ -4,6 +4,12 @@
 
 BEGIN ISOLATION LEVEL SERIALIZABLE;
 
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM schema_migrations WHERE name='018_library_services.sql') THEN
+    RAISE EXCEPTION 'This maintenance command does not yet support library services and cannot be run safely.';
+  END IF;
+END $$;
+
 \echo 'Verify the target database, schema and user before continuing:'
 SELECT current_database() AS database, current_schema() AS schema, current_user AS database_user;
 

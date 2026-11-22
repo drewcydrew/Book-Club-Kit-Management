@@ -1,4 +1,5 @@
 const { getPool } = require('./db');
+const { assertLegacyScriptSupported } = require('./legacy-script-guard');
 
 const titles = [
   ['t1', 'The Lantern Garden', 'Mara Fields', '9780000000001', 312, 'Fiction', '', true, true],
@@ -75,9 +76,9 @@ async function seed(pool) {
 if (require.main === module) {
   (async () => {
     const pool = getPool();
-    try { await seed(pool); console.log('Demo seed complete.'); }
+    try { await assertLegacyScriptSupported(pool); await seed(pool); console.log('Demo seed complete.'); }
     finally { await pool.end(); }
-  })().catch((error) => { console.error('Seed failed:', error.message.startsWith('Shared demo seed prerequisite missing:') ? error.message : error.code === '23505' ? 'Conflicting demo ID or barcode; no seed changes were applied.' : error.code || (error.message.startsWith('DATABASE_URL') ? error.message : 'unknown')); process.exitCode = 1; });
+  })().catch((error) => { console.error('Seed failed:', error.code === 'LIBRARY_SERVICES_UNSUPPORTED' || error.message.startsWith('Shared demo seed prerequisite missing:') ? error.message : error.code === '23505' ? 'Conflicting demo ID or barcode; no seed changes were applied.' : error.code || (error.message.startsWith('DATABASE_URL') ? error.message : 'unknown')); process.exitCode = 1; });
 }
 
 module.exports = { seed };

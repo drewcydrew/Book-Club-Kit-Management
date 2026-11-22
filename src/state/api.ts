@@ -29,6 +29,8 @@ export class ApiError extends Error {
 
 let tokenProvider: (() => Promise<string | null>) | null = null;
 let onUnauthorized: ((token: string) => void) | null = null;
+let libraryServiceId = '';
+export function setApiLibraryService(id: string): void { libraryServiceId = id; }
 export function setApiAuthentication(provider: (() => Promise<string | null>) | null, unauthorized: ((token: string) => void) | null): void {
   tokenProvider = provider;
   onUnauthorized = unauthorized;
@@ -123,6 +125,7 @@ function isHistory(value: unknown): value is ClubHistory {
 }
 
 async function request(path: string, method = 'GET', body?: unknown, revision?: number, signal?: AbortSignal): Promise<unknown> {
+  const serviceId = libraryServiceId;
   const configured = process.env.EXPO_PUBLIC_API_URL;
   if (!configured) throw new Error('EXPO_PUBLIC_API_URL is not configured.');
   let base: URL;
@@ -137,7 +140,7 @@ async function request(path: string, method = 'GET', body?: unknown, revision?: 
     response = await fetch(`${configured.replace(/\/+$/, '')}${path}`, {
       method,
       signal,
-      headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(revision === undefined ? {} : { 'If-Match': String(revision) }), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(revision === undefined ? {} : { 'If-Match': String(revision) }), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(serviceId ? { 'X-Library-Service-Id': serviceId } : {}) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch { throw new Error('Unable to reach the shared-data server. Check your connection and API URL.'); }
@@ -149,6 +152,21 @@ async function request(path: string, method = 'GET', body?: unknown, revision?: 
     const message = isObject(value) && typeof value.error === 'string' ? value.error : `Request failed (HTTP ${response.status}).`;
     throw new ApiError(message, response.status);
   }
+  return value;
+}
+
+export type LibraryService = { id: string; name: string };
+function isLibraryService(value: unknown): value is LibraryService {
+  return isObject(value) && isString(value.id) && isString(value.name);
+}
+export async function loadLibraryServices(): Promise<LibraryService[]> {
+  const value = await request('/api/library-services');
+  if (!Array.isArray(value) || !value.every(isLibraryService)) throw new Error('Server returned invalid library services.');
+  return value;
+}
+export async function createLibraryService(name: string, branch: string): Promise<LibraryService> {
+  const value = await request('/api/library-services', 'POST', { name, branch });
+  if (!isLibraryService(value)) throw new Error('Server returned an invalid library service.');
   return value;
 }
 

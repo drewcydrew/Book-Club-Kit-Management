@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { getPool } = require('./db');
+const { assertLegacyScriptSupported } = require('./legacy-script-guard');
 const { parseTitleList } = require('./import-titles');
 
 const DEFAULT_FILE = path.join(__dirname, '..', 'data', 'demo-preferences-2027.csv');
@@ -237,6 +238,7 @@ if (require.main === module) {
     const input = parsePreferences(content, catalogue);
     const pool = getPool();
     try {
+      await assertLegacyScriptSupported(pool);
       const report = await importDemoPreferences(pool, input, { dryRun });
       if (report.skipped) console.log('Demo preferences already imported; no changes made.');
       else {

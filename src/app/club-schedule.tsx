@@ -8,6 +8,9 @@ import { memberScheduleMeetings } from '../domain/cycle-overview';
 import { meetingRuleLabel } from '../domain/meeting-rule';
 import { loadClubIndex, loadClubSchedule, type ClubIndexItem, type ClubSchedule } from '../state/api';
 import { useSelection } from '../state/selection';
+import { useLibraryService } from '../state/library-service';
+import { useNavigationGuard } from '../components/navigation-guard';
+import { useSharedStatus } from '../state/shared';
 
 function todayIso(): string {
   const now = new Date();
@@ -23,6 +26,28 @@ function errorMessage(error: unknown): string {
 }
 
 export default function ClubSchedulePage() {
+  const { serviceId } = useLocalSearchParams<{ serviceId?: string }>();
+  const library = useLibraryService();
+  const guard = useNavigationGuard();
+  const { saving } = useSharedStatus();
+  const [message, setMessage] = useState('');
+  const target = typeof serviceId === 'string' ? library.services.find((item) => item.id === serviceId) : undefined;
+  if (!library.service || (serviceId && serviceId !== library.service.id)) {
+    return <ScrollView contentContainerStyle={uiStyles.page}>
+      <Text accessibilityRole="header" style={uiStyles.heading}>Club schedule</Text>
+      <Note>{serviceId && !target ? 'The library service in this link is unavailable.' : 'Select the library service for this schedule.'}</Note>
+      {message ? <Text style={uiStyles.error}>{message}</Text> : null}
+      {target && <Action title={`Select ${target.name}`} disabled={saving} onPress={() => {
+        const select = () => { void library.select(target.id).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to select library.')); };
+        if (!guard.intercept(select)) select();
+      }} />}
+      <Action title="Go to Home" onPress={() => router.navigate('/')} />
+    </ScrollView>;
+  }
+  return <ClubScheduleContent serviceId={library.service.id} />;
+}
+
+function ClubScheduleContent({ serviceId }: { serviceId: string }) {
   const { clubId } = useLocalSearchParams<{ clubId?: string }>();
   const { person } = useSelection();
   const { width: windowWidth } = useWindowDimensions();
@@ -62,8 +87,8 @@ export default function ClubSchedulePage() {
 
   const refresh = () => setReloadKey((key) => key + 1);
   const shareUrl = selectedClubId && typeof window !== 'undefined'
-    ? `${window.location.origin}/club-schedule?clubId=${encodeURIComponent(selectedClubId)}`
-    : selectedClubId ? `/club-schedule?clubId=${encodeURIComponent(selectedClubId)}` : '';
+    ? `${window.location.origin}/club-schedule?serviceId=${encodeURIComponent(serviceId)}&clubId=${encodeURIComponent(selectedClubId)}`
+    : selectedClubId ? `/club-schedule?serviceId=${encodeURIComponent(serviceId)}&clubId=${encodeURIComponent(selectedClubId)}` : '';
 
   function copyLink() {
     if (Platform.OS !== 'web' || !shareUrl) return;

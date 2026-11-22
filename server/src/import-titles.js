@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { getPool } = require('./db');
+const { assertLegacyScriptSupported } = require('./legacy-script-guard');
 const { normaliseIsbn } = require('./isbn');
 
 const DEFAULT_FILE = path.join(__dirname, '..', 'data', 'titles-import.tsv');
@@ -70,6 +71,7 @@ if (require.main === module) {
     const file = args.find((arg) => !arg.startsWith('--')) || DEFAULT_FILE;
     const pool = getPool();
     try {
+      await assertLegacyScriptSupported(pool);
       const { rows, invalid, duplicates } = parseTitleList(await fs.readFile(file, 'utf8'));
       const { added, existing } = await importTitles(pool, rows, { dryRun });
       console.log(`${dryRun ? 'Would import' : 'Imported'} ${added} titles; ${existing} already in catalogue; ${duplicates.length} duplicate ISBNs skipped; ${invalid.length} invalid rows skipped.`);
@@ -79,7 +81,7 @@ if (require.main === module) {
       await pool.end();
     }
   })().catch((error) => {
-    console.error('Title import failed:', error.code || (error.message.startsWith('DATABASE_URL') ? error.message : 'unknown'));
+    console.error('Title import failed:', error.code === 'LIBRARY_SERVICES_UNSUPPORTED' ? error.message : error.code || (error.message.startsWith('DATABASE_URL') ? error.message : 'unknown'));
     process.exitCode = 1;
   });
 }

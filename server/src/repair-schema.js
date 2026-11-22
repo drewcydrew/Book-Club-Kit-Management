@@ -24,6 +24,9 @@ async function inspect(client, schema) {
     return { issues: ['Missing table schema_migrations.'], state: 'blocked' };
   }
   const ledger = (await client.query('SELECT name FROM schema_migrations ORDER BY name')).rows.map((row) => row.name);
+  if (ledger.includes('018_library_services.sql')) {
+    return { issues: ['Schema repair does not yet support library-service databases; no changes were made.'], state: 'blocked' };
+  }
   const expectedSchema = structuredClone(expected);
   if (ledger.includes(cadenceMigration)) {
     expectedSchema.clubs.columns.cadence = { type: 'double precision', not_null: true, default_value: '1' };

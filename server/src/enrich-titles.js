@@ -1,5 +1,6 @@
 const { setTimeout: sleep } = require('node:timers/promises');
 const { getPool } = require('./db');
+const { assertLegacyScriptSupported } = require('./legacy-script-guard');
 const { normaliseIsbn } = require('./isbn');
 const { lookupBookDetailed } = require('./isbndb');
 
@@ -110,11 +111,12 @@ if (require.main === module) {
     if (!process.env.ISBNDB_API_KEY?.trim()) throw new Error('ISBNDB_API_KEY is required.');
     const pool = getPool();
     try {
+      await assertLegacyScriptSupported(pool);
       const summary = await enrichTitles(pool, options);
       if (summary.incomplete) process.exitCode = 1;
     } finally { await pool.end(); }
   })().catch((error) => {
-    const safeMessage = error.message === 'ISBNDB_API_KEY is required.' || error.message.startsWith('DATABASE_URL') ||
+    const safeMessage = error.code === 'LIBRARY_SERVICES_UNSUPPORTED' || error.message === 'ISBNDB_API_KEY is required.' || error.message.startsWith('DATABASE_URL') ||
       error.message.startsWith('--interval-ms') || error.message === 'Unknown or repeated argument.'
       ? error.message : (error.code || 'unexpected error');
     console.error('Title enrichment failed:', safeMessage);

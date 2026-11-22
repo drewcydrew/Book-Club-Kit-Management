@@ -1,4 +1,4 @@
-import { Link, router, Slot, usePathname } from 'expo-router';
+import { Link, Redirect, router, Slot, usePathname } from 'expo-router';
 import type { Href } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -7,6 +7,7 @@ import { SelectionProvider, useSelection } from '../state/selection';
 import { SharedProvider, useSharedStatus } from '../state/shared';
 import type { ViewScope } from '../state/api';
 import { AuthProvider, useAuth } from '../state/auth';
+import { LibraryServiceProvider, useLibraryService } from '../state/library-service';
 
 const scopes: Record<string, ViewScope> = {
   '/': 'home', '/catalog': 'catalog', '/clubs': 'clubs', '/cycles': 'cycles',
@@ -23,12 +24,15 @@ function NavigationLink({ href, children, disabled }: { href: Href; children: st
 
 function SelectedShell() {
   const { person } = useSelection();
+  const { service } = useLibraryService();
+  const pathname = usePathname();
   const { saving } = useSharedStatus();
   const member = person?.role === 'member';
+  if (!service && pathname !== '/' && pathname !== '/club-schedule') return <Redirect href="/" />;
   return <View style={styles.shell}>
     <View style={styles.header}>
       <Text style={styles.brand}>Book club kits</Text>
-      <Text style={styles.context}>Demo members are public · {person ? `${person.name} · ${person.role}` : 'no user selected'}</Text>
+      <Text style={styles.context}>{service?.name ?? 'No library selected'} · Demo members are public · {person ? `${person.name} · ${person.role}` : 'no user selected'}</Text>
       {saving && <Text style={styles.context}>Saving changes; wait before changing pages or users.</Text>}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.navigation}>
         <NavigationLink disabled={saving} href="/">Home</NavigationLink>
@@ -41,7 +45,7 @@ function SelectedShell() {
           {!member && <NavigationLink disabled={saving} href="/circulation">Circulation</NavigationLink>}
           {!member && <NavigationLink disabled={saving} href="/admin">Admin</NavigationLink>}
         </>}
-        <NavigationLink disabled={saving} href="/club-schedule">Club schedule</NavigationLink>
+        {service && <NavigationLink disabled={saving} href="/club-schedule">Club schedule</NavigationLink>}
       </ScrollView>
     </View>
     <Slot />
@@ -69,10 +73,12 @@ const styles = StyleSheet.create({
 
 function AuthenticatedLayout() {
   const { user, loading } = useAuth();
+  const library = useLibraryService();
   if (loading) return <View style={styles.shell}><Text>Restoring session...</Text></View>;
-  return <SelectionProvider key={user?.uid ?? 'guest'}><NavigationGuardProvider><Shell /></NavigationGuardProvider></SelectionProvider>;
+  if (library.loading) return <View style={styles.shell}><Text>Loading library services...</Text></View>;
+  return <SelectionProvider key={`${user?.uid ?? 'guest'}:${library.service?.id ?? ''}`}><NavigationGuardProvider><Shell /></NavigationGuardProvider></SelectionProvider>;
 }
 
 export default function Layout() {
-  return <AuthProvider><AuthenticatedLayout /></AuthProvider>;
+  return <AuthProvider><LibraryServiceProvider><AuthenticatedLayout /></LibraryServiceProvider></AuthProvider>;
 }

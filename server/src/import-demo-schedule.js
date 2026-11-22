@@ -1,6 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { getPool } = require('./db');
+const { assertLegacyScriptSupported } = require('./legacy-script-guard');
 const { normaliseIsbn } = require('./isbn');
 
 const DEFAULT_FILE = path.join(__dirname, '..', 'data', 'demo-schedule.tsv');
@@ -109,6 +110,7 @@ if (require.main === module) {
     const file = args.find((arg) => !arg.startsWith('--')) || DEFAULT_FILE;
     const pool = getPool();
     try {
+      await assertLegacyScriptSupported(pool);
       const { meetings, invalid } = parseDemoSchedule(await fs.readFile(file, 'utf8'));
       if (invalid.length) {
         for (const item of invalid) console.log(`  invalid line ${item.line}: ${item.value}`);
@@ -121,7 +123,7 @@ if (require.main === module) {
       await pool.end();
     }
   })().catch((error) => {
-    console.error('Demo schedule import failed:', error.code === '23505' ? 'Conflicting demo ID; no changes were applied.' : error.message.startsWith('Demo schedule prerequisite missing') ? error.message : error.code || (error.message.startsWith('DATABASE_URL') ? error.message : 'unknown'));
+    console.error('Demo schedule import failed:', error.code === 'LIBRARY_SERVICES_UNSUPPORTED' ? error.message : error.code === '23505' ? 'Conflicting demo ID; no changes were applied.' : error.message.startsWith('Demo schedule prerequisite missing') ? error.message : error.code || (error.message.startsWith('DATABASE_URL') ? error.message : 'unknown'));
     process.exitCode = 1;
   });
 }

@@ -1,6 +1,9 @@
 const express = require('express');
 const { errorHandler } = require('./http');
 const { authenticate, provisionPerson } = require('./auth');
+const { getPool, withLibraryService } = require('./db');
+const { HttpError, object, text } = require('./http');
+const { randomUUID } = require('node:crypto');
 
 function createApp(verifyToken) {
 const app = express();
@@ -13,7 +16,7 @@ app.use((request, response, next) => {
   if (!allowed.includes(origin)) return response.status(403).json({ error: 'Origin not allowed.' });
   response.set('Access-Control-Allow-Origin', origin);
   response.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  response.set('Access-Control-Allow-Headers', 'Content-Type, If-Match, Authorization');
+  response.set('Access-Control-Allow-Headers', 'Content-Type, If-Match, Authorization, X-Library-Service-Id');
   if (request.method === 'OPTIONS') return response.status(204).end();
   return next();
 });
@@ -26,6 +29,48 @@ app.get('/health', (_request, response) => {
 });
 
 app.use('/api', authenticate(verifyToken));
+app.use('/api', async (_request, _response, next) => {
+  const result = await getPool().query('SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user');
+  if (!result.rowCount || result.rows[0].rolsuper || result.rows[0].rolbypassrls) {
+    throw new HttpError(503, 'The API database role must not bypass row-level security.');
+  }
+  next();
+});
+app.get('/api/library-services', async (_request, response) => {
+  const result = await getPool().query('SELECT id,name FROM library_services ORDER BY lower(name),id');
+  response.json(result.rows);
+});
+app.post('/api/library-services', async (request, response) => {
+  const body = object(request.body);
+  const name = text(body.name, 'name', true, 200);
+  const branch = text(body.branch, 'branch', true, 200);
+  const serviceId = randomUUID();
+  const service = await withLibraryService(serviceId, async () => {
+    const client = await getPool().connect();
+    try {
+      await client.query('BEGIN');
+      const created = await client.query('INSERT INTO library_services(id,name,created_by) VALUES($1,$2,$3) RETURNING id,name',
+        [serviceId, name, request.auth.uid]);
+      await client.query('INSERT INTO lending_settings(name,branches,loan_days,buffer_days) VALUES($1,$2,28,3)', [name, [branch]]);
+      await client.query('COMMIT');
+      return created.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
+  });
+  response.status(201).json(service);
+});
+app.use('/api', async (request, _response, next) => {
+  if (request.method === 'GET' && request.path === '/covers') return next();
+  const serviceId = request.get('X-Library-Service-Id');
+  if (!serviceId || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/.test(serviceId)) {
+    throw new HttpError(400, 'Select a library service.');
+  }
+  const found = await getPool().query('SELECT 1 FROM library_services WHERE id=$1', [serviceId]);
+  if (!found.rowCount) throw new HttpError(404, 'Library service not found.');
+  withLibraryService(serviceId, next);
+});
 app.get('/api/session', async (request, response) => {
   response.json(await provisionPerson(request.auth.uid));
 });

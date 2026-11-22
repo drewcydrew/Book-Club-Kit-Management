@@ -24,6 +24,7 @@ async function verifyToken(token) {
 
 function isPublicRoute(method, path) {
   if (method === 'GET') return [
+    /^\/library-services$/i,
     /^\/users$/i,
     /^\/users\/[^/]+\/views\/(?:home|preferences|schedule)$/i,
     /^\/users\/[^/]+\/enrolment$/i,

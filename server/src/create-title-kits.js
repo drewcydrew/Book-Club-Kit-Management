@@ -1,5 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const { getPool } = require('./db');
+const { assertLegacyScriptSupported } = require('./legacy-script-guard');
 
 const KIT_LOCK = 180313022;
 const COPIES = 10;
@@ -61,6 +62,7 @@ if (require.main === module) {
     const dryRun = process.argv.includes('--dry-run');
     const pool = getPool();
     try {
+      await assertLegacyScriptSupported(pool);
       const { created, branch, barcodes } = await createTitleKits(pool, { dryRun });
       console.log(`${dryRun ? 'Would create' : 'Created'} ${created} kits of ${COPIES} copies at branch "${branch}".`);
       for (const barcode of barcodes) console.log(`  ${barcode}`);
@@ -68,7 +70,7 @@ if (require.main === module) {
       await pool.end();
     }
   })().catch((error) => {
-    console.error('Kit creation failed:', error.code === 'BARCODE_CONFLICT' || error.message.startsWith('No library branch') ? error.message : (error.code || 'unknown'));
+    console.error('Kit creation failed:', error.code === 'LIBRARY_SERVICES_UNSUPPORTED' || error.code === 'BARCODE_CONFLICT' || error.message.startsWith('No library branch') ? error.message : (error.code || 'unknown'));
     process.exitCode = 1;
   });
 }
