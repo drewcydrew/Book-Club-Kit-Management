@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Platform, StyleSheet, Text, useWindowDimensions } from "react-native";
+import { ClubPicker } from "../components/club-picker";
 import { MemberPreferences, syncMessages, useMemberPreferences } from "../components/member-preferences";
 import { StaffPreferences, useStaffPreferences } from "../components/staff-preferences";
 import { SCHEDULE_DESKTOP_WIDTH } from "../components/schedule-layout";
@@ -129,17 +130,12 @@ function PreferencesContent() {
         </Actions>}
         {!staff && availableClubs.length > 1 && (clubOpen || !club) && <>
           <Label>Choose a club</Label>
-          <Actions>
-            {availableClubs.map((value) => (
-              <Action
-                key={value.id}
-                selected={value.id === club?.id}
-                title={value.name}
-                disabled={draftSaving}
-                onPress={() => chooseClub(value.id)}
-              />
-            ))}
-          </Actions>
+          <ClubPicker
+            clubs={availableClubs}
+            isSelected={(value) => value.id === club?.id}
+            disabled={draftSaving}
+            onPress={(value) => chooseClub(value.id)}
+          />
         </>}
       </Card>;
 

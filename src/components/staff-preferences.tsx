@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { Action, Actions, Card, Label, Note } from "./ui";
+import { ClubPicker } from "./club-picker";
 import { PriorityGridView } from "./priority-grid";
 import { NativePriorityGridView } from "./priority-grid-native";
 import { PreferencesExportActions } from "./preferences-export";
@@ -53,22 +54,17 @@ export function StaffPreferences({ controller, nativeHeader }: { controller: Ret
             <Action title="Hide all" disabled={shownClubIds.length === 0}
               onPress={() => setReviewClubIds([])} />
           </Actions>
-          <Actions>
-            {data.clubs.map((value) => (
-              <Action
-                key={value.id}
-                selected={shownClubIds.includes(value.id)}
-                title={value.name}
-                onPress={() =>
-                  setReviewClubIds(
-                    shownClubIds.includes(value.id)
-                      ? shownClubIds.filter((id) => id !== value.id)
-                      : [...shownClubIds, value.id],
-                  )
-                }
-              />
-            ))}
-          </Actions>
+          <ClubPicker
+            clubs={data.clubs}
+            isSelected={(value) => shownClubIds.includes(value.id)}
+            onPress={(value) =>
+              setReviewClubIds(
+                shownClubIds.includes(value.id)
+                  ? shownClubIds.filter((id) => id !== value.id)
+                  : [...shownClubIds, value.id],
+              )
+            }
+          />
         </>
       ) : null}
     </Card>;

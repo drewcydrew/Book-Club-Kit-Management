@@ -105,6 +105,15 @@ Every valid ISBN is checked, including titles with existing descriptions. A none
 
 The command stops with a nonzero exit code on a service error such as a timeout, invalid response, authentication failure or rate limit. Successful earlier updates remain committed. Concurrently edited or removed titles are skipped and reported as conflicts, also producing a nonzero exit code. Resolve the cause and rerun; unchanged values do not create extra revisions. Each run requests ISBNdb data again, so a later result can replace a description again. A dry run is a point-in-time preview, not a guarantee of later responses or unchanged catalog records.
 
+To clean synopses already stored with HTML markup, run from `server`:
+
+```powershell
+npm run clean-synopses -- --dry-run
+npm run clean-synopses
+```
+
+This targets only synopses containing HTML tags or entities, across all library services, and works after migration `018_library_services` (where `enrich-titles` is blocked). Titles with an ISBN are looked up in ISBNdb and the cleaned ISBNdb synopsis is used. Titles without a usable ISBN or ISBNdb synopsis are cleaned locally from the stored text. Each change is saved with a revision check, and a title edited during the run is reported as a conflict and needs a rerun. The command uses the same ISBNdb request spacing and `--interval-ms` option as `enrich-titles`, and it exits nonzero if a lookup fails or any conflicts occur. Output lists title IDs and counts only.
+
 ### Import 2027 demo preferences
 
 This legacy command is unavailable after migration 018.

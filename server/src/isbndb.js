@@ -137,4 +137,4 @@ async function searchBooks(title) {
   return { results };
 }
 
-module.exports = { lookupBook, lookupBookDetailed, searchBooks };
+module.exports = { lookupBook, lookupBookDetailed, searchBooks, cleanDescription };

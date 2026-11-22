@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, ScrollView, Text, useWindowDimensions } from 'react-native';
+import { ClubPicker } from '../components/club-picker';
 import { MemberSchedule, type MemberView } from '../components/member-schedule';
 import { Action, Actions, Card, Label, Note, narrowWidth, styles as uiStyles } from '../components/ui';
 import { cadenceLabel } from '../domain/cadence';
@@ -110,10 +111,7 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
       {error ? <Text style={uiStyles.error}>{error}</Text> : null}
       {clubs === null && !error ? <Note>Loading clubs…</Note> : null}
       {clubs?.length === 0 ? <Note>No clubs are available yet.</Note> : null}
-      <Actions>
-        {clubs?.map((club) => <Action key={club.id} title={`${club.name} · ${club.branch}`}
-          onPress={() => router.setParams({ serviceId, clubId: club.id })} />)}
-      </Actions>
+      {clubs ? <ClubPicker clubs={clubs} onPress={(club) => router.setParams({ serviceId, clubId: club.id })} /> : null}
     </ScrollView>;
   }
 

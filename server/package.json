@@ -15,6 +15,7 @@
     "seed": "node --env-file-if-exists=../.env src/seed.js",
     "import-titles": "node --env-file-if-exists=../.env src/import-titles.js",
     "enrich-titles": "node --env-file-if-exists=../.env src/enrich-titles.js",
+    "clean-synopses": "node --env-file-if-exists=../.env src/clean-synopses.js",
     "create-kits": "node --env-file-if-exists=../.env src/create-title-kits.js",
     "import-demo-schedule": "node --env-file-if-exists=../.env src/import-demo-schedule.js",
     "import-demo-preferences": "node --env-file-if-exists=../.env src/import-demo-preferences.js",
