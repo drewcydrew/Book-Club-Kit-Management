@@ -1,6 +1,6 @@
 const express = require('express');
 const { randomUUID } = require('node:crypto');
-const { getPool } = require('../db');
+const { withTransaction } = require('../db');
 const { HttpError, object, text } = require('../http');
 const { id, date, list, unique, expected, transaction, one, stale } = require('./workflow-util');
 const router = express.Router();
@@ -40,11 +40,16 @@ function validate(b) {
   return { name: text(b.name, 'name', true, 200), deadline, startsOn, endsOn, status, slots };
 }
 router.get('/cycles', async (_req, res) => {
-  const c = await getPool().connect();
-  try { const ids = await c.query('SELECT id FROM cycles ORDER BY id'); res.json(await Promise.all(ids.rows.map((r) => getCycle(c, r.id)))); }
-  finally { c.release(); }
+  const cycles = await withTransaction(async (c) => {
+    const ids = await c.query('SELECT id FROM cycles ORDER BY id');
+    return Promise.all(ids.rows.map((r) => getCycle(c, r.id)));
+  }, { readOnly: true });
+  res.json(cycles);
 });
-router.get('/cycles/:cycleId', async (req, res) => res.json(await getCycle(getPool(), id(req.params.cycleId))));
+router.get('/cycles/:cycleId', async (req, res) => {
+  const cycleId = id(req.params.cycleId);
+  res.json(await withTransaction((c) => getCycle(c, cycleId), { readOnly: true }));
+});
 router.post('/cycles', async (req, res) => {
   const b = validate(req.body); const cycleId = req.body.id === undefined ? randomUUID() : id(req.body.id);
   if (!['open','collecting'].includes(b.status)) throw new HttpError(400, 'A new cycle must be open or collecting.');

@@ -1,4 +1,4 @@
-const { getPool } = require('../db');
+const { withTransaction } = require('../db');
 const { HttpError, text, integer } = require('../http');
 
 function id(v, field = 'id') {
@@ -20,15 +20,10 @@ function unique(values, field) {
 }
 function expected(v, allowZero = false) { return integer(v, 'revision', allowZero ? 0 : 1); }
 async function transaction(fn) {
-  const c = await getPool().connect();
-  try {
-    await c.query('BEGIN');
+  return withTransaction(async (c) => {
     await c.query('SELECT pg_advisory_xact_lock(180313022)');
-    const result = await fn(c);
-    await c.query('COMMIT');
-    return result;
-  } catch (e) { await c.query('ROLLBACK'); throw e; }
-  finally { c.release(); }
+    return fn(c);
+  });
 }
 async function one(c, sql, args, label = 'Record') {
   const r = await c.query(sql, args);

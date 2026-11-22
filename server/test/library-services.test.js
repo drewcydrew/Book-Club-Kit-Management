@@ -7,7 +7,7 @@ const enabled = Boolean(databaseUrl && process.env.TEST_DATABASE_CONFIRM === 'is
 
 test('library services isolate records and reject cross-service references', { skip: !enabled }, async (t) => {
   process.env.DATABASE_URL = databaseUrl;
-  const { getPool, withLibraryService } = require('../src/db');
+  const { getPool, withLibraryService, withTransaction } = require('../src/db');
   const pool = getPool();
   const app = require('../src/app').createApp(async () => ({ uid: 'library-test-admin' }));
   const server = app.listen(0, '127.0.0.1');
@@ -53,6 +53,16 @@ test('library services isolate records and reject cross-service references', { s
     services.push(await response.json());
   }
   const [first, second] = services;
+  for (const service of services) {
+    const settings = await withLibraryService(service.id, () => pool.query('SELECT name FROM lending_settings'));
+    assert.deepEqual(settings.rows.map((row) => row.name), [service.name]);
+  }
+  assert.equal((await pool.query('SELECT 1 FROM lending_settings')).rowCount, 0);
+  await assert.rejects(withLibraryService(first.id, () => withTransaction(async (client) => {
+    await client.query("INSERT INTO titles(id,name,author,isbn,pages) VALUES('rolled-back-title','Rolled back','Author','',1)");
+    throw new Error('rollback check');
+  })), /rollback check/);
+  assert.equal((await withLibraryService(first.id, () => pool.query("SELECT 1 FROM titles WHERE id='rolled-back-title'"))).rowCount, 0);
   assert.equal((await request('/session', { service: first.id })).status, 200);
   assert.equal((await request('/session', { service: second.id })).status, 200);
   const titleResponse = await request('/titles', { method: 'POST', service: first.id, body: {
@@ -76,16 +86,27 @@ test('library services isolate records and reject cross-service references', { s
   } });
   assert.equal(secondTitleResponse.status, 201);
   const secondTitle = await secondTitleResponse.json();
+  let firstKit;
   for (const [service, titleId] of [[first.id, title.id], [second.id, secondTitle.id]]) {
     const kit = await request('/kits', { method: 'POST', service, body: {
       titleId, branch: 'Main', copies: 1, extras: '', barcode: 'same-barcode', components: [],
     } });
     assert.equal(kit.status, 201);
+    if (service === first.id) firstKit = await kit.json();
   }
+  const updatedKit = await request(`/kits/${firstKit.id}`, { method: 'PUT', service: first.id, body: {
+    titleId: title.id, branch: 'Main', copies: 1, extras: 'Updated', barcode: 'same-barcode',
+    components: [], revision: firstKit.revision,
+  } });
+  assert.equal(updatedKit.status, 200);
+  assert.equal((await updatedKit.json()).extras, 'Updated');
   assert.equal((await request('/users', { service: first.id, auth: false })).status, 200);
   const memberResponse = await request('/users', { method: 'POST', service: first.id, body: { name: 'Fictional member', role: 'member' } });
   assert.equal(memberResponse.status, 201);
   const member = await memberResponse.json();
+  const preferences = await request(`/users/${member.id}/views/preferences`, { service: first.id, auth: false });
+  assert.equal(preferences.status, 200);
+  assert.equal((await preferences.json()).library.name, first.name);
   const clubResponse = await request('/clubs', { method: 'POST', service: first.id, body: {
     name: 'Fictional club', branch: 'Main', size: 5, cadence: 1, cadenceOffset: 0,
     meetingWeekday: 1, meetingOccurrence: 1, pickup: 'pickup', address: '',
@@ -101,6 +122,9 @@ test('library services isolate records and reject cross-service references', { s
   } });
   assert.equal(cycleResponse.status, 201);
   const cycle = await cycleResponse.json();
+  assert.deepEqual((await (await request('/cycles', { service: first.id })).json()).map((item) => item.id), [cycle.id]);
+  assert.deepEqual(await (await request('/cycles', { service: second.id })).json(), []);
+  assert.equal((await request(`/cycles/${cycle.id}`, { service: second.id })).status, 404);
   const ballot = await request(`/cycles/${cycle.id}/clubs/${club.id}/ballots/${member.id}`, {
     method: 'PUT', service: first.id, auth: false, body: { revision: 0, marks: { [title.id]: 'selected' }, ranking: [title.id] },
   });

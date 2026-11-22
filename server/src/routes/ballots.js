@@ -1,5 +1,5 @@
 const express = require('express');
-const { getPool } = require('../db');
+const { withTransaction } = require('../db');
 const { HttpError, object } = require('../http');
 const { id, list, unique, expected, transaction, one, stale } = require('./workflow-util');
 const router = express.Router();
@@ -17,7 +17,8 @@ function assertPreferencesOpen(cycle) {
 }
 
 router.get('/cycles/:cycleId/clubs/:clubId/ballots/:personId', async (req, res) => {
-  res.json(await getBallot(getPool(),id(req.params.cycleId),id(req.params.clubId),id(req.params.personId)));
+  const cycleId = id(req.params.cycleId); const clubId = id(req.params.clubId); const personId = id(req.params.personId);
+  res.json(await withTransaction((c) => getBallot(c, cycleId, clubId, personId), { readOnly: true }));
 });
 router.put('/cycles/:cycleId/clubs/:clubId/ballots/:personId', async (req, res) => {
   const b = object(req.body); const marks = object(b.marks); const ranking = unique(list(b.ranking,'ranking').map((x) => id(x,'titleId')),'ranking');

@@ -1,7 +1,7 @@
 const express = require('express');
 const { errorHandler } = require('./http');
 const { authenticate, provisionPerson } = require('./auth');
-const { getPool, withLibraryService } = require('./db');
+const { getPool, withLibraryService, withTransaction } = require('./db');
 const { HttpError, object, text } = require('./http');
 const { randomUUID } = require('node:crypto');
 
@@ -45,20 +45,13 @@ app.post('/api/library-services', async (request, response) => {
   const name = text(body.name, 'name', true, 200);
   const branch = text(body.branch, 'branch', true, 200);
   const serviceId = randomUUID();
-  const service = await withLibraryService(serviceId, async () => {
-    const client = await getPool().connect();
-    try {
-      await client.query('BEGIN');
+  const service = await withLibraryService(serviceId, () =>
+    withTransaction(async (client) => {
       const created = await client.query('INSERT INTO library_services(id,name,created_by) VALUES($1,$2,$3) RETURNING id,name',
         [serviceId, name, request.auth.uid]);
       await client.query('INSERT INTO lending_settings(name,branches,loan_days,buffer_days) VALUES($1,$2,28,3)', [name, [branch]]);
-      await client.query('COMMIT');
       return created.rows[0];
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
-  });
+    }));
   response.status(201).json(service);
 });
 app.use('/api', async (request, _response, next) => {

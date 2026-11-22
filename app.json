@@ -4,7 +4,8 @@
     "slug": "book-club-kit-management",
     "scheme": "bookclubkits",
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "@react-native-community/datetimepicker"
     ],
     "version": "1.0.0",
     "orientation": "portrait",
@@ -42,4 +43,3 @@
     }
   }
 }
-

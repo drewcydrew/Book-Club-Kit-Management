@@ -11,6 +11,8 @@ import { useShared } from '../state/shared';
 import { useStore } from '../state/store';
 import { ScreenGate } from '../components/screen-gate';
 import { useDraftNavigationGuard } from '../components/navigation-guard';
+import { DateField } from '../components/date-field';
+import { MonthField } from '../components/month-field';
 
 export default function Cycles() {
   return <ScreenGate staffOnly><CyclesContent /></ScreenGate>;
@@ -63,7 +65,7 @@ function CyclesContent() {
 
   function create() {
     if (!name.trim() || !validDate(deadline) || !validMonth(startMonth) || !validMonth(endMonth) || endMonth < startMonth) {
-      setMessage('Enter a cycle name, a valid deadline (YYYY-MM-DD) and a start and end month (YYYY-MM).');
+      setMessage('Enter a cycle name and select a valid deadline, first month and last month.');
       return;
     }
     const newCycle = {
@@ -77,7 +79,7 @@ function CyclesContent() {
 
   function addSlot() {
     if (!cycle || (cycle.status !== 'open' && cycle.status !== 'collecting')) return;
-    if (!validMonth(slotMonth) || !data.clubs.some((c) => c.id === clubId)) { setMessage('Select a club and a month (YYYY-MM).'); return; }
+    if (!validMonth(slotMonth) || !data.clubs.some((c) => c.id === clubId)) { setMessage('Select a club and a valid month.'); return; }
     if (!monthsInRange(cycle.startsOn, cycle.endsOn).includes(slotMonth)) { setMessage('That month is outside the cycle range.'); return; }
     if (cycle.slots.some((slot) => slot.clubId === clubId && slot.month === slotMonth)) { setMessage('This club already has a kit slot for that month.'); return; }
     if (meeting && (!validDate(meeting) || !meeting.startsWith(`${slotMonth}-`) || meeting <= cycle.deadline)) {
@@ -100,9 +102,9 @@ function CyclesContent() {
   if (!staff) return <Page title="Cycles"><Note>Staff manage shared planning cycles. Members can vote on Preferences. Switch to a demo staff/admin role on Home.</Note></Page>;
   return <Page title="Cycles">{navigationConfirmation}
     <Card><Label>Create a cycle</Label><Field label="Cycle name" value={name} onChangeText={setName} />
-      <Field label="First month (YYYY-MM)" value={startMonth} onChangeText={setStartMonth} />
-      <Field label="Last month (YYYY-MM)" value={endMonth} onChangeText={setEndMonth} />
-      <Field label="Preference deadline (YYYY-MM-DD)" value={deadline} onChangeText={setDeadline} /><Action tone="primary" title="Create shared cycle" disabled={shared.saving} onPress={create} />
+      <MonthField label="First month" value={startMonth} onChange={setStartMonth} editable={!shared.saving} />
+      <MonthField label="Last month" value={endMonth} onChange={setEndMonth} editable={!shared.saving} />
+      <DateField label="Preference deadline" value={deadline} onChange={setDeadline} editable={!shared.saving} /><Action tone="primary" title="Create shared cycle" disabled={shared.saving} onPress={create} />
     </Card>
     <Card><Label>Select a cycle</Label>
       {data.cycles.length === 0 && <Note>No shared cycles yet. Create one here or run the explicit server demo seed.</Note>}
@@ -175,8 +177,8 @@ function CyclesContent() {
       {(cycle.status === 'open' || cycle.status === 'collecting') && <>
         <Note>Manual meetings can be changed by the next confirmed schedule generation to match club cadence.</Note>
         <Note>Select club:</Note><Actions>{data.clubs.map((club) => <Action key={club.id} selected={club.id === clubId} title={`${club.name}${club.id === clubId ? ' ✓' : ''}`} onPress={() => setClubId(club.id)} />)}</Actions>
-        <Field label="Month (YYYY-MM)" value={slotMonth} onChangeText={setSlotMonth} />
-        <Field label="Meeting date, optional (YYYY-MM-DD)" value={meeting} onChangeText={setMeeting} />
+        <MonthField label="Month" value={slotMonth} onChange={setSlotMonth} editable={!shared.saving} />
+        <DateField label="Meeting date, optional" value={meeting} onChange={setMeeting} editable={!shared.saving} optional initialDate={`${slotMonth}-01`} />
         <Actions><Action title="Add kit slot" disabled={shared.saving} onPress={addSlot} /><Action title="Fill club cadence months" disabled={shared.saving} onPress={fillMonths} /></Actions>
       </>}
       {deleteId === cycle.id ? <Actions><Note>Delete this cycle? This removes its meetings, member preferences, finalized rankings and schedule. In-use cycles can be deleted; this cannot be undone.</Note>
@@ -302,7 +304,7 @@ function EditSlot({ data, cycle, slot, saving, onSave, onCancel, onDirtyChange }
 
   function save() {
     if (!data.clubs.some((club) => club.id === clubId) || !validMonth(month)) {
-      setMessage('Select a club and a valid month (YYYY-MM).'); return;
+      setMessage('Select a club and a valid month.'); return;
     }
     if (!monthsInRange(cycle.startsOn, cycle.endsOn).includes(month)) {
       setMessage('That month is outside the cycle range.'); return;
@@ -321,8 +323,8 @@ function EditSlot({ data, cycle, slot, saving, onSave, onCancel, onDirtyChange }
     <Note>Changing this slot removes its existing assignment, even if locked or in use.</Note>
     <Label>Club for this slot</Label>
     <Actions>{data.clubs.map((club) => <Action key={club.id} selected={club.id === clubId} title={club.name} disabled={saving} onPress={() => setClubId(club.id)} />)}</Actions>
-    <Field label="Edit slot month (YYYY-MM)" value={month} onChangeText={setMonth} editable={!saving} />
-    <Field label="Edit meeting date, optional (YYYY-MM-DD)" value={meeting} onChangeText={setMeeting} editable={!saving} />
+    <MonthField label="Edit slot month" value={month} onChange={setMonth} editable={!saving} />
+    <DateField label="Edit meeting date, optional" value={meeting} onChange={setMeeting} editable={!saving} optional initialDate={`${month}-01`} />
     {stale && <Note>The cycle changed. Cancel and reopen this slot to use the latest data.</Note>}
     {message ? <Text>{message}</Text> : null}
     <Actions><Action tone="primary" title="Save slot" disabled={saving || stale} onPress={save} />
@@ -342,7 +344,7 @@ function EditCycle({ cycle, saving, onSave, onDirtyChange }: { cycle: Cycle; sav
   useEffect(() => { onDirtyChange(dirty); return () => onDirtyChange(false); }, [dirty, onDirtyChange]);
   function save() {
     if (!name.trim() || !validDate(deadline) || !validMonth(startMonth) || !validMonth(endMonth) || endMonth < startMonth) {
-      setMessage('Enter a cycle name, a valid deadline (YYYY-MM-DD) and a start and end month (YYYY-MM).');
+      setMessage('Enter a cycle name and select a valid deadline, first month and last month.');
       return;
     }
     const inRange = new Set(monthsInRange(`${startMonth}-01`, lastDayOfMonth(endMonth)));
@@ -354,9 +356,9 @@ function EditCycle({ cycle, saving, onSave, onDirtyChange }: { cycle: Cycle; sav
     setMessage('');
   }
   return <><Field label="Edit cycle name" value={name} onChangeText={setName} editable={!saving} />
-    <Field label="First month (YYYY-MM)" value={startMonth} onChangeText={setStartMonth} editable={!saving} />
-    <Field label="Last month (YYYY-MM)" value={endMonth} onChangeText={setEndMonth} editable={!saving} />
-    <Field label="Edit deadline (YYYY-MM-DD)" value={deadline} onChangeText={setDeadline} editable={!saving} />
+    <MonthField label="First month" value={startMonth} onChange={setStartMonth} editable={!saving} />
+    <MonthField label="Last month" value={endMonth} onChange={setEndMonth} editable={!saving} />
+    <DateField label="Edit deadline" value={deadline} onChange={setDeadline} editable={!saving} />
     {stale && <Note>The cycle changed. Reload cycle fields before editing; this discards unsaved changes to these fields.</Note>}
     <Actions><Action tone="primary" title="Save cycle" disabled={saving || stale} onPress={save} /><Action title="Reload cycle fields" disabled={saving} onPress={() => {
       setName(cycle.name); setDeadline(cycle.deadline); setStartMonth(cycle.startsOn.slice(0, 7)); setEndMonth(cycle.endsOn.slice(0, 7));

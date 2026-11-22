@@ -36,10 +36,7 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   const kit = validate(req.body);
   const id = randomUUID();
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock(180313022)');
+  const result = await transaction(async (client) => {
     const title = await client.query('SELECT 1 FROM titles WHERE id=$1', [kit.titleId]);
     if (!title.rowCount) throw new HttpError(404, 'Title not found.');
     await client.query('INSERT INTO kits(id,title_id,branch,copies,extras) VALUES($1,$2,$3,$4,$5)', [id, kit.titleId, kit.branch, kit.copies, kit.extras]);
@@ -48,21 +45,14 @@ router.post('/', async (req, res) => {
       const current = await currentLabels(client, kit.titleId);
       await setLabels(client, kit.titleId, [...new Set([...current, ...kit.labelIds])], { skipKitId: id });
     }
-    const result = await client.query(`${select} WHERE k.id=$1`, [id]);
-    await client.query('COMMIT');
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally { client.release(); }
+    return (await client.query(`${select} WHERE k.id=$1`, [id])).rows[0];
+  });
+  res.status(201).json(result);
 });
 router.put('/:id', async (req, res) => {
   const kit = validate(req.body);
   const expected = revision(req.body.revision);
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock(180313022)');
+  const result = await transaction(async (client) => {
     const existing = await client.query('SELECT title_id,revision FROM kits WHERE id=$1 FOR UPDATE', [req.params.id]);
     if (!existing.rowCount || existing.rows[0].revision !== expected) await checkUpdated(client, 'kits', req.params.id);
     const oldTitleId = existing.rows[0].title_id;
@@ -82,13 +72,9 @@ router.put('/:id', async (req, res) => {
     await client.query('DELETE FROM kit_identifiers WHERE kit_id=$1', [req.params.id]);
     await identifiers(client, req.params.id, kit);
     if (oldTitleId === kit.titleId) await setLabels(client, kit.titleId, kit.labelIds, { skipKitId: req.params.id });
-    const result = await client.query(`${select} WHERE k.id=$1`, [req.params.id]);
-    await client.query('COMMIT');
-    res.json(result.rows[0]);
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally { client.release(); }
+    return (await client.query(`${select} WHERE k.id=$1`, [req.params.id])).rows[0];
+  });
+  res.json(result);
 });
 router.delete('/:id', async (req, res) => {
   const expected = revision(req.header('If-Match'));

@@ -20,26 +20,43 @@ function getPool() {
   }
   const rawPool = new Pool({ connectionString, max: 10, connectionTimeoutMillis: 5000 });
   rawPool.on('error', (error) => console.error('Idle database connection failed:', error.code || 'unknown'));
-  async function connect() {
-    const client = await rawPool.connect();
-    try {
-      await client.query("SELECT set_config('app.library_service_id', $1, false)", [libraryContext.getStore() || '']);
-      return client;
-    } catch (error) {
-      client.release(true);
-      throw error;
-    }
-  }
   pool = {
-    connect,
+    connect: () => rawPool.connect(),
     async query(...args) {
-      const client = await connect();
-      try { return await client.query(...args); }
-      finally { client.release(); }
+      return withTransaction((client) => client.query(...args));
     },
     end: () => rawPool.end(),
   };
   return pool;
 }
 
-module.exports = { getPool, withLibraryService };
+async function withTransaction(callback, { readOnly = false } = {}) {
+  const serviceId = libraryContext.getStore() || '';
+  const client = await getPool().connect();
+  let started = false;
+  let discard = false;
+  try {
+    await client.query(readOnly ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN');
+    started = true;
+    await client.query("SELECT set_config('app.library_service_id', $1, true)", [serviceId]);
+    const result = await callback(client);
+    await client.query('COMMIT');
+    started = false;
+    return result;
+  } catch (error) {
+    if (started) {
+      try { await client.query('ROLLBACK'); }
+      catch (rollbackError) {
+        discard = true;
+        console.error('Database rollback failed:', rollbackError.code || 'unknown');
+      }
+    } else {
+      discard = true;
+    }
+    throw error;
+  } finally {
+    client.release(discard);
+  }
+}
+
+module.exports = { getPool, withLibraryService, withTransaction };

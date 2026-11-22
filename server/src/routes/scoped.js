@@ -1,5 +1,5 @@
 const express = require('express');
-const { getPool } = require('../db');
+const { withTransaction } = require('../db');
 const { HttpError } = require('../http');
 const { id, one } = require('./workflow-util');
 const { titleColumns, clubColumns, kitSelect, linksSelect } = require('./shared-selects');
@@ -127,82 +127,47 @@ async function loadView(c, personId, view) {
 
 router.get('/users/:personId/views/:view', async (req, res) => {
   const personId = id(req.params.personId, 'personId');
-  const c = await getPool().connect();
-  try {
-    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  const data = await withTransaction(async (c) => {
     if (!req.auth) await require('../auth').requireDemoMember(personId, c);
-    const data = await loadView(c, personId, req.params.view);
-    await c.query('COMMIT');
-    res.json(data);
-  } catch (error) {
-    await c.query('ROLLBACK');
-    throw error;
-  } finally {
-    c.release();
-  }
+    return loadView(c, personId, req.params.view);
+  }, { readOnly: true });
+  res.json(data);
 });
 
 router.get('/users/:personId/enrolment', async (req, res) => {
   const personId = id(req.params.personId, 'personId');
-  const c = await getPool().connect();
-  try {
-    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  const clubs = await withTransaction(async (c) => {
     const person = await one(c, 'SELECT role FROM people WHERE id=$1', [personId], 'User');
     if (person.role !== 'member') throw new HttpError(409, 'Enrolment is unavailable for this user. Refresh the user list.');
-    const clubs = (await c.query(`SELECT c.id,c.name,COALESCE(v.revision,0) AS revision,
+    return (await c.query(`SELECT c.id,c.name,COALESCE(v.revision,0) AS revision,
       EXISTS (SELECT 1 FROM memberships m WHERE m.club_id=c.id AND m.person_id=$1) AS enrolled
       FROM clubs c LEFT JOIN membership_versions v ON v.club_id=c.id ORDER BY c.id`, [personId])).rows;
-    await c.query('COMMIT');
-    res.json(clubs);
-  } catch (error) {
-    await c.query('ROLLBACK');
-    throw error;
-  } finally {
-    c.release();
-  }
+  }, { readOnly: true });
+  res.json(clubs);
 });
 
 router.get('/users/:personId/clubs/:clubId/cycles/:cycleId/review', async (req, res) => {
   const personId = id(req.params.personId, 'personId');
   const clubId = id(req.params.clubId, 'clubId');
   const cycleId = id(req.params.cycleId, 'cycleId');
-  const c = await getPool().connect();
-  try {
-    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  const ballots = await withTransaction(async (c) => {
     if (!req.auth) await require('../auth').requireDemoMember(personId, c);
     await one(c, 'SELECT 1 FROM memberships WHERE person_id=$1 AND club_id=$2 AND leader=true', [personId, clubId], 'Club leader');
     await one(c, 'SELECT id FROM cycles WHERE id=$1', [cycleId], 'Cycle');
-    const ballots = await loadBallots(c, ' WHERE b.club_id=$1 AND b.cycle_id=$2', [clubId, cycleId]);
-    await c.query('COMMIT');
-    res.json(ballots);
-  } catch (error) {
-    await c.query('ROLLBACK');
-    throw error;
-  } finally {
-    c.release();
-  }
+    return loadBallots(c, ' WHERE b.club_id=$1 AND b.cycle_id=$2', [clubId, cycleId]);
+  }, { readOnly: true });
+  res.json(ballots);
 });
 
 router.get('/club-schedules', async (_req, res) => {
-  const c = await getPool().connect();
-  try {
-    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    const clubs = (await c.query('SELECT id,name,branch FROM clubs ORDER BY name,id')).rows;
-    await c.query('COMMIT');
-    res.json(clubs);
-  } catch (error) {
-    await c.query('ROLLBACK');
-    throw error;
-  } finally {
-    c.release();
-  }
+  const clubs = await withTransaction(async (c) =>
+    (await c.query('SELECT id,name,branch FROM clubs ORDER BY name,id')).rows, { readOnly: true });
+  res.json(clubs);
 });
 
 router.get('/club-schedules/:clubId', async (req, res) => {
   const clubId = id(req.params.clubId, 'clubId');
-  const c = await getPool().connect();
-  try {
-    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  const data = await withTransaction(async (c) => {
     const club = await one(c, `SELECT ${clubColumns} FROM clubs WHERE id=$1`, [clubId], 'Club');
     const allCycles = (await c.query(`SELECT id,name,to_char(deadline,'YYYY-MM-DD') AS deadline,
       to_char(starts_on,'YYYY-MM-DD') AS "startsOn",to_char(ends_on,'YYYY-MM-DD') AS "endsOn",status,revision
@@ -222,14 +187,9 @@ router.get('/club-schedules/:clubId', async (req, res) => {
     const kitLabels = (await c.query(`SELECT id,category,name,revision FROM kit_labels
       WHERE id IN (SELECT label_id FROM title_label_assignments WHERE title_id=ANY($1::text[]))
       ORDER BY category,lower(name),id`, [titleIds])).rows;
-    await c.query('COMMIT');
-    res.json({ club, cycles, assignments, kits, titles, kitLabels });
-  } catch (error) {
-    await c.query('ROLLBACK');
-    throw error;
-  } finally {
-    c.release();
-  }
+    return { club, cycles, assignments, kits, titles, kitLabels };
+  }, { readOnly: true });
+  res.json(data);
 });
 
 module.exports = router;

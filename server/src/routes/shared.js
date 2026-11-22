@@ -1,13 +1,11 @@
 const express = require('express');
-const { getPool } = require('../db');
+const { withTransaction } = require('../db');
 const { getCycle } = require('./cycles');
 const { getBallot } = require('./ballots');
 const { titleColumns, clubColumns, kitSelect, linksSelect } = require('./shared-selects');
 const router = express.Router();
 router.get('/shared', async (_req,res) => {
-  const c = await getPool().connect();
-  try {
-    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  const data = await withTransaction(async (c) => {
     const people = (await c.query('SELECT id,name,role,revision FROM people ORDER BY id')).rows;
     const titles = (await c.query(`SELECT ${titleColumns} FROM titles ORDER BY id`)).rows;
     const kits = (await c.query(`${kitSelect} ORDER BY k.id`)).rows;
@@ -31,9 +29,8 @@ router.get('/shared', async (_req,res) => {
     const historyRows = (await c.query('SELECT club_id,title_id FROM club_history ORDER BY club_id,title_id')).rows;
     const historyMap = new Map(); for (const row of historyRows) { if (!historyMap.has(row.club_id)) historyMap.set(row.club_id,[]); historyMap.get(row.club_id).push(row.title_id); }
     const history = [...historyMap].map(([clubId,titles]) => ({ clubId,titles }));
-    await c.query('COMMIT');
-    res.json({ people,titles,kits,kitLabels,clubs,links,memberships,membershipRevisions,cycles,ballots,assignments,library,events,history });
-  } catch (e) { await c.query('ROLLBACK'); throw e; }
-  finally { c.release(); }
+    return { people,titles,kits,kitLabels,clubs,links,memberships,membershipRevisions,cycles,ballots,assignments,library,events,history };
+  }, { readOnly: true });
+  res.json(data);
 });
 module.exports = router;

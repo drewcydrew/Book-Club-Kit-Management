@@ -6,6 +6,7 @@
     "@expo-google-fonts/noto-sans": "^0.4.2",
     "@pdf-lib/fontkit": "^1.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/datetimepicker": "9.2.1",
     "@types/react-dom": "^19",
     "expo": "~58.0.25",
     "expo-asset": "~58.0.21",

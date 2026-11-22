@@ -16,6 +16,8 @@ Migration `018_library_services.sql` preserves the existing shared records and F
 
 The API database role must not be a PostgreSQL superuser or have `BYPASSRLS`; the API rejects requests if it can bypass row-level security. Use an appropriately privileged non-superuser role that can read and write the application tables and owns `circulation_events` for the existing trigger operations. Check the API connection's role with `SELECT current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user;`. Apply migrations with an appropriately privileged migration role. Configure database access privately and do not share connection strings.
 
+For transaction-pooled connections, API database operations set the library-service context locally inside each transaction; maintenance commands require their own appropriately privileged connection. If migration metadata is unexpected, stop writers, preserve a restorable backup and investigate before running migrations or schema repair.
+
 The legacy seed, import, enrichment, kit creation, reconciliation and schema-repair commands do **not** yet support library-service databases and explicitly refuse to run after migration 018. Do not run older copies of those scripts against a migrated database. Create new service data through the app.
 
 ## Configure Firebase sign-in
@@ -204,6 +206,8 @@ npm run web
 ```
 
 For a physical device, use a reachable HTTPS server address, not `localhost`. Expo embeds `EXPO_PUBLIC_API_URL` in the client bundle, so never place secrets there. Restart or reload Expo after changing configuration.
+
+Cycles uses native date pickers on Android and iOS, and browser date controls on web. Existing custom development builds must be rebuilt to include the date-picker native module; it is included in Expo Go.
 
 Choose a demo member or sign in with an existing Firebase account on Home. Sign-in exposes the Admin tab and other staff workflows; a restored Firebase session signs the user back in automatically. Member pages load enrolled-club data and the catalogue needed for voting; the club directory and leader review load when opened. Administrator pages load the data their workflows require, including cross-cycle constraints for scheduling. Loaded page data is held in memory until an identity change and is refreshed with **Refresh page data** (or **Refresh your clubs** on Home); shared data is not saved in device storage. Switching or clearing the selection discards that user's in-memory data, not shared database records. Pending saves must finish and unsaved edits may need confirmation before leaving a page.
 
