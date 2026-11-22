@@ -26,16 +26,16 @@ test('full regeneration replaces participating slots and dates in both modes whi
   data.cycles = [cycle];
   for (const mode of ['clubs', 'utilisation'] as const) {
     let counter = 0;
-    const prepared = prepareFullRegeneration(data, cycle, ['c2'], () => `${mode}-${++counter}`);
+    const prepared = prepareFullRegeneration(data, cycle, ['c2', 'c3'], () => `${mode}-${++counter}`);
     const reset = prepared.cycle;
     assert.deepEqual(prepared.data.assignments, []);
     assert.deepEqual(regenerationUnlockIds(data.assignments, cycle.id, ['earlier-unlock', 'old-a']), ['earlier-unlock', 'old-a', 'hidden-a']);
     assert.equal(reset.slots.find((slot) => slot.id === hidden.id), hidden);
     assert.deepEqual(reset.slots.filter((slot) => slot.clubId === 'c1').map((slot) => slot.month), ['2027-01', '2027-02', '2027-04']);
     assert.ok(!reset.slots.some((slot) => slot.clubId === 'c3' || slot.id.startsWith('old-')));
-    const input = prepareDraftExclusions(prepared.data, reset, ['c2']);
+    const input = prepareDraftExclusions(prepared.data, reset, ['c2', 'c3']);
     const result = draft(input.data, input.cycle, false, undefined, mode);
-    const dated = dateRegeneratedSlots(data, reset, ['c2']);
+    const dated = dateRegeneratedSlots(data, reset, ['c2', 'c3']);
     const byMonth = new Map(dated.cycle.slots.filter((slot) => slot.clubId === 'c1').map((slot) => [slot.month, slot]));
     assert.equal(byMonth.get('2027-01')?.meeting, null);
     assert.equal(byMonth.get('2027-02')?.meeting, '2027-02-18');
@@ -49,11 +49,56 @@ test('full regeneration replaces participating slots and dates in both modes whi
     assert.deepEqual(changes.removedSlotIds.sort(), ['old-feb', 'old-jan']);
     assert.equal(changes.newSlots.length, 3);
     assert.deepEqual(changes.datedSlots.map((item) => item.meeting).sort(), ['2027-02-18', '2027-04-15']);
-    const again = prepareFullRegeneration(data, dated.cycle, ['c2'], () => `again-${++counter}`).cycle;
-    const repeated = slotChanges(cycle.slots, dateRegeneratedSlots(data, again, ['c2']).cycle.slots);
+    const again = prepareFullRegeneration(data, dated.cycle, ['c2', 'c3'], () => `again-${++counter}`).cycle;
+    const repeated = slotChanges(cycle.slots, dateRegeneratedSlots(data, again, ['c2', 'c3']).cycle.slots);
     assert.deepEqual(repeated.removedSlotIds.sort(), ['old-feb', 'old-jan']);
     assert.ok(repeated.newSlots.every((slot) => slot.id.startsWith('again-')));
   }
+});
+
+test('full generation creates and dates slots for shown clubs even when none existed', () => {
+  const data = seed();
+  data.clubs = [
+    { ...data.clubs[0], history: [] },
+    { ...data.clubs[1], cadence: 1.5, cadenceOffset: 1, history: [] },
+    { ...data.clubs[0], id: 'hidden', name: 'Hidden club' },
+  ];
+  data.ballots = [];
+  data.assignments = [];
+  const cycle = { ...data.cycles[0], deadline: '2026-12-01', startsOn: '2027-01-01', endsOn: '2027-04-30',
+    finalized: { c1: ['t1'], c2: ['t3'] }, slots: [] };
+  data.cycles = [cycle];
+  for (const mode of ['clubs', 'utilisation'] as const) {
+    let counter = 0;
+    const prepared = prepareFullRegeneration(data, cycle, ['hidden'], () => `${mode}-${++counter}`);
+    assert.deepEqual(prepared.cycle.slots.filter((slot) => slot.clubId === 'c1').map((slot) => slot.month),
+      ['2027-01', '2027-02', '2027-03', '2027-04']);
+    assert.deepEqual(prepared.cycle.slots.filter((slot) => slot.clubId === 'c2').map((slot) => slot.month),
+      ['2027-02', '2027-03']);
+    assert.ok(prepared.cycle.slots.every((slot) => slot.clubId !== 'hidden'));
+    const result = draft(prepared.data, prepared.cycle, true, undefined, mode);
+    assert.ok(result.assignments.some((assignment) => assignment.clubId === 'c1'));
+    assert.ok(result.assignments.some((assignment) => assignment.clubId === 'c2'));
+    const dated = dateRegeneratedSlots(data, prepared.cycle, ['hidden']);
+    assert.deepEqual(dated.problems, []);
+    assert.ok(dated.cycle.slots.every((slot) => slot.meeting?.startsWith(slot.month)));
+    const changes = slotChanges(cycle.slots, dated.cycle.slots);
+    assert.equal(changes.newSlots.length, 6);
+    assert.equal(changes.datedSlots.length, 6);
+    assert.deepEqual(changes.removedSlotIds, []);
+  }
+});
+
+test('full generation includes a slotless shown club alongside existing clubs', () => {
+  const data = seed();
+  const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-02-28',
+    slots: [{ id: 'old', clubId: 'c1', month: '2027-01', meeting: null }] };
+  let counter = 0;
+  const result = prepareFullRegeneration(data, cycle, [], () => `new-${++counter}`).cycle;
+  assert.deepEqual(result.slots.filter((slot) => slot.clubId === 'c2').map((slot) => slot.month), ['2027-01', '2027-02']);
+  assert.ok(!result.slots.some((slot) => slot.id === 'old'));
+  assert.throws(() => prepareFullRegeneration(data, { ...cycle, slots: [{ ...cycle.slots[0], clubId: 'missing' }] }, [], () => 'new'),
+    /unavailable clubs/);
 });
 
 test('invalid meeting rules leave replacement slots undated and explain the problem', () => {

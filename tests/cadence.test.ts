@@ -26,7 +26,7 @@ test('six-week offsets stagger skipped months across years without affecting mon
   }
 });
 
-test('reconciliation applies an offset only to participating clubs and preserves retained dates', () => {
+test('reconciliation applies an offset only to selected clubs and preserves retained dates', () => {
   const data = seed();
   const club = { ...data.clubs[0], cadence: 1.5 as const, cadenceOffset: 1 as const };
   const other = data.clubs[1];
@@ -65,8 +65,31 @@ test('reconciliation preserves existing dates, handles scoped clubs and restores
   assert.equal(monthly.added[0].meeting, null);
   const generated = draft({ ...data, clubs: [club, other], cycles: [result.cycle], assignments: [] }, result.cycle);
   assert.ok(generated.assignments.every((assignment) => assignment.clubId !== club.id || assignment.slotId !== 'three'));
-  const absent = reconcileCadence({ ...cycle, slots: [] }, [club], [club.id], () => 'unused');
-  assert.deepEqual(absent.added, []);
+  const absent = reconcileCadence({ ...cycle, slots: [] }, [club], [club.id], () => `new${++sequence}`);
+  assert.deepEqual(absent.added.map((slot) => slot.month), ['2027-01', '2027-02', '2027-04']);
+});
+
+test('single-club reconciliation creates slots without changing another club or its assignments', () => {
+  const data = seed();
+  data.ballots = [];
+  data.clubs[0] = { ...data.clubs[0], history: [] };
+  const otherSlot = { id: 'other-slot', clubId: 'c2', month: '2027-01', meeting: '2027-01-04' };
+  const cycle = { ...data.cycles[0], deadline: '2026-12-01', startsOn: '2027-01-01', endsOn: '2027-02-28',
+    finalized: { c1: ['t1'] }, slots: [otherSlot] };
+  const other = { id: 'other-assignment', cycleId: cycle.id, slotId: otherSlot.id, clubId: 'c2', kitId: 'k3',
+    ready: '2026-12-07', meeting: '2027-01-04', due: '2027-02-01', locked: true };
+  data.cycles = [cycle];
+  data.assignments = [other];
+  let sequence = 0;
+  const reconciled = reconcileCadence(cycle, data.clubs, ['c1'], () => `new-${++sequence}`);
+  assert.deepEqual(reconciled.added.map((slot) => slot.month), ['2027-01', '2027-02']);
+  assert.deepEqual(reconciled.cycle.slots.find((slot) => slot.id === otherSlot.id), otherSlot);
+  for (const mode of ['clubs', 'utilisation'] as const) {
+    const result = draft({ ...data, cycles: [reconciled.cycle] }, reconciled.cycle, true, { clubId: 'c1' }, mode);
+    assert.deepEqual(result.assignments.find((assignment) => assignment.id === other.id), other);
+    assert.ok(result.assignments.some((assignment) => assignment.clubId === 'c1'));
+  }
+  assert.throws(() => reconcileCadence(cycle, data.clubs, ['missing'], () => 'new'), /unavailable clubs/);
 });
 
 test('full and single-club generation use reconciled slots in both modes and offset phases', () => {

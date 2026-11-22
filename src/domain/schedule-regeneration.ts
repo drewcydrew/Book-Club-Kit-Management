@@ -4,13 +4,15 @@ import type { Assignment, Cycle, Data, Slot } from './model';
 
 export function prepareFullRegeneration(data: Data, cycle: Cycle, excludedClubIds: readonly string[], makeId: () => string) {
   const excluded = new Set(excludedClubIds);
-  const participating = new Set(cycle.slots.filter((slot) => !excluded.has(slot.clubId)).map((slot) => slot.clubId));
+  const known = new Set(data.clubs.map((club) => club.id));
+  if (cycle.slots.some((slot) => !excluded.has(slot.clubId) && !known.has(slot.clubId))) {
+    throw new Error('Some meetings reference unavailable clubs. Refresh before generating.');
+  }
   const replacements: Slot[] = [];
-  for (const clubId of participating) {
-    const club = data.clubs.find((item) => item.id === clubId);
-    if (!club) throw new Error('Some meetings reference unavailable clubs. Refresh before generating.');
+  for (const club of data.clubs) {
+    if (excluded.has(club.id)) continue;
     for (const month of cadenceMonths(cycle, club)) {
-      replacements.push({ id: makeId(), clubId, month, meeting: null });
+      replacements.push({ id: makeId(), clubId: club.id, month, meeting: null });
     }
   }
   const reset = { ...cycle, slots: [...cycle.slots.filter((slot) => excluded.has(slot.clubId)), ...replacements] };

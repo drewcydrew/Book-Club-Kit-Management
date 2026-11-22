@@ -11,10 +11,9 @@ export function cadenceMonths(cycle: Cycle, club: Pick<Club, 'cadence' | 'cadenc
 
 export function reconcileCadence(cycle: Cycle, clubs: Club[], clubIds: readonly string[], makeId: () => string) {
   const eligible = new Set(clubIds);
-  const participating = new Set(cycle.slots.filter((slot) => eligible.has(slot.clubId)).map((slot) => slot.clubId));
-  const missing = [...participating].filter((clubId) => !clubs.some((club) => club.id === clubId));
+  const missing = [...eligible].filter((clubId) => !clubs.some((club) => club.id === clubId));
   if (missing.length) throw new Error('Some meetings reference unavailable clubs. Refresh before generating.');
-  const wanted = new Map(clubs.filter((club) => participating.has(club.id))
+  const wanted = new Map(clubs.filter((club) => eligible.has(club.id))
     .map((club) => [club.id, new Set(cadenceMonths(cycle, club))]));
   const removed = cycle.slots.filter((slot) => wanted.has(slot.clubId) && !wanted.get(slot.clubId)!.has(slot.month));
   const removedIds = new Set(removed.map((slot) => slot.id));

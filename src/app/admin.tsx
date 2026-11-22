@@ -222,9 +222,9 @@ function LibraryServiceDeletion({ serviceId }: { serviceId: string }) {
         <Action title="Cancel deletion" disabled={busy} onPress={() => { setPreview(null); setName(''); }} /></Actions>
     </>}
     {message ? <Text accessibilityLiveRegion="polite" style={uiStyles.error}>{message}</Text> : null}
-    {message && <Action title="Refresh service list" disabled={busy} onPress={() => {
+    {message ? <Action title="Refresh service list" disabled={busy} onPress={() => {
       void library.refresh().then(() => setMessage('Service list refreshed.')).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to refresh services.'));
-    }} />}
+    }} /> : null}
   </Card>;
 }
 
