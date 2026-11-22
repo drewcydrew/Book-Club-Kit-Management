@@ -31,6 +31,7 @@ import type { PickerOption } from "../domain/search";
 import {
   ApiError,
   deleteClub,
+  enrolInClub,
   previewClubDeletion,
   saveHistory,
   saveMemberships,
@@ -322,7 +323,7 @@ function ClubsContent() {
   const [titleSelectedOnly, setTitleSelectedOnly] = useState(false);
   const [discardPrompt, setDiscardPrompt] = useState(false);
   const { service } = useLibraryService();
-  const [newMemberOpen, setNewMemberOpen] = useState(false);
+  const [memberDialog, setMemberDialog] = useState<{ clubId: string | null; clubName: string } | null>(null);
   const [newMemberName, setNewMemberName] = useState("");
   const [newMemberError, setNewMemberError] = useState("");
   const [creatingMember, setCreatingMember] = useState(false);
@@ -614,18 +615,39 @@ function ClubsContent() {
     queueSync("members");
   }
 
+  function openMemberDialog(clubId: string | null, clubName: string) {
+    setMemberDialog({ clubId, clubName });
+    setNewMemberName("");
+    setNewMemberError("");
+    setCreatedMember(null);
+    setLinkCopied(false);
+  }
+
+  function closeMemberDialog() {
+    if (!creatingMember) setMemberDialog(null);
+  }
+
   function createMember() {
     const name = newMemberName.trim();
-    if (!name || !draftRef.current?.club.id) return;
+    if (!name || !memberDialog) return;
+    const club = memberDialog.clubId ? data.clubs.find((item) => item.id === memberDialog.clubId) : undefined;
+    if (memberDialog.clubId && !club) {
+      setNewMemberError("This club is no longer available. Refresh and try again.");
+      return;
+    }
     setCreatingMember(true);
     setNewMemberError("");
     setLinkCopied(false);
     void shared
-      .mutate(() => saveUser({ id: id(), name, role: "member" }))
-      .then((person) => {
+      .mutate(async () => {
+        const person = await saveUser({ id: id(), name, role: "member" });
         setCreatedMember(person);
         setNewMemberName("");
-        if (draftRef.current) toggleMember(person.id);
+        if (club) {
+          await enrolInClub(person.id, club.id, club.membershipRevision).catch((reason: unknown) => {
+            throw new Error(`Member created, but not added to ${club.name}: ${errorText(reason, "unknown error")}`);
+          });
+        }
       })
       .catch((reason: unknown) => setNewMemberError(errorText(reason, "Unable to create member.")))
       .finally(() => setCreatingMember(false));
@@ -815,7 +837,7 @@ function ClubsContent() {
     : [];
 
   return (
-    <Page title="Clubs">
+    <Page title="Clubs" wide>
       {navigationConfirmation}
       <Actions>
         <Action
@@ -826,6 +848,12 @@ function ClubsContent() {
         />
         {staff && (
           <Action
+            title="Create member"
+            onPress={() => openMemberDialog(null, "")}
+          />
+        )}
+        {staff && (
+          <Action
             tone="primary"
             title="Add club"
             onPress={() => edit(blankClub(data.library.branches[0] ?? ""))}
@@ -833,10 +861,16 @@ function ClubsContent() {
         )}
       </Actions>
       <Note>
-        Clubs, membership, leadership, reading history and kit links are shared.
-        Kit links do not mean kits are checked out. Demo members and leaders
-        can be impersonated; use fictional information only.
+        Manage clubs, their members, leaders, reading history and kit links.
+        Staff can also create members and share a link so they can vote right
+        away. Kit links do not mean kits are checked out. Demo members and
+        leaders can be impersonated; use fictional information only.
       </Note>
+      <View style={pageStyles.summaryRow}>
+        <Stat label="Clubs" value={data.clubs.length} />
+        <Stat label="Members enrolled" value={new Set(data.memberships.map((membership) => membership.personId)).size} />
+        <Stat label="Linked kits" value={shared.data.links.length} />
+      </View>
       {data.clubs.length === 0 && (
         <Note>
           No shared clubs yet. Staff can create one, or an administrator can run
@@ -914,37 +948,39 @@ function ClubsContent() {
         const links = shared.data.links.filter(
           (link) => link.clubId === value.id,
         );
+        const leader = data.people.find((p) => p.id === value.leaderId)?.name ?? "Not assigned";
+        const expanded = !!openClubs[value.id];
         return (
           <Card key={value.id}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ expanded: !!openClubs[value.id] }}
-              onPress={() =>
-                setOpenClubs((current) => ({
-                  ...current,
-                  [value.id]: !current[value.id],
-                }))
-              }
-            >
-              <Label>
-                {openClubs[value.id] ? "▾" : "▸"} {value.name} ·{" "}
-                {members.length} members · {links.length} kits
-              </Label>
-            </Pressable>
-            {openClubs[value.id] && (
+            <View style={pageStyles.clubHeader}>
+              <Text accessibilityRole="header" style={pageStyles.clubName}>{value.name}</Text>
+              <Note>
+                {value.branch} · {cadenceLabel(value.cadence, value.cadenceOffset)} · {meetingRuleLabel(value)} ·{" "}
+                {value.pickup === "delivery" ? `Delivery to ${value.address || "address not set"}` : "Pickup"}
+              </Note>
+              <Text>Leader: {leader}</Text>
+              <View style={pageStyles.statRow}>
+                <Stat label="Members" value={members.length} />
+                <Stat label="Kits" value={links.length} />
+                <Stat label="Titles read" value={value.history.length} />
+              </View>
+            </View>
+            <Actions>
+              {staff && <Action tone="primary" title="Edit club" onPress={() => edit(value)} />}
+              {staff && <Action title="Add member" onPress={() => openMemberDialog(value.id, value.name)} />}
+              <Action
+                title={expanded ? "Hide details" : "Show details"}
+                expanded={expanded}
+                onPress={() =>
+                  setOpenClubs((current) => ({
+                    ...current,
+                    [value.id]: !current[value.id],
+                  }))
+                }
+              />
+            </Actions>
+            {expanded && (
               <>
-                <Note>
-                  {value.branch} · {value.size} members · {cadenceLabel(value.cadence, value.cadenceOffset)} · {meetingRuleLabel(value)} ·{" "}
-                  {value.pickup}
-                </Note>
-                {value.pickup === "delivery" ? (
-                  <Text>{value.address}</Text>
-                ) : null}
-                <Text>
-                  Leader:{" "}
-                  {data.people.find((p) => p.id === value.leaderId)?.name ??
-                    "Not assigned"}
-                </Text>
                 <Text>
                   Members:{" "}
                   {members
@@ -1020,7 +1056,6 @@ function ClubsContent() {
                       }}
                     />
                     <Actions>
-                      <Action title="Edit club" onPress={() => edit(value)} />
                       {person?.role === "admin" && <Action
                         tone="danger"
                         title="Delete club"
@@ -1173,49 +1208,6 @@ function ClubsContent() {
                   ) : (
                     <>
                       <Fold
-                        title="New member"
-                        summary={createdMember ? createdMember.name : "Add to this club"}
-                        open={newMemberOpen}
-                        onToggle={() => setNewMemberOpen(!newMemberOpen)}
-                      >
-                        <Note>
-                          Creates a member and adds them to this club. Share the
-                          link so they can vote right away. The link works once
-                          the membership saves.
-                        </Note>
-                        <TextInput
-                          value={newMemberName}
-                          onChangeText={setNewMemberName}
-                          placeholder="Member name"
-                          editable={!busy && !creatingMember}
-                          style={uiStyles.input}
-                        />
-                        {newMemberError ? (
-                          <Text style={uiStyles.error}>{newMemberError}</Text>
-                        ) : null}
-                        <Actions>
-                          <Action
-                            title={creatingMember ? "Creating…" : "Create member"}
-                            disabled={busy || creatingMember || !newMemberName.trim()}
-                            onPress={createMember}
-                          />
-                        </Actions>
-                        {memberLink ? (
-                          <>
-                            <Label>Preferences link</Label>
-                            <Text selectable style={uiStyles.note}>{memberLink}</Text>
-                            {Platform.OS === "web" && (
-                              <Actions>
-                                <Action
-                                  title={linkCopied ? "Link copied" : "Copy link"}
-                                  onPress={copyMemberLink}
-                                />
-                              </Actions>
-                            )}
-                          </>
-                        ) : null}
-                      </Fold>
-                      <Fold
                         title="Members"
                         summary={`${draft.members.length} selected`}
                         open={open.members}
@@ -1342,10 +1334,104 @@ function ClubsContent() {
           ) : null}
         </Modal>
       )}
+      {staff && memberDialog && (
+        <Modal
+          transparent
+          visible
+          animationType="fade"
+          onRequestClose={closeMemberDialog}
+          accessibilityLabel="Add member"
+        >
+          <View style={modalStyles.backdrop}>
+            <View style={modalStyles.dialog}>
+              <ScrollView contentContainerStyle={modalStyles.content}>
+                <Label>
+                  {memberDialog.clubId ? `Add member to ${memberDialog.clubName}` : "Create member"}
+                </Label>
+                <Note>
+                  {memberDialog.clubId
+                    ? "Creates a member, adds them to this club, and gives you a link so they can vote right away."
+                    : "Creates a member and gives you a link so they can vote right away. Add them to a club from the club card."}
+                </Note>
+                {!createdMember && (
+                  <>
+                    <TextInput
+                      value={newMemberName}
+                      onChangeText={setNewMemberName}
+                      placeholder="Member name"
+                      editable={!creatingMember}
+                      style={uiStyles.input}
+                    />
+                    {newMemberError ? (
+                      <Text accessibilityRole="alert" style={uiStyles.error}>{newMemberError}</Text>
+                    ) : null}
+                    <Actions>
+                      <Action
+                        tone="primary"
+                        title={creatingMember ? "Creating…" : "Create member"}
+                        disabled={busy || creatingMember || !newMemberName.trim()}
+                        onPress={createMember}
+                      />
+                      <Action title="Close" disabled={creatingMember} onPress={closeMemberDialog} />
+                    </Actions>
+                  </>
+                )}
+                {createdMember && (
+                  <>
+                    <Note>{createdMember.name} is ready. Share this link:</Note>
+                    {memberLink ? <Text selectable style={uiStyles.note}>{memberLink}</Text> : null}
+                    <Actions>
+                      {Platform.OS === "web" && memberLink && (
+                        <Action
+                          tone="primary"
+                          title={linkCopied ? "Link copied" : "Copy link"}
+                          onPress={copyMemberLink}
+                        />
+                      )}
+                      <Action
+                        title="Create another"
+                        onPress={() => openMemberDialog(memberDialog.clubId, memberDialog.clubName)}
+                      />
+                      <Action title="Done" onPress={() => setMemberDialog(null)} />
+                    </Actions>
+                  </>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
       {message && !formOpen ? <Text>{message}</Text> : null}
     </Page>
   );
 }
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <View style={pageStyles.stat}>
+      <Text style={pageStyles.statValue}>{value}</Text>
+      <Text style={pageStyles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+const pageStyles = StyleSheet.create({
+  summaryRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  clubHeader: { gap: 4 },
+  clubName: { fontSize: 20, fontWeight: "700", color: "#173832" },
+  statRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  stat: {
+    minWidth: 96,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#d8d2c4",
+    borderRadius: 6,
+    backgroundColor: "#f6f3ea",
+  },
+  statValue: { fontSize: 18, fontWeight: "700", color: "#173832" },
+  statLabel: { fontSize: 12, color: "#465c56" },
+});
 
 const modalStyles = StyleSheet.create({
   backdrop: {
