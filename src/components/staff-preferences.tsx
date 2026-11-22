@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { Action, Actions, Card, Label, Note } from "./ui";
-import { ClubPicker } from "./club-picker";
+import { ClubFilterCard } from "./club-filter";
 import { PriorityGridView } from "./priority-grid";
 import { NativePriorityGridView } from "./priority-grid-native";
 import { PreferencesExportActions } from "./preferences-export";
@@ -34,40 +34,12 @@ export function useStaffPreferences({ data, cycle, availableClubs, enabled }: {
 }
 
 export function StaffPreferences({ controller, nativeHeader }: { controller: ReturnType<typeof useStaffPreferences>; nativeHeader?: ReactNode }) {
-  const { data, cycle, availableClubs, filtersOpen, setFiltersOpen, summariesOpen, setSummariesOpen,
+  const { data, cycle, filtersOpen, setFiltersOpen, summariesOpen, setSummariesOpen,
     demandOpen, setDemandOpen, expandedClubs, setExpandedClubs, setReviewClubIds, shownClubIds, demand,
     matrix, clubNameFor, titleFor, hideClub } = controller;
   if (!cycle) return null;
-  const filters = <Card>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: filtersOpen }}
-        accessibilityLabel={`Clubs shown, ${shownClubIds.length} of ${availableClubs.length}`}
-        onPress={() => setFiltersOpen(!filtersOpen)} style={styles.filterHeader}>
-        <Label>{filtersOpen ? "▾" : "▸"} Clubs shown · {shownClubIds.length} of {data.clubs.length}</Label>
-      </Pressable>
-      {data.clubs.length === 0 ? (
-        <Note>No clubs exist yet.</Note>
-      ) : filtersOpen ? (
-        <>
-          <Actions>
-            <Action title="Show all" disabled={shownClubIds.length === data.clubs.length}
-              onPress={() => setReviewClubIds(data.clubs.map((value) => value.id))} />
-            <Action title="Hide all" disabled={shownClubIds.length === 0}
-              onPress={() => setReviewClubIds([])} />
-          </Actions>
-          <ClubPicker
-            clubs={data.clubs}
-            isSelected={(value) => shownClubIds.includes(value.id)}
-            onPress={(value) =>
-              setReviewClubIds(
-                shownClubIds.includes(value.id)
-                  ? shownClubIds.filter((id) => id !== value.id)
-                  : [...shownClubIds, value.id],
-              )
-            }
-          />
-        </>
-      ) : null}
-    </Card>;
+  const filters = <ClubFilterCard title="Clubs shown" clubs={data.clubs} selectedIds={shownClubIds}
+    onChange={setReviewClubIds} open={filtersOpen} onOpenChange={setFiltersOpen} />;
   const intro = <>
       <Label>Preferences · {cycle.name}</Label>
       <Note>

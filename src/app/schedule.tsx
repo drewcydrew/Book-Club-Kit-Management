@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Action, Actions, Card, Label, Note, Page } from '../components/ui';
+import { ClubFilterCard } from '../components/club-filter';
 import { ScheduleGridView } from '../components/schedule-grid';
 import { NativeScheduleGridView } from '../components/schedule-grid-native';
 import { SCHEDULE_DESKTOP_WIDTH } from '../components/schedule-layout';
@@ -377,40 +378,12 @@ function ScheduleContent() {
           <Action title="Cancel save" disabled={editor.busy} onPress={editor.cancelValidation} /></Actions>
       </>}
     </Card>}
-    {staff ? <Card>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: staffFiltersOpen }}
-        accessibilityLabel={`Clubs shown, ${gridClubs.length} of ${clubChoices.length}`} onPress={() => setStaffFiltersOpen(!staffFiltersOpen)}
-        style={{ minHeight: 44, justifyContent: 'center' }}>
-        <Label>{staffFiltersOpen ? '▾' : '▸'} Clubs shown · {gridClubs.length} of {clubChoices.length}</Label>
-      </Pressable>
-      {clubChoices.length === 0 ? <Note>No clubs exist yet.</Note> : staffFiltersOpen && <>
-        <Actions>
-          <Action title="Show all" disabled={clubSelectionDisabled || gridClubs.length === clubChoices.length} onPress={() => updateStaffClubs(clubChoices.map((club) => club.id))} />
-          <Action title="Hide all" disabled={clubSelectionDisabled || gridClubs.length === 0} onPress={() => updateStaffClubs([])} />
-        </Actions>
-        <Actions>{clubChoices.map((value) => <Action key={value.id} selected={gridClubs.some((club) => club.id === value.id)} title={value.name} disabled={clubSelectionDisabled} onPress={() => {
-          const current = gridClubs.map((club) => club.id);
-          updateStaffClubs(current.includes(value.id) ? current.filter((id) => id !== value.id) : [...current, value.id]);
-        }} />)}</Actions>
-      </>}
-    </Card> : <Card>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: filtersOpen }} onPress={() => setFiltersOpen(!filtersOpen)}>
-        <Label>{filtersOpen ? '▾' : '▸'} Your clubs · {gridClubs.length} of {clubChoices.length}</Label>
-      </Pressable>
-      {clubChoices.length === 0
-        ? <Note>You are not enrolled in any clubs. Enrol in a club on Home.</Note>
-        : filtersOpen && <>
-          <Actions>
-            <Action title={gridClubs.length === clubChoices.length ? 'Hide all' : 'Show all'} onPress={() => {
-              setGridClubIds(gridClubs.length === clubChoices.length ? [] : clubChoices.map((club) => club.id));
-            }} />
-          </Actions>
-          <Actions>{clubChoices.map((value) => <Action key={value.id} selected={gridClubs.some((club) => club.id === value.id)} title={value.name} onPress={() => {
-            const current = gridClubs.map((club) => club.id);
-            setGridClubIds(current.includes(value.id) ? current.filter((id) => id !== value.id) : [...current, value.id]);
-          }} />)}</Actions>
-        </>}
-    </Card>}
+    {staff
+      ? <ClubFilterCard title="Clubs shown" clubs={clubChoices} selectedIds={gridClubs.map((club) => club.id)}
+        onChange={updateStaffClubs} open={staffFiltersOpen} onOpenChange={setStaffFiltersOpen} disabled={clubSelectionDisabled} />
+      : <ClubFilterCard title="Your clubs" clubs={clubChoices} selectedIds={gridClubs.map((club) => club.id)}
+        onChange={setGridClubIds} open={filtersOpen} onOpenChange={setFiltersOpen}
+        emptyMessage="You are not enrolled in any clubs. Enrol in a club on Home." />}
     <Card>
       {staff && <>
         <Label>Schedule view</Label>
