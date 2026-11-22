@@ -1,18 +1,18 @@
-const { applicationDefault, getApps, initializeApp } = require('firebase-admin/app');
+const { getApps, initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { randomUUID } = require('node:crypto');
 const { getPool } = require('./db');
 const { HttpError } = require('./http');
+const { firebaseOptions } = require('./firebase-config');
 const { transaction } = require('./routes/workflow-util');
 
 async function verifyToken(token) {
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  if (!projectId) throw new HttpError(503, 'Firebase authentication is not configured on the server.');
   try {
     const app = getApps().find((item) => item.name === 'book-club-auth') ||
-      initializeApp({ credential: applicationDefault(), projectId }, 'book-club-auth');
+      initializeApp(firebaseOptions(), 'book-club-auth');
     return await getAuth(app).verifyIdToken(token, true);
   } catch (error) {
+    if (error instanceof HttpError) throw error;
     if (['auth/argument-error', 'auth/id-token-expired', 'auth/id-token-revoked',
       'auth/invalid-id-token', 'auth/user-disabled', 'auth/user-not-found'].includes(error.code)) {
       throw new HttpError(401, 'Your session is invalid or expired. Sign in again.');
