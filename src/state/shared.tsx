@@ -125,7 +125,7 @@ export function SharedProvider({ children, personId, scope, enabled = true }: { 
       }
       invalidateOtherScopes();
       try {
-        if (scopeRef.current === 'admin') await refreshUsers();
+        if (scopeRef.current === 'admin' || scopeRef.current === 'clubs') await refreshUsers();
         if (!active.current) return result;
         await load(scopeRef.current, true);
       } catch {

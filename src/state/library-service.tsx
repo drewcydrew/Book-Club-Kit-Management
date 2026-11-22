@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useGlobalSearchParams, usePathname } from 'expo-router';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { ApiError, createGuidedLibraryService, createLibraryService, deleteLibraryService, findLibrarySetup, loadLibraryServices, setApiLibraryService, type LibraryService, type LibrarySetup, type ServiceDeletionPreview } from './api';
 import { useAuth } from './auth';
@@ -23,6 +24,10 @@ const Context = createContext<LibraryContext | null>(null);
 
 export function LibraryServiceProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const pathname = usePathname();
+  const { serviceId: linkedServiceParam } = useGlobalSearchParams<{ serviceId?: string | string[] }>();
+  // Read once at startup: a shared preferences link selects its library before the app loads.
+  const linkedServiceId = useRef(pathname === '/preferences' && typeof linkedServiceParam === 'string' ? linkedServiceParam : '');
   const [services, setServices] = useState<LibraryService[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const selectedRef = useRef('');
@@ -58,7 +63,9 @@ export function LibraryServiceProvider({ children }: { children: React.ReactNode
     let active = true;
     void Promise.all([loadLibraryServices(), AsyncStorage.getItem(storageKey)]).then(([next, stored]) => {
       if (!active) return;
-      const id = stored && next.some((service) => service.id === stored) ? stored : '';
+      const linked = linkedServiceId.current;
+      const id = linked && next.some((service) => service.id === linked) ? linked
+        : stored && next.some((service) => service.id === stored) ? stored : '';
       setServices(next);
       setApiLibraryService(id);
       selectedRef.current = id;

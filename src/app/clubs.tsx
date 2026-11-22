@@ -23,7 +23,8 @@ import {
   Page,
   styles as uiStyles,
 } from "../components/ui";
-import type { Club, Membership } from "../domain/model";
+import type { Club, Membership, Person } from "../domain/model";
+import { id } from "../domain/logic";
 import { cadenceLabel } from "../domain/cadence";
 import { meetingOccurrences, meetingRuleLabel, meetingWeekdays } from "../domain/meeting-rule";
 import type { PickerOption } from "../domain/search";
@@ -34,12 +35,14 @@ import {
   saveHistory,
   saveMemberships,
   saveRecord,
+  saveUser,
   setClubKit,
 } from "../state/api";
 import type { ClubDeletionPreview, SharedData } from "../state/api";
 import { useShared } from "../state/shared";
 import { ScreenGate } from "../components/screen-gate";
 import { useStore } from "../state/store";
+import { useLibraryService } from "../state/library-service";
 
 type Section = "details" | "members" | "history";
 type SyncState = {
@@ -318,6 +321,13 @@ function ClubsContent() {
   const [titleQuery, setTitleQuery] = useState("");
   const [titleSelectedOnly, setTitleSelectedOnly] = useState(false);
   const [discardPrompt, setDiscardPrompt] = useState(false);
+  const { service } = useLibraryService();
+  const [newMemberOpen, setNewMemberOpen] = useState(false);
+  const [newMemberName, setNewMemberName] = useState("");
+  const [newMemberError, setNewMemberError] = useState("");
+  const [creatingMember, setCreatingMember] = useState(false);
+  const [createdMember, setCreatedMember] = useState<Person | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const draftRef = useRef<Draft | null>(null);
   const confirmedRef = useRef<Confirmed>({
     details: "",
@@ -343,6 +353,9 @@ function ClubsContent() {
   const pendingSave = busy || states.some((state) => state.kind === "pending" || state.kind === "saving");
   const unsaved = newDirty || states.some((state) => state.kind === "failed" || state.kind === "invalid");
   const navigationConfirmation = useDraftNavigationGuard(unsaved, pendingSave);
+  const memberLink = createdMember && service
+    ? `${Platform.OS === "web" && typeof window !== "undefined" ? window.location.origin : ""}/preferences?serviceId=${encodeURIComponent(service.id)}&personId=${encodeURIComponent(createdMember.id)}`
+    : "";
 
   function unlinkedKitOptions(clubId: string): PickerOption[] {
     return data.kits
@@ -599,6 +612,28 @@ function ClubsContent() {
       };
     });
     queueSync("members");
+  }
+
+  function createMember() {
+    const name = newMemberName.trim();
+    if (!name || !draftRef.current?.club.id) return;
+    setCreatingMember(true);
+    setNewMemberError("");
+    setLinkCopied(false);
+    void shared
+      .mutate(() => saveUser({ id: id(), name, role: "member" }))
+      .then((person) => {
+        setCreatedMember(person);
+        setNewMemberName("");
+        if (draftRef.current) toggleMember(person.id);
+      })
+      .catch((reason: unknown) => setNewMemberError(errorText(reason, "Unable to create member.")))
+      .finally(() => setCreatingMember(false));
+  }
+
+  function copyMemberLink() {
+    if (Platform.OS !== "web" || !memberLink) return;
+    void navigator.clipboard?.writeText(memberLink).then(() => setLinkCopied(true), () => setLinkCopied(false));
   }
 
   function toggleLeader(personId: string) {
@@ -1137,6 +1172,49 @@ function ClubsContent() {
                     </Note>
                   ) : (
                     <>
+                      <Fold
+                        title="New member"
+                        summary={createdMember ? createdMember.name : "Add to this club"}
+                        open={newMemberOpen}
+                        onToggle={() => setNewMemberOpen(!newMemberOpen)}
+                      >
+                        <Note>
+                          Creates a member and adds them to this club. Share the
+                          link so they can vote right away. The link works once
+                          the membership saves.
+                        </Note>
+                        <TextInput
+                          value={newMemberName}
+                          onChangeText={setNewMemberName}
+                          placeholder="Member name"
+                          editable={!busy && !creatingMember}
+                          style={uiStyles.input}
+                        />
+                        {newMemberError ? (
+                          <Text style={uiStyles.error}>{newMemberError}</Text>
+                        ) : null}
+                        <Actions>
+                          <Action
+                            title={creatingMember ? "Creating…" : "Create member"}
+                            disabled={busy || creatingMember || !newMemberName.trim()}
+                            onPress={createMember}
+                          />
+                        </Actions>
+                        {memberLink ? (
+                          <>
+                            <Label>Preferences link</Label>
+                            <Text selectable style={uiStyles.note}>{memberLink}</Text>
+                            {Platform.OS === "web" && (
+                              <Actions>
+                                <Action
+                                  title={linkCopied ? "Link copied" : "Copy link"}
+                                  onPress={copyMemberLink}
+                                />
+                              </Actions>
+                            )}
+                          </>
+                        ) : null}
+                      </Fold>
                       <Fold
                         title="Members"
                         summary={`${draft.members.length} selected`}

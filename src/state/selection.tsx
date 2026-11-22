@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { useGlobalSearchParams, usePathname } from 'expo-router';
 import type { Person } from '../domain/model';
 import { clearCoverCache } from '../components/title-cover';
 import { loadSession, loadUsers } from './api';
@@ -20,6 +21,8 @@ const Context = createContext<Selection | null>(null);
 export function SelectionProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const { service } = useLibraryService();
+  const pathname = usePathname();
+  const { personId: linkedPersonId } = useGlobalSearchParams<{ personId?: string | string[] }>();
   const [people, setPeople] = useState<Person[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -51,8 +54,12 @@ export function SelectionProvider({ children }: { children: React.ReactNode }) {
   }, [people, user]);
   useEffect(() => { clearCoverCache(); }, [selectedId]);
   useEffect(() => { void refreshUsers().catch(() => undefined); }, [refreshUsers]);
+  const selected = people.find((person) => person.id === selectedId);
+  // A shared preferences link views that member without changing the signed-in session.
+  const linked = pathname === '/preferences' && typeof linkedPersonId === 'string'
+    ? people.find((person) => person.id === linkedPersonId && person.role === 'member') : undefined;
   return <Context.Provider value={{
-    people, person: people.find((person) => person.id === selectedId), loading, error, refreshUsers,
+    people, person: linked ?? selected, loading, error, refreshUsers,
     select, reconcilePerson,
   }}>{children}</Context.Provider>;
 }
