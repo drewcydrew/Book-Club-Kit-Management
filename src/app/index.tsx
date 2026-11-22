@@ -22,8 +22,6 @@ export default function Home() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const [serviceName, setServiceName] = useState('');
-  const [branch, setBranch] = useState('');
   function run(action: () => Promise<void>) {
     const proceed = () => {
       setBusy(true);
@@ -59,14 +57,6 @@ export default function Home() {
         {!library.error && library.services.length === 0 && <Note>No library services are available yet.</Note>}
         {library.services.map((service) => <Action key={service.id} title={service.name} selected={library.service?.id === service.id}
           disabled={saving || busy} onPress={() => run(() => library.select(service.id))} />)}
-        {auth.user && <>
-          <Label>Create a library service</Label>
-          <TextInput accessibilityLabel="Library service name" value={serviceName} onChangeText={setServiceName} editable={!busy} style={styles.input} />
-          <Label>First branch</Label>
-          <TextInput accessibilityLabel="First branch" value={branch} onChangeText={setBranch} editable={!busy} style={styles.input} />
-          <Action title="Create library service" tone="primary" disabled={saving || busy || !serviceName.trim() || !branch.trim()}
-            onPress={() => run(async () => { await library.create(serviceName, branch); setServiceName(''); setBranch(''); })} />
-        </>}
       </Card>
     </View>
     {!auth.user && library.service && <UserSelection disabled={saving || busy} />}

@@ -124,8 +124,8 @@ function isHistory(value: unknown): value is ClubHistory {
   return isObject(value) && isString(value.clubId) && isStringArray(value.titles);
 }
 
-async function request(path: string, method = 'GET', body?: unknown, revision?: number, signal?: AbortSignal): Promise<unknown> {
-  const serviceId = libraryServiceId;
+async function request(path: string, method = 'GET', body?: unknown, revision?: number, signal?: AbortSignal, serviceOverride?: string): Promise<unknown> {
+  const serviceId = serviceOverride ?? libraryServiceId;
   const configured = process.env.EXPO_PUBLIC_API_URL;
   if (!configured) throw new Error('EXPO_PUBLIC_API_URL is not configured.');
   let base: URL;
@@ -156,8 +156,25 @@ async function request(path: string, method = 'GET', body?: unknown, revision?: 
 }
 
 export type LibraryService = { id: string; name: string };
+export type LibrarySetup = {
+  requestId: string;
+  name: string;
+  branches: string[];
+  cycle: { name: string; deadline: string; startsOn: string; endsOn: string };
+  titles: { name: string; author: string; isbn: string; copies: number }[];
+  club: { name: string; branch: string; size: number } | null;
+  member: { name: string } | null;
+};
+export type ServiceDeletionPreview = {
+  service: LibraryService;
+  counts: Record<string, number>;
+  token: string;
+};
 function isLibraryService(value: unknown): value is LibraryService {
   return isObject(value) && isString(value.id) && isString(value.name);
+}
+function isCountMap(value: unknown): value is Record<string, number> {
+  return isObject(value) && Object.values(value).every((count) => typeof count === 'number' && Number.isSafeInteger(count) && count >= 0);
 }
 export async function loadLibraryServices(): Promise<LibraryService[]> {
   const value = await request('/api/library-services');
@@ -168,6 +185,33 @@ export async function createLibraryService(name: string, branch: string): Promis
   const value = await request('/api/library-services', 'POST', { name, branch });
   if (!isLibraryService(value)) throw new Error('Server returned an invalid library service.');
   return value;
+}
+
+export async function createGuidedLibraryService(setup: LibrarySetup): Promise<LibraryService> {
+  const value = await request('/api/library-services/setup', 'POST', setup);
+  if (!isLibraryService(value)) throw new Error('Server returned an invalid library service.');
+  return value;
+}
+
+export async function findLibrarySetup(requestId: string): Promise<LibraryService> {
+  const value = await request(`/api/library-services/setup/${encodeURIComponent(requestId)}`);
+  if (!isLibraryService(value)) throw new Error('Server returned an invalid library service.');
+  return value;
+}
+
+export async function previewLibraryServiceDeletion(serviceId: string): Promise<ServiceDeletionPreview> {
+  const value = await request(`/api/library-services/${encodeURIComponent(serviceId)}/deletion-preview`, 'POST', {});
+  if (!isObject(value) || !isLibraryService(value.service) || value.service.id !== serviceId ||
+      !isCountMap(value.counts) ||
+      typeof value.token !== 'string' || !/^[a-f0-9]{64}$/.test(value.token)) {
+    throw new Error('Server returned an invalid service deletion preview.');
+  }
+  return { service: value.service, counts: value.counts, token: value.token };
+}
+
+export async function deleteLibraryService(preview: ServiceDeletionPreview): Promise<void> {
+  await request(`/api/library-services/${encodeURIComponent(preview.service.id)}`, 'DELETE',
+    { name: preview.service.name, token: preview.token, acknowledge: true });
 }
 
 export async function loadSession(): Promise<Person> {
@@ -229,9 +273,9 @@ export type ClubSchedule = {
 };
 export type ClubIndexItem = { id: string; name: string; branch: string };
 
-export async function loadClubSchedule(clubId: string, signal?: AbortSignal): Promise<ClubSchedule> {
+export async function loadClubSchedule(clubId: string, signal?: AbortSignal, serviceId?: string): Promise<ClubSchedule> {
   const path = `/api/club-schedules/${encodeURIComponent(clubId)}`;
-  const value = await request(path, 'GET', undefined, undefined, signal);
+  const value = await request(path, 'GET', undefined, undefined, signal, serviceId);
   if (!isObject(value) || !isClub(value.club) || value.club.id !== clubId ||
       !Array.isArray(value.cycles) || !value.cycles.every(isCycle) ||
       !Array.isArray(value.assignments) || !value.assignments.every(isAssignment) ||
@@ -246,8 +290,8 @@ export async function loadClubSchedule(clubId: string, signal?: AbortSignal): Pr
   };
 }
 
-export async function loadClubIndex(signal?: AbortSignal): Promise<ClubIndexItem[]> {
-  const value = await request('/api/club-schedules', 'GET', undefined, undefined, signal);
+export async function loadClubIndex(signal?: AbortSignal, serviceId?: string): Promise<ClubIndexItem[]> {
+  const value = await request('/api/club-schedules', 'GET', undefined, undefined, signal, serviceId);
   if (!Array.isArray(value) || !value.every((club) => isObject(club) && isString(club.id) && isString(club.name) && isString(club.branch))) {
     throw new Error('Server returned invalid data for /api/club-schedules.');
   }

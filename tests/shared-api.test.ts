@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { seed } from '../src/domain/seed';
 import {
-  ApiError, deleteClub, deleteCycle, deleteUser, finalizeRanking, loadEnrolment, loadLeaderReview, loadShared, loadUsers, loadView, previewClubDeletion, reopenCycle, saveBallot, saveCycle, saveEvent,
+  ApiError, deleteClub, deleteCycle, deleteUser, finalizeRanking, loadClubIndex, loadClubSchedule, loadEnrolment, loadLeaderReview, loadShared, loadUsers, loadView, previewClubDeletion, reopenCycle, saveBallot, saveCycle, saveEvent,
   saveHistory, saveMemberships, saveSchedule, saveSettings, saveUser, saveValidatedSchedule, validateSchedule, previewKitLabelDeletion, setApiAuthentication, setApiLibraryService,
 } from '../src/state/api';
 
@@ -66,6 +66,44 @@ test('a pending request retains the library selected when it started', async () 
     setApiLibraryService('second');
     release('firebase-token');
     await pending;
+  } finally {
+    setApiLibraryService('');
+    setApiAuthentication(null, null);
+    globalThis.fetch = oldFetch;
+    if (oldUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL; else process.env.EXPO_PUBLIC_API_URL = oldUrl;
+  }
+});
+
+test('schedule requests use their explicit service without changing concurrent or later requests', async () => {
+  const oldUrl = process.env.EXPO_PUBLIC_API_URL;
+  const oldFetch = globalThis.fetch;
+  process.env.EXPO_PUBLIC_API_URL = 'https://demo.example';
+  const releases: ((token: string) => void)[] = [];
+  const headers = new Map<string, string | null>();
+  const club = payload.clubs[0];
+  setApiLibraryService('saved');
+  setApiAuthentication(() => new Promise((resolve) => { releases.push(resolve); }), null);
+  globalThis.fetch = async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    headers.set(path, new Headers(init?.headers).get('X-Library-Service-Id'));
+    const result = path === '/api/club-schedules' ? [{ id: club.id, name: club.name, branch: club.branch }] :
+      path === '/api/users' ? demo.people :
+        { club, cycles: [], assignments: [], kits: [], titles: [], kitLabels: [] };
+    return new Response(JSON.stringify(result), { status: 200 });
+  };
+  try {
+    const schedule = loadClubSchedule(club.id, undefined, 'linked');
+    const index = loadClubIndex(undefined, 'other');
+    const users = loadUsers();
+    releases.reverse().forEach((release) => release('firebase-token'));
+    await Promise.all([schedule, index, users]);
+    assert.equal(headers.get(`/api/club-schedules/${club.id}`), 'linked');
+    assert.equal(headers.get('/api/club-schedules'), 'other');
+    assert.equal(headers.get('/api/users'), 'saved');
+
+    setApiAuthentication(null, null);
+    await loadClubIndex();
+    assert.equal(headers.get('/api/club-schedules'), 'saved');
   } finally {
     setApiLibraryService('');
     setApiAuthentication(null, null);

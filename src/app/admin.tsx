@@ -1,16 +1,20 @@
-import { usePreventRemove } from 'expo-router';
+import { router, usePreventRemove } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigationGuard } from '../components/navigation-guard';
 import { SearchPicker } from '../components/search-picker';
-import { Action, Actions, Card, Field, Label, Note, Page } from '../components/ui';
+import { LibraryServiceSetup } from '../components/library-service-setup';
+import { Action, Actions, Card, Field, Label, Note, Page, styles as uiStyles } from '../components/ui';
 import { id } from '../domain/logic';
 import type { Library, Person, Role } from '../domain/model';
 import type { PickerOption } from '../domain/search';
-import { deleteUser, saveSettings, saveUser } from '../state/api';
-import { useShared } from '../state/shared';
+import { deleteUser, previewLibraryServiceDeletion, saveSettings, saveUser, type ServiceDeletionPreview } from '../state/api';
+import { useShared, useSharedStatus } from '../state/shared';
 import { useStore } from '../state/store';
 import { ScreenGate } from '../components/screen-gate';
+import { useAuth } from '../state/auth';
+import { useLibraryService } from '../state/library-service';
+import { useSelection } from '../state/selection';
 
 const roles: Role[] = ['member', 'staff', 'admin'];
 const roleGroups = [{ value: 'all', label: 'All roles' }, ...roles.map((role) => ({ value: role, label: role }))];
@@ -20,12 +24,26 @@ function userSnapshot(name: string, role: Role) {
 }
 
 export default function Admin() {
+  const { user } = useAuth();
+  const { service } = useLibraryService();
+  const { person, loading, error, refreshUsers } = useSelection();
+  if (user && (!service || !person)) return <ScrollView keyboardShouldPersistTaps="handled">
+    <View style={uiStyles.page}>
+      <Text accessibilityRole="header" style={uiStyles.heading}>Admin</Text>
+      <LibraryServiceSetup />
+      {service && loading && <Note>Loading administrator access...</Note>}
+      {service && error && <><Text style={uiStyles.error}>{error}</Text>
+        <Action title="Retry" onPress={() => { void refreshUsers().catch(() => undefined); }} /></>}
+    </View>
+  </ScrollView>;
   return <ScreenGate staffOnly><AdminContent /></ScreenGate>;
 }
 
 function AdminContent() {
   const { data } = useStore();
   const shared = useShared();
+  const { user } = useAuth();
+  const { service } = useLibraryService();
   const [userName, setUserName] = useState('');
   const [userRole, setUserRole] = useState<Role>('member');
   const [editing, setEditing] = useState<Person | null>(null);
@@ -128,6 +146,7 @@ function AdminContent() {
   </Page>;
 
   return <Page title="Admin">
+    {user && <LibraryServiceSetup />}
     <Card>
       <Label>Shared users · {data.people.length} users</Label>
       <Note>Firebase accounts are managed in Firebase. Demo roles do not grant sign-in access.</Note>
@@ -164,8 +183,49 @@ function AdminContent() {
     </Modal>}
 
     <SharedLibrarySettings key={data.library.revision} library={data.library} />
+    {user && service && <LibraryServiceDeletion key={service.id} serviceId={service.id} />}
     {message ? <Text>{message}</Text> : null}
   </Page>;
+}
+
+function LibraryServiceDeletion({ serviceId }: { serviceId: string }) {
+  const library = useLibraryService();
+  const { saving } = useSharedStatus();
+  const [preview, setPreview] = useState<ServiceDeletionPreview | null>(null);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  function loadPreview() {
+    setBusy(true); setMessage('');
+    void previewLibraryServiceDeletion(serviceId).then((value) => { setPreview(value); setName(''); })
+      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to preview deletion.'))
+      .finally(() => setBusy(false));
+  }
+  function remove() {
+    if (!preview) return;
+    setBusy(true); setMessage('');
+    void library.remove(preview).then(() => router.replace('/')).catch((error: unknown) => {
+      setPreview(null);
+      setMessage(`${error instanceof Error ? error.message : 'Unable to delete the service.'} Refresh the service list and review again before retrying.`);
+    }).finally(() => setBusy(false));
+  }
+
+  return <Card><Label>Delete this library service</Label>
+    <Note>Any signed-in administrator can permanently delete a service. Its titles, kits, clubs, members, votes, schedules and circulation history will be destroyed. Firebase accounts are not deleted. A backup is required for recovery.</Note>
+    {!preview ? <Action title="Review service deletion" tone="danger" disabled={busy || saving} onPress={loadPreview} /> : <>
+      <Note>Deleting {preview.service.name} can remove active loan information and is not a production-safe circulation workflow.</Note>
+      {Object.entries(preview.counts).filter(([, count]) => count > 0).map(([table, count]) =>
+        <Text key={table}>{table.replace(/_/g, ' ')}: {count}</Text>)}
+      <Field label="Type the exact service name to delete" value={name} onChangeText={setName} editable={!busy} />
+      <Actions><Action title="Permanently delete service" tone="danger" disabled={busy || saving || name !== preview.service.name} onPress={remove} />
+        <Action title="Cancel deletion" disabled={busy} onPress={() => { setPreview(null); setName(''); }} /></Actions>
+    </>}
+    {message ? <Text accessibilityLiveRegion="polite" style={uiStyles.error}>{message}</Text> : null}
+    {message && <Action title="Refresh service list" disabled={busy} onPress={() => {
+      void library.refresh().then(() => setMessage('Service list refreshed.')).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to refresh services.'));
+    }} />}
+  </Card>;
 }
 
 function SharedLibrarySettings({ library }: { library: Library }) {

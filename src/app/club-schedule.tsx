@@ -9,8 +9,6 @@ import { meetingRuleLabel } from '../domain/meeting-rule';
 import { loadClubIndex, loadClubSchedule, type ClubIndexItem, type ClubSchedule } from '../state/api';
 import { useSelection } from '../state/selection';
 import { useLibraryService } from '../state/library-service';
-import { useNavigationGuard } from '../components/navigation-guard';
-import { useSharedStatus } from '../state/shared';
 
 function todayIso(): string {
   const now = new Date();
@@ -26,29 +24,37 @@ function errorMessage(error: unknown): string {
 }
 
 export default function ClubSchedulePage() {
-  const { serviceId } = useLocalSearchParams<{ serviceId?: string }>();
+  const { serviceId, clubId } = useLocalSearchParams<{ serviceId?: string | string[]; clubId?: string | string[] }>();
   const library = useLibraryService();
-  const guard = useNavigationGuard();
-  const { saving } = useSharedStatus();
-  const [message, setMessage] = useState('');
-  const target = typeof serviceId === 'string' ? library.services.find((item) => item.id === serviceId) : undefined;
-  if (!library.service || (serviceId && serviceId !== library.service.id)) {
+  const [refreshError, setRefreshError] = useState('');
+  const hasServiceParam = serviceId !== undefined;
+  const hasClubParam = clubId !== undefined;
+  const validClub = !hasClubParam || (typeof clubId === 'string' && clubId.length > 0);
+  const target = hasServiceParam
+    ? typeof serviceId === 'string' && serviceId.length > 0 ? library.services.find((item) => item.id === serviceId) : undefined
+    : !hasClubParam ? library.service : undefined;
+  if (!target || !validClub) {
+    const message = !target && library.error
+      ? 'Unable to load library services. Try again.'
+      : !validClub ? 'The club in this link is invalid.'
+        : hasServiceParam || hasClubParam ? 'The library service in this link is unavailable or missing.'
+          : 'Select a library service on Home to view schedules.';
     return <ScrollView contentContainerStyle={uiStyles.page}>
       <Text accessibilityRole="header" style={uiStyles.heading}>Club schedule</Text>
-      <Note>{serviceId && !target ? 'The library service in this link is unavailable.' : 'Select the library service for this schedule.'}</Note>
-      {message ? <Text style={uiStyles.error}>{message}</Text> : null}
-      {target && <Action title={`Select ${target.name}`} disabled={saving} onPress={() => {
-        const select = () => { void library.select(target.id).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to select library.')); };
-        if (!guard.intercept(select)) select();
+      <Note>{message}</Note>
+      {refreshError ? <Text style={uiStyles.error}>{refreshError}</Text> : null}
+      {!target && library.error && <Action title="Try again" onPress={() => {
+        setRefreshError('');
+        void library.refresh().catch((error: unknown) => setRefreshError(errorMessage(error)));
       }} />}
       <Action title="Go to Home" onPress={() => router.navigate('/')} />
     </ScrollView>;
   }
-  return <ClubScheduleContent serviceId={library.service.id} />;
+  return <ClubScheduleContent serviceId={target.id} clubId={typeof clubId === 'string' ? clubId : null}
+    selectedService={library.service?.id === target.id} />;
 }
 
-function ClubScheduleContent({ serviceId }: { serviceId: string }) {
-  const { clubId } = useLocalSearchParams<{ clubId?: string }>();
+function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId: string; clubId: string | null; selectedService: boolean }) {
   const { person } = useSelection();
   const { width: windowWidth } = useWindowDimensions();
   const pageStyle = [uiStyles.page, uiStyles.widePage, windowWidth < narrowWidth && { paddingHorizontal: 12 }];
@@ -56,13 +62,13 @@ function ClubScheduleContent({ serviceId }: { serviceId: string }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [view, setView] = useState<MemberView>('overview');
   const [copied, setCopied] = useState(false);
-  const selectedClubId = typeof clubId === 'string' && clubId ? clubId : null;
-  const requestKey = `${selectedClubId ?? ''}:${reloadKey}`;
+  const selectedClubId = clubId;
+  const requestKey = JSON.stringify([serviceId, selectedClubId, reloadKey]);
   const current = loaded?.key === requestKey ? loaded : null;
   const schedule = current?.schedule ?? null;
   const clubs = current?.clubs ?? null;
   const error = current?.error ?? null;
-  const staff = person !== undefined && person.role !== 'member';
+  const staff = selectedService && person !== undefined && person.role !== 'member';
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,14 +76,14 @@ function ClubScheduleContent({ serviceId }: { serviceId: string }) {
       if (!controller.signal.aborted) setLoaded({ key: requestKey, error: errorMessage(failure) });
     };
     if (selectedClubId) {
-      loadClubSchedule(selectedClubId, controller.signal)
-        .then((value) => setLoaded({ key: requestKey, schedule: value }), fail);
+      loadClubSchedule(selectedClubId, controller.signal, serviceId)
+        .then((value) => { if (!controller.signal.aborted) setLoaded({ key: requestKey, schedule: value }); }, fail);
     } else {
-      loadClubIndex(controller.signal)
-        .then((value) => setLoaded({ key: requestKey, clubs: value }), fail);
+      loadClubIndex(controller.signal, serviceId)
+        .then((value) => { if (!controller.signal.aborted) setLoaded({ key: requestKey, clubs: value }); }, fail);
     }
     return () => controller.abort();
-  }, [requestKey, selectedClubId]);
+  }, [requestKey, selectedClubId, serviceId]);
 
   const titleById = useMemo(() => new Map(schedule?.titles.map((title) => [title.id, title]) ?? []), [schedule]);
   const kitById = useMemo(() => new Map(schedule?.kits.map((kit) => [kit.id, kit]) ?? []), [schedule]);
@@ -106,7 +112,7 @@ function ClubScheduleContent({ serviceId }: { serviceId: string }) {
       {clubs?.length === 0 ? <Note>No clubs are available yet.</Note> : null}
       <Actions>
         {clubs?.map((club) => <Action key={club.id} title={`${club.name} · ${club.branch}`}
-          onPress={() => router.setParams({ clubId: club.id })} />)}
+          onPress={() => router.setParams({ serviceId, clubId: club.id })} />)}
       </Actions>
     </ScrollView>;
   }
@@ -155,7 +161,7 @@ function ClubScheduleContent({ serviceId }: { serviceId: string }) {
       clubNameFor={() => club.name}
       exportClub={{ name: club.name, details: `${club.branch} · ${meetingRuleLabel(club)} · ${cadenceLabel(club.cadence, club.cadenceOffset)}` }} />
     <Actions>
-      <Action title="Choose another club" onPress={() => router.navigate('/club-schedule')} />
+      <Action title="Choose another club" onPress={() => router.replace({ pathname: '/club-schedule', params: { serviceId } })} />
       <Action title="Refresh" onPress={refresh} />
     </Actions>
   </ScrollView>;

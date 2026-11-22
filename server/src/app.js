@@ -51,9 +51,10 @@ app.post('/api/library-services', async (request, response) => {
         [serviceId, name, request.auth.uid]);
       await client.query('INSERT INTO lending_settings(name,branches,loan_days,buffer_days) VALUES($1,$2,28,3)', [name, [branch]]);
       return created.rows[0];
-    }));
+    }, { allowMissingService: true }));
   response.status(201).json(service);
 });
+app.use('/api', require('./routes/library-services'));
 app.use('/api', async (request, _response, next) => {
   if (request.method === 'GET' && request.path === '/covers') return next();
   const serviceId = request.get('X-Library-Service-Id');

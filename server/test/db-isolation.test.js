@@ -28,6 +28,8 @@ class SwitchingPool extends EventEmitter {
           else backend.session = values[0];
           return {};
         }
+        if (sql.startsWith('SELECT pg_advisory_xact_lock')) return { rows: [] };
+        if (sql === 'SELECT 1 FROM library_services WHERE id=$1') return { rowCount: 1, rows: [{}] };
         if (sql === 'FAIL') throw new Error('test failure');
         return { rows: [{ scope: backend.local === undefined ? backend.session : backend.local }] };
       },

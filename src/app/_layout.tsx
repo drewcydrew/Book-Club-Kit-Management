@@ -1,4 +1,4 @@
-import { Link, Redirect, router, Slot, usePathname } from 'expo-router';
+import { Link, Redirect, router, Slot, useGlobalSearchParams, usePathname } from 'expo-router';
 import type { Href } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -24,15 +24,22 @@ function NavigationLink({ href, children, disabled }: { href: Href; children: st
 
 function SelectedShell() {
   const { person } = useSelection();
-  const { service } = useLibraryService();
+  const { service, services } = useLibraryService();
+  const { user } = useAuth();
   const pathname = usePathname();
+  const { serviceId } = useGlobalSearchParams<{ serviceId?: string | string[] }>();
   const { saving } = useSharedStatus();
   const member = person?.role === 'member';
-  if (!service && pathname !== '/' && pathname !== '/club-schedule') return <Redirect href="/" />;
+  const linkedService = pathname === '/club-schedule' && typeof serviceId === 'string'
+    ? services.find((item) => item.id === serviceId) : undefined;
+  const libraryContext = linkedService && linkedService.id !== service?.id
+    ? `Schedule library: ${linkedService.name} · Selected library: ${service?.name ?? 'none'}`
+    : service?.name ?? 'No library selected';
+  if (!service && pathname !== '/' && pathname !== '/club-schedule' && !(pathname === '/admin' && user)) return <Redirect href="/" />;
   return <View style={styles.shell}>
     <View style={styles.header}>
       <Text style={styles.brand}>Book club kits</Text>
-      <Text style={styles.context}>{service?.name ?? 'No library selected'} · Demo members are public · {person ? `${person.name} · ${person.role}` : 'no user selected'}</Text>
+      <Text style={styles.context}>{libraryContext} · Demo members are public · {person ? `${person.name} · ${person.role}` : 'no user selected'}</Text>
       {saving && <Text style={styles.context}>Saving changes; wait before changing pages or users.</Text>}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.navigation}>
         <NavigationLink disabled={saving} href="/">Home</NavigationLink>
@@ -43,8 +50,8 @@ function SelectedShell() {
           {!member && <NavigationLink disabled={saving} href="/clubs">Clubs</NavigationLink>}
           {!member && <NavigationLink disabled={saving} href="/cycles">Cycles</NavigationLink>}
           {!member && <NavigationLink disabled={saving} href="/circulation">Circulation</NavigationLink>}
-          {!member && <NavigationLink disabled={saving} href="/admin">Admin</NavigationLink>}
         </>}
+        {(user || (person && !member)) && <NavigationLink disabled={saving} href="/admin">Admin</NavigationLink>}
         {service && <NavigationLink disabled={saving} href="/club-schedule">Club schedule</NavigationLink>}
       </ScrollView>
     </View>

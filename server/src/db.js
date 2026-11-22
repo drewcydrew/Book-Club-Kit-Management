@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const { AsyncLocalStorage } = require('node:async_hooks');
+const { HttpError } = require('./http');
 
 let pool;
 const libraryContext = new AsyncLocalStorage();
@@ -30,15 +31,24 @@ function getPool() {
   return pool;
 }
 
-async function withTransaction(callback, { readOnly = false } = {}) {
+async function withTransaction(callback, { readOnly = false, exclusiveService = false, allowMissingService = false } = {}) {
   const serviceId = libraryContext.getStore() || '';
   const client = await getPool().connect();
   let started = false;
   let discard = false;
   try {
-    await client.query(readOnly ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN');
+    await client.query(readOnly && serviceId ? 'BEGIN READ ONLY' :
+      readOnly ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN');
     started = true;
     await client.query("SELECT set_config('app.library_service_id', $1, true)", [serviceId]);
+    if (serviceId) {
+      // Scoped reads take the exclusive lock so READ COMMITTED sees deletion before
+      // checking existence, while multi-query views remain stable against writers.
+      await client.query(`SELECT pg_advisory_xact_lock${exclusiveService || readOnly ? '' : '_shared'}(180313023, hashtext($1))`, [serviceId]);
+      if (!allowMissingService && !(await client.query('SELECT 1 FROM library_services WHERE id=$1', [serviceId])).rowCount) {
+        throw new HttpError(404, 'Library service not found.');
+      }
+    }
     const result = await callback(client);
     await client.query('COMMIT');
     started = false;
