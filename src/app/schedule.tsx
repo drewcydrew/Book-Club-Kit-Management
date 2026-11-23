@@ -9,10 +9,11 @@ import { SCHEDULE_DESKTOP_WIDTH } from '../components/schedule-layout';
 import { ScheduleInstructions } from '../components/schedule-instructions';
 import { ScheduleExportActions } from '../components/schedule-export';
 import { ScheduleHandouts } from '../components/schedule-handouts';
+import { KitCalendarList } from '../components/kit-calendar-list';
+import { buildKitCalendar } from '../domain/kit-calendar';
 import { useScheduleWorkspace } from '../components/schedule-workspace';
 import { MemberSchedule, type MemberView } from '../components/member-schedule';
-import { TitleCover } from '../components/title-cover';
-import { focusedScheduleClub, memberScheduleMeetings, memberVisibleCycle, scheduleByKit, scheduleClubsMatchingTitle, scheduleGrid, selectMemberScheduleCycle } from '../domain/cycle-overview';
+import { focusedScheduleClub, memberScheduleMeetings, memberVisibleCycle, monthsInRange, scheduleByKit, scheduleClubsMatchingTitle, scheduleGrid, selectMemberScheduleCycle } from '../domain/cycle-overview';
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
 import { makeMemberScheduleExport, makeScheduleExport, type StaffScheduleView } from '../domain/schedule-export';
@@ -116,7 +117,20 @@ function ScheduleContent() {
   if (!staff && memberCycleId !== (memberCycle?.id ?? '')) setMemberCycleId(memberCycle?.id ?? '');
   const shownMemberClubs = new Set(gridClubs.map((club) => club.id));
   const memberMeetings = allMemberMeetings.filter((meeting) => meeting.cycle.id === memberCycle?.id && shownMemberClubs.has(meeting.clubId));
-  const kits = staff && mode === 'kits' && cycle ? scheduleByKit(viewData, cycle.id, gridClubs.map((club) => club.id)) : [];
+  const kitEntries = staff && mode === 'kits' && cycle
+    ? scheduleByKit(viewData, cycle.id, gridClubs.map((club) => club.id)).map((group) => {
+      const kit = kitById.get(group.kitId);
+      const title = titleById.get(kit?.titleId ?? '');
+      return {
+        kitId: group.kitId,
+        title: title?.name ?? 'Unavailable title',
+        barcode: kit?.barcode ?? `Unavailable kit (${group.kitId})`,
+        coverUrl: title?.coverUrl,
+        isbn: title?.isbn ?? '',
+        calendar: buildKitCalendar([group], monthsInRange(cycle.startsOn, cycle.endsOn), viewData.library.loanDays),
+      };
+    })
+    : null;
   const discardPending = editor.pendingAction?.kind === 'discard';
   const regeneratePending = editor.pendingAction?.kind === 'regenerate';
   const dialogPending = discardPending || regeneratePending;
@@ -452,34 +466,9 @@ function ScheduleContent() {
     {staff && gridContent}
     {staff && mode === 'kits' && <Card>
       <Label>Kits</Label>
-      {clubChoices.length > 0 && gridClubs.length === 0 ? <Note>Select clubs to see their assigned kits.</Note>
-        : gridClubs.length > 0 && kits.length === 0 ? <Note>No kits are assigned to the selected clubs in this cycle.</Note> : null}
-      <View style={wide ? scheduleStyles.columns : scheduleStyles.singleColumn}>{kits.map((group) => {
-        const kit = kitById.get(group.kitId);
-        const title = titleById.get(kit?.titleId ?? '');
-        return <View key={group.kitId} style={[{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d6ddd9', gap: 8 }, wide && scheduleStyles.column]}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-            {title && <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ width: 64, height: 96, marginRight: 0, marginBottom: 0 }} />}
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text style={{ fontWeight: '700', color: '#183a36' }}>{title?.name ?? 'Unavailable title'}</Text>
-              <Text>{kit?.barcode ?? `Unavailable kit (${group.kitId})`}</Text>
-              <Text>{group.assignments.length} {group.assignments.length === 1 ? 'meeting' : 'meetings'}</Text>
-            </View>
-          </View>
-          {group.assignments.map((assignment) => {
-            const expanded = expandedId === assignment.id;
-            return <View key={assignment.id}>
-              <Pressable accessibilityRole="button" accessibilityState={{ expanded }}
-                onPress={() => setExpandedId(expanded ? null : assignment.id)}
-                style={{ minHeight: 44, justifyContent: 'center', paddingVertical: 6 }}>
-                <Text style={{ fontWeight: '600' }}>{assignment.meeting} · {clubById.get(assignment.clubId)?.name ?? 'Unavailable club'}</Text>
-                <Text>Ready {assignment.ready} · Due {assignment.due}{problems.get(assignment.id) ? ' · Needs review' : ''}</Text>
-              </Pressable>
-              {expanded && renderDetail(assignment)}
-            </View>;
-          })}
-        </View>;
-      })}</View>
+      {clubChoices.length > 0 && gridClubs.length === 0 ? <Note>Select clubs to see their assigned kits.</Note> : null}
+      {kitEntries && <KitCalendarList entries={kitEntries} today={today()} wide={wide}
+        clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'} />}
     </Card>}
   </>;
 
