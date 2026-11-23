@@ -14,7 +14,7 @@ test('full regeneration replaces participating slots and dates in both modes whi
   ];
   data.ballots = [];
   const hidden = { id: 'hidden', clubId: 'c2', month: '2027-01', meeting: null };
-  const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-04-30', deadline: '2027-01-21',
+  const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-04-30', deadline: '2027-01-14',
     finalized: { c1: ['t1'] }, slots: [
       { id: 'old-jan', clubId: 'c1', month: '2027-01', meeting: '2027-01-25' },
       { id: 'old-feb', clubId: 'c1', month: '2027-02', meeting: '2027-02-01' }, hidden,
@@ -40,7 +40,7 @@ test('full regeneration replaces participating slots and dates in both modes whi
     assert.equal(byMonth.get('2027-01')?.meeting, null);
     assert.equal(byMonth.get('2027-02')?.meeting, '2027-02-18');
     assert.equal(byMonth.get('2027-04')?.meeting, '2027-04-15');
-    assert.ok(result.problems.some((problem) => problem.includes('2027-01-21') && problem.includes('deadline')));
+    assert.ok(result.problems.some((problem) => problem.includes('2027-01-14') && problem.includes('deadline')));
     assert.ok(!result.assignments.some((item) => item.slotId === byMonth.get('2027-01')?.id));
     assert.ok(result.assignments.some((item) => item.meeting === '2027-02-18'));
     assert.ok(!result.assignments.some((item) => item.slotId === byMonth.get('2027-04')?.id));

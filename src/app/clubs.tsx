@@ -313,7 +313,7 @@ function RuleEditor({
         <Action title={open ? "Done" : `Change ${title.toLowerCase()} rule`} onPress={onToggle} />
       </View>
       {open && <>
-        <Label>{title} occurrence</Label>
+        <Label>{title} week</Label>
         <Actions>{meetingOccurrences.map(({ value, label }) => <Action key={value} title={label} selected={occurrence === value} onPress={() => onOccurrence(value)} />)}</Actions>
         <Label>{title} weekday</Label>
         <Actions>{meetingWeekdays.map(({ value, label }) => <Action key={value} title={label} selected={weekday === value} onPress={() => onWeekday(value)} />)}</Actions>
@@ -1240,7 +1240,7 @@ function ClubsContent() {
                     </>}
                     <RuleEditor
                       title="Meeting"
-                      summary={`${meetingRuleLabel(draft.club)} of the month`}
+                      summary={meetingRuleLabel(draft.club)}
                       open={ruleOpen.meeting}
                       onToggle={() => setRuleOpen((current) => ({ ...current, meeting: !current.meeting }))}
                       occurrence={draft.club.meetingOccurrence}
@@ -1251,7 +1251,7 @@ function ClubsContent() {
                     />
                     <RuleEditor
                       title="Pickup"
-                      summary={`${pickupRuleLabel(draft.club)} of the month`}
+                      summary={pickupRuleLabel(draft.club)}
                       open={ruleOpen.pickup}
                       onToggle={() => setRuleOpen((current) => ({ ...current, pickup: !current.pickup }))}
                       occurrence={draft.club.pickupOccurrence}

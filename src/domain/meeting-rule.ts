@@ -15,28 +15,39 @@ export function meetingRuleLabel(club: Pick<Club, 'meetingWeekday' | 'meetingOcc
   const weekday = meetingWeekdays.find((item) => item.value === club.meetingWeekday);
   const occurrence = meetingOccurrences.find((item) => item.value === club.meetingOccurrence);
   if (!weekday || !occurrence) throw new Error('Club meeting rule is invalid.');
-  return `${occurrence.label} ${weekday.label}`;
+  return `${occurrence.label} week, ${weekday.label}`;
 }
 
 export function pickupRuleLabel(club: Pick<Club, 'pickupWeekday' | 'pickupOccurrence'>): string {
   const weekday = meetingWeekdays.find((item) => item.value === club.pickupWeekday);
   const occurrence = meetingOccurrences.find((item) => item.value === club.pickupOccurrence);
   if (!weekday || !occurrence) throw new Error('Club pickup rule is invalid.');
-  return `${occurrence.label} ${weekday.label}`;
+  return `${occurrence.label} week, ${weekday.label}`;
 }
 
+// Days back to the Monday of the Monday-first week containing the date.
+function mondayOffset(date: string): number {
+  return (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
+}
+
+// Week n is the nth Monday-first week, where week 1 contains the 1st. The weekday is chosen within that week.
+// A date outside the month is moved one week inward so it keeps the requested weekday.
 function nthWeekdayOfMonth(month: string, weekday: MeetingWeekday, occurrence: MeetingOccurrence): string {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) ||
       !meetingWeekdays.some((item) => item.value === weekday) ||
       !meetingOccurrences.some((item) => item.value === occurrence)) {
     throw new Error('Month or weekday rule is invalid.');
   }
+  const [year, monthNumber] = month.split('-').map(Number);
   const first = `${month}-01`;
-  const firstWeekday = new Date(`${first}T00:00:00Z`).getUTCDay();
-  const firstMatch = addDays(first, (weekday - firstWeekday + 7) % 7);
-  if (occurrence !== -1) return addDays(firstMatch, 7 * (occurrence - 1));
-  const fifth = addDays(firstMatch, 28);
-  return fifth.startsWith(`${month}-`) ? fifth : addDays(firstMatch, 21);
+  const last = addDays(first, new Date(Date.UTC(year, monthNumber, 0)).getUTCDate() - 1);
+  const weekStart = occurrence === -1
+    ? addDays(last, -mondayOffset(last))
+    : addDays(first, -mondayOffset(first) + 7 * (occurrence - 1));
+  const dayInWeek = (weekday + 6) % 7;
+  const date = addDays(weekStart, dayInWeek);
+  if (date < first) return addDays(date, 7);
+  return date > last ? addDays(date, -7) : date;
 }
 
 export function meetingDate(month: string, club: Pick<Club, 'meetingWeekday' | 'meetingOccurrence'>): string {

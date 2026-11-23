@@ -13,16 +13,18 @@ test('monthly rules calculate every weekday and the last occurrence in leap and 
   assert.equal(meetingDate('2024-02', { meetingWeekday: 4, meetingOccurrence: 4 }), '2024-02-22');
   assert.equal(meetingDate('2024-02', { meetingWeekday: 4, meetingOccurrence: -1 }), '2024-02-29');
   assert.equal(meetingDate('2025-02', { meetingWeekday: 4, meetingOccurrence: -1 }), '2025-02-27');
-  assert.equal(meetingDate('2026-12', { meetingWeekday: 1, meetingOccurrence: 2 }), '2026-12-14');
-  assert.equal(meetingDate('2027-01', { meetingWeekday: 4, meetingOccurrence: 3 }), '2027-01-21');
-  assert.equal(meetingRuleLabel({ meetingWeekday: 4, meetingOccurrence: -1 }), 'Last Thursday');
+  assert.equal(meetingDate('2026-12', { meetingWeekday: 1, meetingOccurrence: 2 }), '2026-12-07');
+  assert.equal(meetingDate('2027-01', { meetingWeekday: 4, meetingOccurrence: 3 }), '2027-01-14');
+  assert.equal(meetingRuleLabel({ meetingWeekday: 4, meetingOccurrence: -1 }), 'Last week, Thursday');
+  assert.equal(meetingDate('2027-06', { meetingWeekday: 1, meetingOccurrence: 3 }), '2027-06-14');
+  assert.equal(meetingDate('2027-06', { meetingWeekday: 3, meetingOccurrence: 3 }), '2027-06-16');
   assert.throws(() => meetingDate('2027-13', { meetingWeekday: 4, meetingOccurrence: 1 }), /invalid/);
 });
 
 test('pickup rules always use the previous month, so pickup is before the meeting', () => {
   const rule = { pickupWeekday: 4 as const, pickupOccurrence: 2 as const };
-  assert.equal(pickupDate('2027-02-15', rule), '2027-01-14');
-  assert.equal(pickupDate('2027-02-01', rule), '2027-01-14');
+  assert.equal(pickupDate('2027-02-15', rule), '2027-01-07');
+  assert.equal(pickupDate('2027-02-01', rule), '2027-01-07');
   assert.equal(pickupDate('2027-02-22', { pickupWeekday: 4, pickupOccurrence: -1 }), '2027-01-28');
   assert.equal(pickupDate('2027-01-21', rule), '2026-12-10');
   assert.equal(pickupDate('2027-01-21', { pickupWeekday: 2, pickupOccurrence: 3 }), '2026-12-15');
@@ -57,7 +59,7 @@ test('explicit and staged dates take precedence over a changed club rule', () =>
   const data = seed();
   const club = { ...data.clubs[0], meetingWeekday: 4 as const, meetingOccurrence: 3 as const };
   const slot = { id: 's', clubId: club.id, month: '2027-01', meeting: null };
-  assert.equal(meetingFor(slot, club), '2027-01-21');
+  assert.equal(meetingFor(slot, club), '2027-01-14');
   assert.equal(meetingFor(slot, club, '2027-01-11'), '2027-01-11');
   assert.equal(meetingFor({ ...slot, meeting: '2027-01-04' }, club, '2027-01-11'), '2027-01-04');
   assert.deepEqual(slotChanges([slot], [{ ...slot, meeting: '2027-01-11' }]).datedSlots, [{ id: 's', meeting: '2027-01-11' }]);
