@@ -1,4 +1,4 @@
-import { addDays } from './dates';
+import { addDays, validDate } from './dates';
 import type { Assignment, Club, Cycle, MeetingOccurrence, MeetingWeekday } from './model';
 
 export const meetingWeekdays: { value: MeetingWeekday; label: string }[] = [
@@ -43,13 +43,17 @@ export function meetingDate(month: string, club: Pick<Club, 'meetingWeekday' | '
   return nthWeekdayOfMonth(month, club.meetingWeekday, club.meetingOccurrence);
 }
 
-// Pickup falls in the meeting's month; if that lands after the meeting, the previous month's rule date is used.
+// Pickup is always in the month before the meeting, so it can never fall on the meeting day.
 export function pickupDate(meeting: string, club: Pick<Club, 'pickupWeekday' | 'pickupOccurrence'>): string {
-  const month = meeting.slice(0, 7);
-  const sameMonth = nthWeekdayOfMonth(month, club.pickupWeekday, club.pickupOccurrence);
-  if (sameMonth <= meeting) return sameMonth;
-  const previous = addDays(`${month}-01`, -1).slice(0, 7);
+  if (!validDate(meeting)) throw new Error('Meeting date is invalid.');
+  const previous = addDays(`${meeting.slice(0, 7)}-01`, -1).slice(0, 7);
   return nthWeekdayOfMonth(previous, club.pickupWeekday, club.pickupOccurrence);
+}
+
+export const returnDaysAfterMeeting = 7;
+
+export function returnDate(meeting: string): string {
+  return addDays(meeting, returnDaysAfterMeeting);
 }
 
 export function preserveUnassignedMeetingDates(cycle: Cycle, before: Assignment[], after: Assignment[]): Cycle {

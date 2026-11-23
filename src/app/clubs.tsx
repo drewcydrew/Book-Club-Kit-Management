@@ -23,7 +23,7 @@ import {
   Page,
   styles as uiStyles,
 } from "../components/ui";
-import type { Club, Membership, Person } from "../domain/model";
+import type { Club, Membership, MeetingOccurrence, MeetingWeekday, Person } from "../domain/model";
 import { id } from "../domain/logic";
 import { cadenceLabel } from "../domain/cadence";
 import { meetingOccurrences, meetingRuleLabel, meetingWeekdays, pickupRuleLabel } from "../domain/meeting-rule";
@@ -280,6 +280,47 @@ function Fold({
   );
 }
 
+function RuleEditor({
+  title,
+  summary,
+  open,
+  onToggle,
+  occurrence,
+  weekday,
+  onOccurrence,
+  onWeekday,
+  note,
+}: {
+  title: string;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  occurrence: MeetingOccurrence;
+  weekday: MeetingWeekday;
+  onOccurrence: (value: MeetingOccurrence) => void;
+  onWeekday: (value: MeetingWeekday) => void;
+  note: React.ReactNode;
+}) {
+  return (
+    <View style={modalStyles.ruleBlock}>
+      <View style={modalStyles.ruleRow}>
+        <Text style={modalStyles.ruleText}>
+          <Text style={modalStyles.ruleTitle}>{title}: </Text>
+          {summary}
+        </Text>
+        <Action title={open ? "Done" : `Change ${title.toLowerCase()} rule`} onPress={onToggle} />
+      </View>
+      {open && <>
+        <Label>{title} occurrence</Label>
+        <Actions>{meetingOccurrences.map(({ value, label }) => <Action key={value} title={label} selected={occurrence === value} onPress={() => onOccurrence(value)} />)}</Actions>
+        <Label>{title} weekday</Label>
+        <Actions>{meetingWeekdays.map(({ value, label }) => <Action key={value} title={label} selected={weekday === value} onPress={() => onWeekday(value)} />)}</Actions>
+        {note}
+      </>}
+    </View>
+  );
+}
+
 const defaultOpen: Record<Section, boolean> = {
   details: true,
   members: false,
@@ -333,6 +374,7 @@ function ClubsContent() {
   const [creatingMember, setCreatingMember] = useState(false);
   const [createdMember, setCreatedMember] = useState<Person | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [ruleOpen, setRuleOpen] = useState({ meeting: false, pickup: false });
   const draftRef = useRef<Draft | null>(null);
   const confirmedRef = useRef<Confirmed>({
     details: "",
@@ -1166,16 +1208,28 @@ function ClubsContent() {
                         selected={draft.club.cadenceOffset === offset} onPress={() => changeDetails({ cadenceOffset: offset })} />)}</Actions>
                       <Note>The offset shifts skipped months later, wrapping within each three-month group. Saving it does not change existing meetings; regenerate to apply it.</Note>
                     </>}
-                    <Label>Meeting occurrence</Label>
-                    <Actions>{meetingOccurrences.map(({ value, label }) => <Action key={value} title={label} selected={draft.club.meetingOccurrence === value} onPress={() => changeDetails({ meetingOccurrence: value })} />)}</Actions>
-                    <Label>Meeting weekday</Label>
-                    <Actions>{meetingWeekdays.map(({ value, label }) => <Action key={value} title={label} selected={draft.club.meetingWeekday === value} onPress={() => changeDetails({ meetingWeekday: value })} />)}</Actions>
-                    <Note>Undated meetings use {meetingRuleLabel(draft.club)}. Changing this rule alone does not move dated meetings. Full schedule generation replaces shown clubs&apos; dates after confirmation.</Note>
-                    <Label>Pickup occurrence</Label>
-                    <Actions>{meetingOccurrences.map(({ value, label }) => <Action key={`pickup-${value}`} title={label} selected={draft.club.pickupOccurrence === value} onPress={() => changeDetails({ pickupOccurrence: value })} />)}</Actions>
-                    <Label>Pickup weekday</Label>
-                    <Actions>{meetingWeekdays.map(({ value, label }) => <Action key={`pickup-${value}`} title={label} selected={draft.club.pickupWeekday === value} onPress={() => changeDetails({ pickupWeekday: value })} />)}</Actions>
-                    <Note>Pickup uses {pickupRuleLabel(draft.club)} in the meeting month, or the previous month if that would fall after the meeting. Return is pickup plus the loan length. Changing this rule alone does not move dated assignments.</Note>
+                    <RuleEditor
+                      title="Meeting"
+                      summary={`${meetingRuleLabel(draft.club)} of the month`}
+                      open={ruleOpen.meeting}
+                      onToggle={() => setRuleOpen((current) => ({ ...current, meeting: !current.meeting }))}
+                      occurrence={draft.club.meetingOccurrence}
+                      weekday={draft.club.meetingWeekday}
+                      onOccurrence={(value) => changeDetails({ meetingOccurrence: value })}
+                      onWeekday={(value) => changeDetails({ meetingWeekday: value })}
+                      note={<Note>Undated meetings use {meetingRuleLabel(draft.club)}. Changing this rule alone does not move dated meetings. Full schedule generation replaces shown clubs&apos; dates after confirmation.</Note>}
+                    />
+                    <RuleEditor
+                      title="Pickup"
+                      summary={`${pickupRuleLabel(draft.club)} of the month`}
+                      open={ruleOpen.pickup}
+                      onToggle={() => setRuleOpen((current) => ({ ...current, pickup: !current.pickup }))}
+                      occurrence={draft.club.pickupOccurrence}
+                      weekday={draft.club.pickupWeekday}
+                      onOccurrence={(value) => changeDetails({ pickupOccurrence: value })}
+                      onWeekday={(value) => changeDetails({ pickupWeekday: value })}
+                      note={<Note>Pickup uses {pickupRuleLabel(draft.club)} in the meeting month, or the previous month if that would fall after the meeting. Return is pickup plus the loan length. Changing this rule alone does not move dated assignments.</Note>}
+                    />
                     <Action
                       title={`Method: ${draft.club.pickup}`}
                       onPress={() =>
@@ -1487,6 +1541,10 @@ const modalStyles = StyleSheet.create({
   foldTitle: { fontWeight: "600" },
   foldSummary: { color: "#666" },
   foldBody: { padding: 10, paddingTop: 0, gap: 8 },
+  ruleBlock: { gap: 8 },
+  ruleRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  ruleText: { flexShrink: 1 },
+  ruleTitle: { fontWeight: "600" },
   sync: { gap: 6 },
   syncText: { color: "#555" },
   syncError: { color: "#a33" },

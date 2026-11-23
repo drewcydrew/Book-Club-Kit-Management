@@ -16,7 +16,7 @@ import { focusedScheduleClub, memberScheduleMeetings, memberVisibleCycle, schedu
 import { today } from '../domain/dates';
 import { scheduleWarning } from '../domain/schedule-warning';
 import { makeMemberScheduleExport, makeScheduleExport, type StaffScheduleView } from '../domain/schedule-export';
-import { assignmentProblem, fairness, generationClubScope, rankings } from '../domain/logic';
+import { assignmentProblem, fairness, generationClubScope, loanOverrun, rankings } from '../domain/logic';
 import type { Assignment } from '../domain/model';
 import { saveValidatedSchedule, validateSchedule, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
@@ -221,6 +221,7 @@ function ScheduleContent() {
     return <View style={{ width: '100%', marginBottom: 12, padding: 12, borderRadius: 8, backgroundColor: '#f3f4f6' }}>
       <Text style={{ fontWeight: '600' }}>{clubById.get(assignment.clubId)?.name ?? 'Unavailable club'} · {titleById.get(kit?.titleId ?? '')?.name ?? 'Unavailable title'}</Text>
       {problem && <Text style={{ color: '#a22525' }}>Needs review: {problem}</Text>}
+      {loanOverrun(viewData, assignment) && <Text style={{ color: '#9a5b00' }}>{loanOverrun(viewData, assignment)}</Text>}
       <Text>{kit?.barcode ?? 'Unavailable kit'} · Ready {assignment.ready} · Meeting {assignment.meeting} · Due {assignment.due}</Text>
     </View>;
   }

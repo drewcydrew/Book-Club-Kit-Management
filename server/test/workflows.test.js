@@ -77,7 +77,7 @@ test('shared workflows enforce membership, voting, schedules, circulation and re
   const slot = cycle.slots[0];
   const plus = (d,n) => new Date(Date.parse(`${d}T00:00:00Z`) + n*86400000).toISOString().slice(0,10);
   const ready = plus(slot.meeting,-21);
-  const assignment = {id:'a1',cycleId:'cycle1',slotId:slot.id,clubId:slot.clubId,kitId:'k1',ready,meeting:slot.meeting,due:plus(ready,28),locked:false};
+  const assignment = {id:'a1',cycleId:'cycle1',slotId:slot.id,clubId:slot.clubId,kitId:'k1',ready,meeting:slot.meeting,due:plus(slot.meeting,7),locked:false};
   const route = '/api/cycles/cycle1/schedule';
   assert.equal((await req(route,'PUT',{revision:cycle.revision,assignments:[{...assignment,meeting:plus(slot.meeting,1)}],publish:false})).status,409);
   assert.equal((await req(route,'PUT',{revision:cycle.revision,assignments:[assignment],publish:true})).status,409);
@@ -118,7 +118,7 @@ test('shared workflows enforce membership, voting, schedules, circulation and re
   const kitsBySlot = { s1:'k1',s2:'k4',s3:'k3',s4:'k5' };
   const full = cycle.slots.map((s) => {
     const r = plus(s.meeting,-21);
-    return {id:`pub-${s.id}`,cycleId:cycle.id,slotId:s.id,clubId:s.clubId,kitId:kitsBySlot[s.id],ready:r,meeting:s.meeting,due:plus(r,28),locked:false};
+    return {id:`pub-${s.id}`,cycleId:cycle.id,slotId:s.id,clubId:s.clubId,kitId:kitsBySlot[s.id],ready:r,meeting:s.meeting,due:plus(r,7),locked:false};
   });
   assert.equal((await req(route,'PUT',{revision:cycle.revision,assignments:full,publish:true})).status,200);
   state = await snapshot(); assert.equal(state.cycles.find((c) => c.id === 'cycle1').status,'published');
@@ -126,14 +126,14 @@ test('shared workflows enforce membership, voting, schedules, circulation and re
   for (const n of ['race1','race2']) {
     assert.equal((await req('/api/cycles','POST',{id:n,name:n,deadline:cycle.deadline,status:'collecting',slots:[{id:`${n}-slot`,clubId:'c1',meeting:farMeeting}]})).status,201);
   }
-  const races = await Promise.all(['race1','race2'].map((n) => req(`/api/cycles/${n}/schedule`,'PUT',{revision:1,publish:false,assignments:[{id:`${n}-a`,cycleId:n,slotId:`${n}-slot`,clubId:'c1',kitId:'k2',ready:farReady,meeting:farMeeting,due:plus(farReady,28),locked:false}]})));
+  const races = await Promise.all(['race1','race2'].map((n) => req(`/api/cycles/${n}/schedule`,'PUT',{revision:1,publish:false,assignments:[{id:`${n}-a`,cycleId:n,slotId:`${n}-slot`,clubId:'c1',kitId:'k2',ready:farReady,meeting:farMeeting,due:plus(farMeeting,7),locked:false}]})));
   assert.deepEqual(races.map((r) => r.status).sort(),[200,409]);
   const pastMeeting = plus(new Date().toISOString().slice(0,10),-60); const pastReady = plus(pastMeeting,-21);
   await pool.query("INSERT INTO cycles(id,name,deadline,starts_on,ends_on,status) VALUES('past','Past',$1,$2,$2,'published')",[plus(pastMeeting,-14),pastMeeting]);
   await pool.query("INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES('past-slot','past','c2',to_char($1::date,'YYYY-MM'),$1)",[pastMeeting]);
-  await pool.query("INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked) VALUES('past-a','past','past-slot','c2','k2',$1,$2,$3,false)",[pastReady,pastMeeting,plus(pastReady,28)]);
+  await pool.query("INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked) VALUES('past-a','past','past-slot','c2','k2',$1,$2,$3,false)",[pastReady,pastMeeting,plus(pastMeeting,7)]);
   assert.equal((await req('/api/clubs/c2/history','PUT',{revision:1,titles:['t1']})).status,200);
-  assert.equal((await req('/api/cycles/past/schedule','PUT',{revision:1,publish:true,assignments:[{id:'past-a',cycleId:'past',slotId:'past-slot',clubId:'c2',kitId:'k2',ready:pastReady,meeting:pastMeeting,due:plus(pastReady,28),locked:false}]})).status,200);
+  assert.equal((await req('/api/cycles/past/schedule','PUT',{revision:1,publish:true,assignments:[{id:'past-a',cycleId:'past',slotId:'past-slot',clubId:'c2',kitId:'k2',ready:pastReady,meeting:pastMeeting,due:plus(pastMeeting,7),locked:false}]})).status,200);
 
   const soleAdmin = await req('/api/users/p1');
   const demote = {name:soleAdmin.json.name,role:'staff',revision:soleAdmin.json.revision};
@@ -166,7 +166,7 @@ test('shared workflows enforce membership, voting, schedules, circulation and re
   await pool.query("INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) SELECT 'big-s-'||n,'big',CASE WHEN n%2=0 THEN 'c1' ELSE 'c2' END,to_char($1::date+(n||' months')::interval,'YYYY-MM'),($1::date+(n||' months')::interval)::date FROM generate_series(1,400) n",[bigBase]);
   const bigAssignments = Array.from({length:400},(_,k) => {
     const n = k + 1; const meeting = plus(bigBase,n*7); const ready = plus(meeting,-21);
-    return {id:`big-a-${n}`,cycleId:'big',slotId:`big-s-${n}`,clubId:n%2===0?'c1':'c2',kitId:`big-k-${n}`,ready,meeting,due:plus(ready,28),locked:false};
+    return {id:`big-a-${n}`,cycleId:'big',slotId:`big-s-${n}`,clubId:n%2===0?'c1':'c2',kitId:`big-k-${n}`,ready,meeting,due:plus(meeting,7),locked:false};
   });
   const bigDraft = await req('/api/cycles/big/schedule','PUT',{revision:1,assignments:bigAssignments,publish:false});
   assert.equal(bigDraft.status,200);

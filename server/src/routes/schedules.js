@@ -113,9 +113,11 @@ async function schedule(req, res, validateOnly) {
       const kit = found(kitById,a.kitId,'Kit');
       if (['inspection','unavailable'].includes(kit.status)) warn(a,`Kit ${a.kitId} is currently unavailable.`);
       const previous = existingById.get(a.id);
-      if (addDays(a.ready,settings.loan_days) !== a.due) {
-        if (!previous || previous.ready !== a.ready || previous.due !== a.due) throw new HttpError(409,'New or rescheduled assignments must use the current loan length.');
-      }
+      const changed = !previous || previous.ready !== a.ready || previous.meeting !== a.meeting || previous.due !== a.due;
+      if (changed && a.ready >= a.meeting) throw new HttpError(409,'Pickup must be before the meeting.');
+      if (changed && a.due !== addDays(a.meeting,7)) throw new HttpError(409,'Return must be 7 days after the meeting.');
+      const loanLength = (Date.parse(`${a.due}T00:00:00Z`) - Date.parse(`${a.ready}T00:00:00Z`)) / 86400000;
+      if (loanLength > settings.loan_days) warn(a,`Checkout runs ${loanLength} days, longer than the ${settings.loan_days}-day loan period.`);
       if (readTitles.has(`${a.clubId}|${kit.titleId}`)) {
         const historic = previous && previous.clubId === a.clubId && previous.kitId === a.kitId && previous.meeting === a.meeting && previous.meeting < dbToday;
         if (cycle.status !== 'published' || !historic) warn(a,`Club ${a.clubId} has already read title ${kit.titleId}.`);

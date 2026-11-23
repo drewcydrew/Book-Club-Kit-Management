@@ -1,5 +1,5 @@
 import { validDate } from './dates';
-import { assignmentProblems, rankings, windowFor } from './logic';
+import { assignmentProblems, loanOverrun, rankings, windowFor } from './logic';
 import type { Assignment, Cycle, Data, Kit, Slot, Title } from './model';
 
 export type ScheduleTitleGroup = {
@@ -81,6 +81,8 @@ export function previewScheduleKit(data: Data, cycle: Cycle, slot: Slot, meeting
     kitId: kit.id, ...fresh, locked: false };
   if (selected && selected.meeting === meeting) { candidate.ready = selected.ready; candidate.due = selected.due; }
   const messages = assignmentProblems(data, candidate, [...others, candidate], kitsById);
+  const overrun = loanOverrun(data, candidate);
+  if (overrun) messages.push(overrun);
   if (!(selected && selected.meeting === meeting) && fresh.ready <= cycle.deadline) {
     messages.unshift(`The pickup date ${fresh.ready} must be after the preference deadline.`);
   }

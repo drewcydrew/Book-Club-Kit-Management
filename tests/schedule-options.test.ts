@@ -48,7 +48,8 @@ test('kit previews replace the current slot and preserve its loan window when ch
   const titles = new Map(data.titles.map((title) => [title.id, title]));
   const preview = (kitId: string, meeting = current.meeting, stale = false) =>
     previewScheduleKit(data, cycle, slot, meeting, current, kits.get(kitId)!, [current, other], stale, kits, titles);
-  assert.equal(preview('k1').state, 'clear');
+  assert.equal(preview('k1').state, 'warning');
+  assert.match(preview('k1').messages.join(' '), /longer than the .*-day loan period/);
   assert.match(preview('k2').messages.join(' '), /other-cycle|cycle other/);
   assert.equal(preview('k1', 'bad-date').state, 'unknown');
   assert.equal(preview('k1', current.meeting, true).state, 'unknown');

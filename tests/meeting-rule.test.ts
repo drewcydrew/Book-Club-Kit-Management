@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { meetingDate, meetingRuleLabel, pickupDate, preserveUnassignedMeetingDates } from '../src/domain/meeting-rule';
-import { draft, meetingFor } from '../src/domain/logic';
+import { meetingDate, meetingRuleLabel, pickupDate, preserveUnassignedMeetingDates, returnDate } from '../src/domain/meeting-rule';
+import { draft, loanOverrun, meetingFor } from '../src/domain/logic';
 import { slotChanges } from '../src/domain/cycle-overview';
 import { seed } from '../src/domain/seed';
 import type { MeetingWeekday } from '../src/domain/model';
@@ -19,15 +19,21 @@ test('monthly rules calculate every weekday and the last occurrence in leap and 
   assert.throws(() => meetingDate('2027-13', { meetingWeekday: 4, meetingOccurrence: 1 }), /invalid/);
 });
 
-test('pickup rules use the meeting month, or the previous month when that would fall after the meeting', () => {
+test('pickup rules always use the previous month, so pickup is before the meeting', () => {
   const rule = { pickupWeekday: 4 as const, pickupOccurrence: 2 as const };
-  assert.equal(pickupDate('2027-02-15', rule), '2027-02-11');
+  assert.equal(pickupDate('2027-02-15', rule), '2027-01-14');
   assert.equal(pickupDate('2027-02-01', rule), '2027-01-14');
   assert.equal(pickupDate('2027-02-22', { pickupWeekday: 4, pickupOccurrence: -1 }), '2027-01-28');
+  assert.equal(pickupDate('2027-01-21', rule), '2026-12-10');
+  assert.equal(pickupDate('2027-01-21', { pickupWeekday: 2, pickupOccurrence: 3 }), '2026-12-15');
   assert.throws(() => pickupDate('2027-13', rule), /invalid/);
 });
 
-test('draft rejects a return that falls before the meeting', () => {
+test('return date is seven days after the meeting', () => {
+  assert.equal(returnDate('2027-01-19'), '2027-01-26');
+});
+
+test('draft picks up before the meeting and reports a loan overrun as a warning, not a blocking problem', () => {
   const data = seed();
   data.clubs = [{ ...data.clubs[0], history: [], meetingWeekday: 1, meetingOccurrence: 1, pickupWeekday: 4, pickupOccurrence: 2 }];
   data.kits = data.kits.filter((kit) => kit.id === 'k1');
@@ -38,8 +44,13 @@ test('draft rejects a return that falls before the meeting', () => {
     finalized: { c1: ['t1'] }, slots: [{ id: 'jan', clubId: 'c1', month: '2027-01', meeting: null }] };
   data.cycles = [cycle];
   const result = draft(data, cycle, false, undefined, 'clubs');
-  assert.equal(result.assignments.length, 0);
-  assert.ok(result.problems.some((problem) => problem.includes('falls before the meeting')));
+  assert.equal(result.assignments.length, 1);
+  const [assignment] = result.assignments;
+  assert.equal(assignment.ready, '2026-12-10');
+  assert.equal(assignment.due, returnDate(assignment.meeting));
+  assert.ok(assignment.ready < assignment.meeting);
+  assert.match(loanOverrun(data, assignment) ?? '', /longer than the 1-day loan period/);
+  assert.ok(!result.problems.some((problem) => problem.includes('loan period')));
 });
 
 test('explicit and staged dates take precedence over a changed club rule', () => {
@@ -72,7 +83,7 @@ test('both generation modes respect rule dates, deadline, staged dates and actua
     ] };
   data.cycles = [cycle];
   for (const mode of ['clubs', 'utilisation'] as const) {
-    data.clubs[1].pickupOccurrence = 3;
+    data.clubs[1].pickupOccurrence = 1;
     const conflicting = draft(data, cycle, false, undefined, mode);
     assert.equal(conflicting.assignments.length, 1);
     data.clubs[1].pickupOccurrence = 4;

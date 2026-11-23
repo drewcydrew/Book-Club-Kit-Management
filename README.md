@@ -183,7 +183,18 @@ npm run reconcile-club-meeting-rules
 
 The runner passes connection details through the environment, not command-line arguments. The script prints the connected database, schema and user, locks the clubs table against writes, and displays a full preview. Type `APPLY` only after reviewing it; any other response rolls back. Do not leave the prompt open indefinitely. On a serialization failure, rerun and review a fresh preview. Changed clubs get a revision increment; unchanged clubs do not. Repeating the script is a no-op unless rules have since been edited, in which case it would overwrite those edits.
 
-All workbook rules start on 2027-01-01, but the app cannot store that effective date: updated rules apply to undated meetings in any cycle and to meetings rebuilt by full generation. The workbook's per-club pickup and return rules are printed for review, not applied; each club's pickup rule (pickup occurrence and weekday) sets its pickup date, and return dates are the pickup date plus the library loan length. Existing slots, dates and assignments are untouched by this script. Subsequent confirmed full generation replaces shown clubs' dates and assignments, including locked ones. Refresh the app and review the resulting schedules.
+### Align Hume club rules
+
+Use `server/scripts/align-hume-club-rules.sql` instead of the reconcile script for the Hume tenancy. It requires migrations 018 and 020, runs only against the `hume` library service, and sets both meeting and pickup occurrence and weekday for the 43 clubs in `book club meeting rules (1).xlsx`. Relative pickups such as "Mon Before" are approximated as the nth weekday of the month before the meeting, since pickup is always in the previous month. Six-weekly clubs keep their existing meeting occurrence; the workbook gives none. Beauties & The Beast and Broadie Mermaids keep their existing relative pickups, because their meeting weekday is not in the workbook. "On Day" pickups are kept. Aliases are best guesses: review every alias in the preview before typing `APPLY`. Unmatched, ambiguous and multi-source matches are skipped. The script does not change meeting slots or schedule assignments, and changed clubs get a revision increment.
+
+From `server` (same database and psql setup as above):
+
+```powershell
+npm run align-hume-club-rules
+```
+
+Type `APPLY` only after reviewing the preview; any other response rolls back.
+All workbook rules start on 2027-01-01, but the app cannot store that effective date: updated rules apply to undated meetings in any cycle and to meetings rebuilt by full generation. The workbook's per-club pickup and return rules are printed for review, not applied; each club's pickup rule (pickup occurrence and weekday) sets its pickup date in the month before the meeting, and return dates are seven days after the meeting. Checkouts longer than the library loan length are flagged as warnings. Existing slots, dates and assignments are untouched by this script. Subsequent confirmed full generation replaces shown clubs' dates and assignments, including locked ones. Refresh the app and review the resulting schedules.
 
 If the server connection is instead configured in a root `.env` file, Node 22 can load it explicitly:
 

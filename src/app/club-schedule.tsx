@@ -18,7 +18,9 @@ function todayIso(): string {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
-type LoadState = { key: string; schedule?: ClubSchedule; clubs?: ClubIndexItem[]; error?: string };
+type LoadState = { key: string; schedule?: ClubSchedule; error?: string };
+
+type ClubIndexState = { serviceId: string; clubs?: ClubIndexItem[]; error?: string };
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unable to load the club schedule.';
@@ -60,6 +62,7 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
   const { width: windowWidth } = useWindowDimensions();
   const pageStyle = [uiStyles.page, uiStyles.widePage, windowWidth < narrowWidth && { paddingHorizontal: 12 }];
   const [loaded, setLoaded] = useState<LoadState | null>(null);
+  const [clubIndex, setClubIndex] = useState<ClubIndexState | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [view, setView] = useState<MemberView>('overview');
   const [copied, setCopied] = useState(false);
@@ -67,22 +70,26 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
   const requestKey = JSON.stringify([serviceId, selectedClubId, reloadKey]);
   const current = loaded?.key === requestKey ? loaded : null;
   const schedule = current?.schedule ?? null;
-  const clubs = current?.clubs ?? null;
+  const indexForService = clubIndex?.serviceId === serviceId ? clubIndex : null;
+  const clubs = indexForService?.clubs ?? null;
+  const clubsError = indexForService?.error ?? null;
   const error = current?.error ?? null;
   const staff = selectedService && person !== undefined && person.role !== 'member';
 
   useEffect(() => {
     const controller = new AbortController();
-    const fail = (failure: unknown) => {
-      if (!controller.signal.aborted) setLoaded({ key: requestKey, error: errorMessage(failure) });
-    };
-    if (selectedClubId) {
-      loadClubSchedule(selectedClubId, controller.signal, serviceId)
-        .then((value) => { if (!controller.signal.aborted) setLoaded({ key: requestKey, schedule: value }); }, fail);
-    } else {
-      loadClubIndex(controller.signal, serviceId)
-        .then((value) => { if (!controller.signal.aborted) setLoaded({ key: requestKey, clubs: value }); }, fail);
-    }
+    loadClubIndex(controller.signal, serviceId)
+      .then((value) => { if (!controller.signal.aborted) setClubIndex({ serviceId, clubs: value }); },
+        (failure: unknown) => { if (!controller.signal.aborted) setClubIndex({ serviceId, error: errorMessage(failure) }); });
+    return () => controller.abort();
+  }, [serviceId]);
+
+  useEffect(() => {
+    if (!selectedClubId) return;
+    const controller = new AbortController();
+    loadClubSchedule(selectedClubId, controller.signal, serviceId)
+      .then((value) => { if (!controller.signal.aborted) setLoaded({ key: requestKey, schedule: value }); },
+        (failure: unknown) => { if (!controller.signal.aborted) setLoaded({ key: requestKey, error: errorMessage(failure) }); });
     return () => controller.abort();
   }, [requestKey, selectedClubId, serviceId]);
 
@@ -103,28 +110,33 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
   }
 
   const header = <Text accessibilityRole="header" style={uiStyles.heading}>Club schedule</Text>;
+  const picker = <>
+    {clubsError ? <Text style={uiStyles.error}>{clubsError}</Text> : null}
+    {clubs === null && !clubsError ? <Note>Loading clubs…</Note> : null}
+    {clubs?.length === 0 ? <Note>No clubs are available yet.</Note> : null}
+    {clubs ? <ClubPicker clubs={clubs} isSelected={(club) => club.id === selectedClubId}
+      onPress={(club) => router.setParams({ serviceId, clubId: club.id })} /> : null}
+  </>;
 
   if (!selectedClubId) {
     return <ScrollView contentContainerStyle={pageStyle} keyboardShouldPersistTaps="handled">
       {header}
+      {picker}
       <Note>Choose a club to see its complete planning schedule.</Note>
-      {error ? <Text style={uiStyles.error}>{error}</Text> : null}
-      {clubs === null && !error ? <Note>Loading clubs…</Note> : null}
-      {clubs?.length === 0 ? <Note>No clubs are available yet.</Note> : null}
-      {clubs ? <ClubPicker clubs={clubs} onPress={(club) => router.setParams({ serviceId, clubId: club.id })} /> : null}
     </ScrollView>;
   }
 
   if (error) {
-    return <ScrollView contentContainerStyle={pageStyle}>
+    return <ScrollView contentContainerStyle={pageStyle} keyboardShouldPersistTaps="handled">
       {header}
+      {picker}
       <Text style={uiStyles.error}>{error}</Text>
       <Action title="Try again" onPress={refresh} />
     </ScrollView>;
   }
 
   if (!schedule) {
-    return <ScrollView contentContainerStyle={pageStyle}>{header}<Note>Loading club schedule…</Note></ScrollView>;
+    return <ScrollView contentContainerStyle={pageStyle} keyboardShouldPersistTaps="handled">{header}{picker}<Note>Loading club schedule…</Note></ScrollView>;
   }
 
   const { club, cycles } = schedule;
@@ -136,6 +148,7 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
 
   return <ScrollView contentContainerStyle={pageStyle} keyboardShouldPersistTaps="handled">
     {header}
+    {picker}
     <Card>
       <Text accessibilityRole="header" style={[uiStyles.heading, { fontSize: 24 }]}>{club.name}</Text>
       <Note>{club.branch} · {meetingRuleLabel(club)} · {cadenceLabel(club.cadence, club.cadenceOffset)}</Note>
@@ -159,7 +172,6 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
       clubNameFor={() => club.name}
       exportClub={{ name: club.name, details: `${club.branch} · ${meetingRuleLabel(club)} · ${cadenceLabel(club.cadence, club.cadenceOffset)}` }} />
     <Actions>
-      <Action title="Choose another club" onPress={() => router.replace({ pathname: '/club-schedule', params: { serviceId } })} />
       <Action title="Refresh" onPress={refresh} />
     </Actions>
   </ScrollView>;

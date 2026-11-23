@@ -1,6 +1,6 @@
-import { addDays, today, validDate } from './dates';
+import { addDays, daysBetween, today, validDate } from './dates';
 import type { Assignment, Club, Cycle, Data, Event, Kit, Slot } from './model';
-import { meetingDate, pickupDate } from './meeting-rule';
+import { meetingDate, pickupDate, returnDate } from './meeting-rule';
 
 export function id(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -27,8 +27,14 @@ export function meetingFor(slot: Slot, club: Club, stagedMeeting?: string): stri
 }
 
 export function windowFor(data: Data, club: Club, meeting: string): Pick<Assignment, 'ready' | 'meeting' | 'due'> {
-  const ready = pickupDate(meeting, club);
-  return { ready, meeting, due: addDays(ready, data.library.loanDays) };
+  return { ready: pickupDate(meeting, club), meeting, due: returnDate(meeting) };
+}
+
+// Overruns are reported as warnings rather than blocking problems, so generation does not treat them as conflicts.
+export function loanOverrun(data: Data, window: Pick<Assignment, 'ready' | 'due'>): string | null {
+  if (!validDate(window.ready) || !validDate(window.due)) return null;
+  const days = daysBetween(window.ready, window.due);
+  return days > data.library.loanDays ? `Checkout runs ${days} days, longer than the ${data.library.loanDays}-day loan period.` : null;
 }
 
 export function assignmentProblem(data: Data, assignment: Assignment, others: Assignment[]): string | null {

@@ -1,7 +1,7 @@
 import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { assignmentProblems, draftAsync, exclusionUnlockIds, generationClubScope, id, meetingFor, prepareDraftExclusions, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
+import { assignmentProblems, draftAsync, exclusionUnlockIds, generationClubScope, id, loanOverrun, meetingFor, prepareDraftExclusions, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
 import { reconcileCadence } from '../domain/cadence';
 import { preserveUnassignedMeetingDates } from '../domain/meeting-rule';
 import { dateRegeneratedSlots, prepareFullRegeneration, regenerationUnlockIds } from '../domain/schedule-regeneration';
@@ -404,6 +404,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
         <Action title="Remove meeting" disabled={busy || hasPending} onPress={() => toggleSlot(slot.clubId, slot.month)} />
       </View>}
       {selected && assignmentProblems(base, selected, allAssignments).map((problem) => <Text key={problem} style={{ color: '#a22525' }}>{problem}</Text>)}
+      {selected && loanOverrun(base, selected) && <Text style={{ color: '#9a5b00' }}>{loanOverrun(base, selected)}</Text>}
       {selected?.locked && <Action title="Unlock locally" disabled={busy} onPress={() => {
         const unlockIds = base.assignments.some((item) => item.id === selected.id && item.locked) && !workspace.unlockIds.includes(selected.id)
           ? [...workspace.unlockIds, selected.id] : workspace.unlockIds;

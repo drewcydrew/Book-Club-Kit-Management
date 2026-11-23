@@ -47,7 +47,7 @@ function DayCell({ date, markers, isToday, onOpen, onHover }: {
   const content = <>
     <Text style={{ fontSize: 12, fontWeight: markers || isToday ? '700' : '400', color: '#183a36' }}>{Number(date.slice(8))}</Text>
     {markers && <View style={{ flexDirection: 'row', gap: 2 }}>
-      {markers.map((marker) => <View key={marker.kind} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: markerColors[marker.kind] }} />)}
+      {markers.map((marker) => <View key={`${marker.kind}:${marker.meeting.key}`} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: markerColors[marker.kind] }} />)}
     </View>}
   </>;
   const style = {
