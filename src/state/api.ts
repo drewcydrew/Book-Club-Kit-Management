@@ -69,7 +69,7 @@ function isClub(value: unknown): value is SharedClub {
     (value.meetingOccurrence === -1 || value.meetingOccurrence === 1 || value.meetingOccurrence === 2 || value.meetingOccurrence === 3 || value.meetingOccurrence === 4) &&
     isNumber(value.pickupWeekday) && Number.isInteger(value.pickupWeekday) && value.pickupWeekday >= 0 && value.pickupWeekday <= 6 &&
     (value.pickupOccurrence === -1 || value.pickupOccurrence === 1 || value.pickupOccurrence === 2 || value.pickupOccurrence === 3 || value.pickupOccurrence === 4) &&
-    (value.pickup === 'pickup' || value.pickup === 'delivery') && isString(value.address) && isNumber(value.revision);
+    typeof value.pickupAtPreviousMeeting === 'boolean' && (!value.pickupAtPreviousMeeting || value.cadence === 1.5) && (value.pickup === 'pickup' || value.pickup === 'delivery') && isString(value.address) && isNumber(value.revision);
 }
 function isLink(value: unknown): value is ClubKit {
   return isObject(value) && isString(value.clubId) && isString(value.kitId);

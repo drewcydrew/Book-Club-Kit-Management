@@ -26,8 +26,16 @@ export function meetingFor(slot: Slot, club: Club, stagedMeeting?: string): stri
   return slot.meeting ?? stagedMeeting ?? meetingDate(slot.month, club);
 }
 
-export function windowFor(data: Data, club: Club, meeting: string): Pick<Assignment, 'ready' | 'meeting' | 'due'> {
-  return { ready: pickupDate(meeting, club), meeting, due: returnDate(meeting) };
+// The club's closest earlier meeting in the same cycle, used by "previous meeting week" pickup. Undefined when there is none.
+export function previousMeetingFor(cycle: Cycle, slot: Slot, club: Club, stagedMeeting: (slotId: string) => string | undefined): string | undefined {
+  if (!club.pickupAtPreviousMeeting) return undefined;
+  const [previous] = cycle.slots.filter((item) => item.clubId === slot.clubId && item.month < slot.month)
+    .sort((a, b) => b.month.localeCompare(a.month));
+  return previous ? meetingFor(previous, club, stagedMeeting(previous.id)) : undefined;
+}
+
+export function windowFor(data: Data, club: Club, meeting: string, previousMeeting?: string): Pick<Assignment, 'ready' | 'meeting' | 'due'> {
+  return { ready: pickupDate(meeting, club, previousMeeting), meeting, due: returnDate(meeting) };
 }
 
 // Overruns are reported as warnings rather than blocking problems, so generation does not treat them as conflicts.
@@ -205,10 +213,12 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
       continue;
     }
     let meeting: string;
+    let previousMeeting: string | undefined;
     let pickup: string;
     try {
       meeting = meetingFor(slot, club, stagedMeetings.get(slot.id));
-      pickup = pickupDate(meeting, club);
+      previousMeeting = previousMeetingFor(cycle, slot, club, (id) => stagedMeetings.get(id));
+      pickup = pickupDate(meeting, club, previousMeeting);
     }
     catch {
       slotErrors.set(slot.id, `${club.name} in ${slot.month}: the club meeting or pickup rule is invalid. Check the club details.`);
@@ -226,7 +236,7 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
       slotErrors.set(slot.id, `${club.name} in ${slot.month}: the pickup date ${pickup} must be after the preference deadline. Adjust the pickup rule or deadline.`);
       continue;
     }
-    const slotWindow = windowFor(data, club, meeting);
+    const slotWindow = windowFor(data, club, meeting, previousMeeting);
     if (slotWindow.due < meeting) {
       slotErrors.set(slot.id, `${club.name} in ${slot.month}: the return date ${slotWindow.due} falls before the meeting ${meeting}. Adjust the pickup rule or loan length.`);
       continue;

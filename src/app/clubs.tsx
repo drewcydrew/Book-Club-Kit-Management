@@ -89,6 +89,7 @@ const blankClub = (branch: string): Club => ({
   meetingOccurrence: 1,
   pickupWeekday: 1,
   pickupOccurrence: 1,
+  pickupAtPreviousMeeting: false,
   pickup: "pickup",
   address: "",
   history: [],
@@ -292,6 +293,7 @@ function RuleEditor({
   onOccurrence,
   onWeekday,
   note,
+  previousOption,
 }: {
   title: string;
   summary: string;
@@ -302,7 +304,9 @@ function RuleEditor({
   onOccurrence: (value: MeetingOccurrence) => void;
   onWeekday: (value: MeetingWeekday) => void;
   note: React.ReactNode;
+  previousOption?: { selected: boolean; onPress: () => void };
 }) {
+  const previousSelected = previousOption?.selected ?? false;
   return (
     <View style={modalStyles.ruleBlock}>
       <View style={modalStyles.ruleRow}>
@@ -314,7 +318,10 @@ function RuleEditor({
       </View>
       {open && <>
         <Label>{title} week</Label>
-        <Actions>{meetingOccurrences.map(({ value, label }) => <Action key={value} title={label} selected={occurrence === value} onPress={() => onOccurrence(value)} />)}</Actions>
+        <Actions>
+          {meetingOccurrences.map(({ value, label }) => <Action key={value} title={label} selected={!previousSelected && occurrence === value} onPress={() => onOccurrence(value)} />)}
+          {previousOption && <Action title="Previous meeting week" selected={previousSelected} onPress={previousOption.onPress} />}
+        </Actions>
         <Label>{title} weekday</Label>
         <Actions>{meetingWeekdays.map(({ value, label }) => <Action key={value} title={label} selected={weekday === value} onPress={() => onWeekday(value)} />)}</Actions>
         {note}
@@ -1227,7 +1234,7 @@ function ClubsContent() {
                     />
                     <Label>Meeting cadence</Label>
                     <Actions>
-                      <Action title="Monthly" selected={draft.club.cadence === 1} onPress={() => changeDetails({ cadence: 1 })} />
+                      <Action title="Monthly" selected={draft.club.cadence === 1} onPress={() => changeDetails({ cadence: 1, pickupAtPreviousMeeting: false })} />
                       <Action title="Six weeks" selected={draft.club.cadence === 1.5} onPress={() => changeDetails({ cadence: 1.5 })} />
                     </Actions>
                     <Note>Six weeks skips one month in each three-month group, restarting at the first month of each cycle. This is an approximation, not exact six-week dates.</Note>
@@ -1256,9 +1263,15 @@ function ClubsContent() {
                       onToggle={() => setRuleOpen((current) => ({ ...current, pickup: !current.pickup }))}
                       occurrence={draft.club.pickupOccurrence}
                       weekday={draft.club.pickupWeekday}
-                      onOccurrence={(value) => changeDetails({ pickupOccurrence: value })}
+                      onOccurrence={(value) => changeDetails({ pickupOccurrence: value, pickupAtPreviousMeeting: false })}
                       onWeekday={(value) => changeDetails({ pickupWeekday: value })}
-                      note={<Note>Pickup uses {pickupRuleLabel(draft.club)} in the meeting month, or the previous month if that would fall after the meeting. Return is pickup plus the loan length. Changing this rule alone does not move dated assignments.</Note>}
+                      previousOption={draft.club.cadence === 1.5 ? {
+                        selected: draft.club.pickupAtPreviousMeeting,
+                        onPress: () => changeDetails({ pickupAtPreviousMeeting: true }),
+                      } : undefined}
+                      note={draft.club.cadence === 1.5 && draft.club.pickupAtPreviousMeeting
+                        ? <Note>Pickup uses {pickupRuleLabel(draft.club)} for the week of the previous meeting in the cycle. The first meeting of each cycle has no previous meeting, so it uses the month-before rule. Return is pickup plus the loan length. Changing this rule alone does not move dated assignments.</Note>
+                        : <Note>Pickup uses {pickupRuleLabel(draft.club)} in the meeting month, or the previous month if that would fall after the meeting. Return is pickup plus the loan length. Changing this rule alone does not move dated assignments.</Note>}
                     />
                     <Action
                       title={`Method: ${draft.club.pickup}`}

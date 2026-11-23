@@ -1,5 +1,5 @@
 import { validDate } from './dates';
-import { assignmentProblems, loanOverrun, rankings, windowFor } from './logic';
+import { assignmentProblems, loanOverrun, previousMeetingFor, rankings, windowFor } from './logic';
 import type { Assignment, Cycle, Data, Kit, Slot, Title } from './model';
 
 export type ScheduleTitleGroup = {
@@ -76,7 +76,8 @@ export function previewScheduleKit(data: Data, cycle: Cycle, slot: Slot, meeting
   while (others.some((a) => a.id === previewId)) previewId += ':';
   const club = data.clubs.find((item) => item.id === slot.clubId);
   if (!club) return { state: 'unknown', messages: ['A meeting, club, kit or title is unavailable.'] };
-  const fresh = windowFor(data, club, meeting);
+  const previousMeeting = previousMeetingFor(cycle, slot, club, (slotId) => others.find((a) => a.slotId === slotId && a.cycleId === cycle.id)?.meeting);
+  const fresh = windowFor(data, club, meeting, previousMeeting);
   const candidate: Assignment = { id: previewId, cycleId: cycle.id, slotId: slot.id, clubId: slot.clubId,
     kitId: kit.id, ...fresh, locked: false };
   if (selected && selected.meeting === meeting) { candidate.ready = selected.ready; candidate.due = selected.due; }

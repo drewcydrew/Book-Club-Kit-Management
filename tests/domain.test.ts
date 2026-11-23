@@ -198,6 +198,18 @@ test('club statuses report preferences and meeting counts for every club', () =>
   ]);
 });
 
+test('schedule grid orders club rows A-Z by name, then branch', () => {
+  const clubs = [
+    { id: 'c-z', name: 'Zebra', branch: 'Central', history: [] },
+    { id: 'c-b2', name: 'book', branch: 'North', history: [] },
+    { id: 'c-b1', name: 'Book', branch: 'Central', history: [] },
+  ];
+  const data = { library: { bufferDays: 0 }, clubs, kits: [], cycles: [], assignments: [] } as unknown as Data;
+  const cycle = { id: 'cy', name: '', deadline: '', startsOn: '2026-01-01', endsOn: '2026-01-31', status: 'drafted', slots: [], finalized: {}, revision: 1 } as unknown as Cycle;
+  const grid = scheduleGrid(data, cycle, ['c-z', 'c-b2', 'c-b1'], []);
+  assert.deepEqual(grid.rows.map((row) => row.clubId), ['c-b1', 'c-b2', 'c-z']);
+});
+
 test('schedule grid covers every cycle month per club and flags clashes on assigned cells', () => {
   const data = {
     library: { bufferDays: 0 },

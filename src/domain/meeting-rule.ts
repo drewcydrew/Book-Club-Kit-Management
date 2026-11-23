@@ -18,10 +18,13 @@ export function meetingRuleLabel(club: Pick<Club, 'meetingWeekday' | 'meetingOcc
   return `${occurrence.label} week, ${weekday.label}`;
 }
 
-export function pickupRuleLabel(club: Pick<Club, 'pickupWeekday' | 'pickupOccurrence'>): string {
+export type PickupRule = Pick<Club, 'pickupWeekday' | 'pickupOccurrence'> & Partial<Pick<Club, 'pickupAtPreviousMeeting'>>;
+
+export function pickupRuleLabel(club: PickupRule): string {
   const weekday = meetingWeekdays.find((item) => item.value === club.pickupWeekday);
   const occurrence = meetingOccurrences.find((item) => item.value === club.pickupOccurrence);
   if (!weekday || !occurrence) throw new Error('Club pickup rule is invalid.');
+  if (club.pickupAtPreviousMeeting) return `${weekday.label} in previous meeting week`;
   return `${occurrence.label} week, ${weekday.label}`;
 }
 
@@ -54,9 +57,15 @@ export function meetingDate(month: string, club: Pick<Club, 'meetingWeekday' | '
   return nthWeekdayOfMonth(month, club.meetingWeekday, club.meetingOccurrence);
 }
 
-// Pickup is always in the month before the meeting, so it can never fall on the meeting day.
-export function pickupDate(meeting: string, club: Pick<Club, 'pickupWeekday' | 'pickupOccurrence'>): string {
+// Pickup is in the month before the meeting, so it can never fall on the meeting day.
+// With pickupAtPreviousMeeting and a previous meeting, pickup is in that meeting's week instead.
+export function pickupDate(meeting: string, club: PickupRule, previousMeeting?: string): string {
   if (!validDate(meeting)) throw new Error('Meeting date is invalid.');
+  if (club.pickupAtPreviousMeeting && previousMeeting) {
+    if (!validDate(previousMeeting)) throw new Error('Previous meeting date is invalid.');
+    const weekStart = addDays(previousMeeting, -mondayOffset(previousMeeting));
+    return addDays(weekStart, (club.pickupWeekday + 6) % 7);
+  }
   const previous = addDays(`${meeting.slice(0, 7)}-01`, -1).slice(0, 7);
   return nthWeekdayOfMonth(previous, club.pickupWeekday, club.pickupOccurrence);
 }

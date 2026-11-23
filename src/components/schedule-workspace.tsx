@@ -1,7 +1,7 @@
 import { usePreventRemove } from 'expo-router';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { assignmentProblems, draftAsync, exclusionUnlockIds, generationClubScope, id, loanOverrun, meetingFor, prepareDraftExclusions, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
+import { assignmentProblems, draftAsync, exclusionUnlockIds, generationClubScope, id, loanOverrun, meetingFor, prepareDraftExclusions, previousMeetingFor, windowFor, type DraftMode, type DraftScope } from '../domain/logic';
 import { reconcileCadence } from '../domain/cadence';
 import { preserveUnassignedMeetingDates } from '../domain/meeting-rule';
 import { dateRegeneratedSlots, prepareFullRegeneration, regenerationUnlockIds } from '../domain/schedule-regeneration';
@@ -372,7 +372,8 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
       }
       const club = base.clubs.find((item) => item.id === selectedSlot.clubId);
       if (!club) { setMessage('The club for this slot is unavailable.'); return; }
-      const pickupWindow = windowFor(base, club, meeting);
+      const previousMeeting = previousMeetingFor(cycle, selectedSlot, club, (slotId) => assignments.find((a) => a.slotId === slotId && a.cycleId === cycle.id)?.meeting);
+      const pickupWindow = windowFor(base, club, meeting, previousMeeting);
       if (pickupWindow.ready <= cycle.deadline && !(selected && selected.meeting === meeting)) {
         setMessage(`The pickup date ${pickupWindow.ready} must be after the preference deadline.`); return;
       }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { meetingDate, meetingRuleLabel, pickupDate, preserveUnassignedMeetingDates, returnDate } from '../src/domain/meeting-rule';
+import { meetingDate, meetingRuleLabel, pickupDate, pickupRuleLabel, preserveUnassignedMeetingDates, returnDate } from '../src/domain/meeting-rule';
 import { draft, loanOverrun, meetingFor } from '../src/domain/logic';
 import { slotChanges } from '../src/domain/cycle-overview';
 import { seed } from '../src/domain/seed';
@@ -29,6 +29,14 @@ test('pickup rules always use the previous month, so pickup is before the meetin
   assert.equal(pickupDate('2027-01-21', rule), '2026-12-10');
   assert.equal(pickupDate('2027-01-21', { pickupWeekday: 2, pickupOccurrence: 3 }), '2026-12-15');
   assert.throws(() => pickupDate('2027-13', rule), /invalid/);
+});
+
+test('previous meeting pickup uses the pickup weekday within the previous meeting week', () => {
+  const rule = { pickupWeekday: 4 as const, pickupOccurrence: 2 as const, pickupAtPreviousMeeting: true };
+  assert.equal(pickupDate('2027-06-15', rule, '2027-03-16'), '2027-03-18');
+  assert.equal(pickupDate('2027-06-15', { ...rule, pickupWeekday: 0 }, '2027-03-21'), '2027-03-21');
+  assert.equal(pickupDate('2027-06-15', rule), '2027-05-06');
+  assert.equal(pickupRuleLabel(rule), 'Thursday in previous meeting week');
 });
 
 test('return date is seven days after the meeting', () => {

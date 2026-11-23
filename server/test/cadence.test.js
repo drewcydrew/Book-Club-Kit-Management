@@ -92,8 +92,9 @@ test('validated draft removes an assigned slot atomically only with the required
   const restored = await req('/api/clubs/c1', 'PUT', { ...monthly.json, cadence: 1.5 });
   assert.equal(restored.status, 200);
   assert.equal(restored.json.cadenceOffset, 1);
+  assert.equal((await req('/api/clubs/c1', 'PUT', { ...restored.json, cadence: 1, pickupAtPreviousMeeting: true })).status, 400);
   const created = await req('/api/clubs', 'POST', { name: 'Offset club', branch: 'Central', size: 2,
-    cadence: 1.5, cadenceOffset: 2, meetingWeekday: 1, meetingOccurrence: 1, pickupWeekday: 4, pickupOccurrence: 2, pickup: 'pickup', address: '' });
+    cadence: 1.5, cadenceOffset: 2, meetingWeekday: 1, meetingOccurrence: 1, pickupWeekday: 4, pickupOccurrence: 2, pickupAtPreviousMeeting: false, pickup: 'pickup', address: '' });
   assert.equal(created.status, 201);
   assert.equal((await req(`/api/clubs/${created.json.id}`)).json.cadenceOffset, 2);
   const cycle = shared.cycles.find((item) => item.id === 'cycle1');

@@ -1,4 +1,5 @@
 import { assignmentProblem, preferences } from './logic';
+import { compareClubs } from './club-list';
 import type { Assignment, Ballot, Cycle, Data, Membership, Mark, Slot } from './model';
 
 export interface GridCell {
@@ -403,7 +404,14 @@ export function scheduleGrid(data: Data, cycle: Cycle, clubIds: string[], assign
   const cycleAssignments = assignments.filter((assignment) => assignment.cycleId === cycle.id);
   const assignmentBySlot = new Map(cycleAssignments.map((assignment) => [assignment.slotId, assignment] as const));
   const allAssignments = [...data.assignments.filter((assignment) => assignment.cycleId !== cycle.id), ...cycleAssignments];
-  const rows = clubIds.map((clubId) => ({
+  const clubById = new Map(data.clubs.map((club) => [club.id, club] as const));
+  const orderedClubIds = [...clubIds].sort((a, b) => {
+    const left = clubById.get(a);
+    const right = clubById.get(b);
+    if (!left || !right) return Number(!left) - Number(!right);
+    return compareClubs(left, right);
+  });
+  const rows = orderedClubIds.map((clubId) => ({
     clubId,
     cells: months.map((month): GridCell => {
       const slot = cycle.slots.find((item) => item.clubId === clubId && item.month === month);

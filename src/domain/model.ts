@@ -70,6 +70,7 @@ export interface Club {
   meetingOccurrence: MeetingOccurrence;
   pickupWeekday: MeetingWeekday;
   pickupOccurrence: MeetingOccurrence;
+  pickupAtPreviousMeeting: boolean;
   pickup: 'pickup' | 'delivery';
   address: string;
   history: string[];
