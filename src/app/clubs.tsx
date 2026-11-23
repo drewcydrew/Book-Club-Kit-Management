@@ -1235,9 +1235,9 @@ function ClubsContent() {
                     />
                     <Label>Meeting cadence</Label>
                     <Actions>
-                      <Action title="Monthly" selected={draft.club.cadence === 1} onPress={() => changeDetails({ cadence: 1, pickupAtPreviousMeeting: false })} />
+                      <Action title="Monthly" selected={draft.club.cadence === 1} onPress={() => changeDetails({ cadence: 1 })} />
                       <Action title="Six weeks" selected={draft.club.cadence === 1.5} onPress={() => changeDetails({ cadence: 1.5 })} />
-                      <Action title="Every 6 weeks" selected={draft.club.cadence === 2} onPress={() => changeDetails({ cadence: 2, cadenceOffset: 0, pickupAtPreviousMeeting: false })} />
+                      <Action title="Every 6 weeks" selected={draft.club.cadence === 2} onPress={() => changeDetails({ cadence: 2, cadenceOffset: 0 })} />
                     </Actions>
                     {draft.club.cadence === 1.5 && <Note>Six weeks skips one month in each three-month group, restarting at the first month of each cycle. This is an approximation, not exact six-week dates.</Note>}
                     {draft.club.cadence === 2 && <Note>Every 6 weeks starts on the club&apos;s meeting week-of-month rule in the first month of the cycle, then repeats every 42 days within the cycle.</Note>}
@@ -1268,11 +1268,11 @@ function ClubsContent() {
                       weekday={draft.club.pickupWeekday}
                       onOccurrence={(value) => changeDetails({ pickupOccurrence: value, pickupAtPreviousMeeting: false })}
                       onWeekday={(value) => changeDetails({ pickupWeekday: value })}
-                      previousOption={draft.club.cadence === 1.5 ? {
+                      previousOption={{
                         selected: draft.club.pickupAtPreviousMeeting,
                         onPress: () => changeDetails({ pickupAtPreviousMeeting: true }),
-                      } : undefined}
-                      note={draft.club.cadence === 1.5 && draft.club.pickupAtPreviousMeeting
+                      }}
+                      note={draft.club.pickupAtPreviousMeeting
                         ? <Note>Pickup uses {pickupRuleLabel(draft.club)} for the week of the previous meeting in the cycle. The first meeting of each cycle has no previous meeting, so it uses the month-before rule. Return is pickup plus the loan length. Changing this rule alone does not move dated assignments.</Note>
                         : <Note>Pickup uses {pickupRuleLabel(draft.club)} in the meeting month, or the previous month if that would fall after the meeting. Return is pickup plus the loan length. Changing this rule alone does not move dated assignments.</Note>}
                     />

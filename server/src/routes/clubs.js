@@ -19,7 +19,6 @@ const router = records({
     if (!Number.isInteger(b.pickupWeekday) || b.pickupWeekday < 0 || b.pickupWeekday > 6) throw new HttpError(400, 'pickupWeekday must be 0 through 6.');
     if (![1, 2, 3, 4, -1].includes(b.pickupOccurrence)) throw new HttpError(400, 'pickupOccurrence must be 1 through 4 or -1 (last).');
     if (typeof b.pickupAtPreviousMeeting !== 'boolean') throw new HttpError(400, 'pickupAtPreviousMeeting must be true or false.');
-    if (b.pickupAtPreviousMeeting && b.cadence !== 1.5) throw new HttpError(400, 'pickupAtPreviousMeeting is only available for six-weekly clubs.');
     return [text(b.name, 'name', true, 200), text(b.branch, 'branch', true, 200), integer(b.size, 'size', 1),
       b.cadence, b.cadence === 2 ? 0 : b.cadenceOffset, b.meetingWeekday, b.meetingOccurrence, b.pickupWeekday, b.pickupOccurrence, b.pickupAtPreviousMeeting, pickup, text(b.address, 'address', pickup === 'delivery')];
   },

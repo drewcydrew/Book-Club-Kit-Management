@@ -3,8 +3,9 @@ import test from 'node:test';
 import { cadenceMonths, reconcileCadence, recurringMeetingDates, slotMeetingDate } from '../src/domain/cadence';
 import { addDays } from '../src/domain/dates';
 import { meetingDate } from '../src/domain/meeting-rule';
-import { draft } from '../src/domain/logic';
+import { draft, prepareDraftExclusions } from '../src/domain/logic';
 import { seed } from '../src/domain/seed';
+import { dateRegeneratedSlots, prepareFullRegeneration } from '../src/domain/schedule-regeneration';
 
 test('six-week offsets stagger skipped months across years without affecting monthly clubs', () => {
   const data = seed();
@@ -32,9 +33,10 @@ test('reconciliation applies an offset only to selected clubs and preserves reta
   const data = seed();
   const club = { ...data.clubs[0], cadence: 1.5 as const, cadenceOffset: 1 as const };
   const other = data.clubs[1];
-  const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-04-30', slots: [
+  const range = { startsOn: '2027-01-01', endsOn: '2027-04-30' };
+  const cycle = { ...data.cycles[0], ...range, slots: [
     { id: 'jan', clubId: club.id, month: '2027-01', meeting: '2027-01-11' },
-    { id: 'mar', clubId: club.id, month: '2027-03', meeting: '2027-03-08' },
+    { id: 'mar', clubId: club.id, month: '2027-03', meeting: slotMeetingDate(range, club, '2027-03') },
     { id: 'other', clubId: other.id, month: '2027-01', meeting: null },
   ] };
   const result = reconcileCadence(cycle, [club, other], [club.id], () => 'new-feb');
@@ -48,9 +50,10 @@ test('reconciliation preserves existing dates, handles scoped clubs and restores
   const data = seed();
   const club = { ...data.clubs[0], cadence: 1.5 as const };
   const other = data.clubs[1];
-  const cycle = { ...data.cycles[0], deadline: '2026-10-01', startsOn: '2027-01-01', endsOn: '2027-04-30', finalized: { [club.id]: ['t1', 't2'] }, slots: [
-    { id: 'one', clubId: club.id, month: '2027-01', meeting: '2027-01-10' },
-    { id: 'three', clubId: club.id, month: '2027-03', meeting: '2027-03-10' },
+  const range = { startsOn: '2027-01-01', endsOn: '2027-04-30' };
+  const cycle = { ...data.cycles[0], deadline: '2026-10-01', ...range, finalized: { [club.id]: ['t1', 't2'] }, slots: [
+    { id: 'one', clubId: club.id, month: '2027-01', meeting: slotMeetingDate(range, club, '2027-01') },
+    { id: 'three', clubId: club.id, month: '2027-03', meeting: slotMeetingDate(range, club, '2027-03') },
     { id: 'other', clubId: other.id, month: '2027-03', meeting: null },
   ] };
   let sequence = 0;
@@ -141,6 +144,52 @@ test('every-6-weeks meetings cross year boundaries and are respected by the cycl
   const first = dates[0];
   assert.deepEqual(recurringMeetingDates({ ...cycle, endsOn: first }, club), [first]);
   assert.deepEqual(recurringMeetingDates({ ...cycle, endsOn: addDays(first, -1) }, club), []);
+});
+
+test('every-6-weeks reconciliation re-dates kept slots still on the old monthly date', () => {
+  const data = seed();
+  const club = { ...data.clubs[0], cadence: 2 as const, cadenceOffset: 0 as const };
+  const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-12-31' };
+  const [first, second] = cadenceMonths(cycle, club);
+  const stale = meetingDate(second, club);
+  const expected = slotMeetingDate(cycle, club, second);
+  assert.notEqual(stale, expected);
+  const staleSlot = { id: 'stale', clubId: club.id, month: second, meeting: stale };
+  const currentSlot = { id: 'current', clubId: club.id, month: first, meeting: slotMeetingDate(cycle, club, first) };
+  const result = reconcileCadence({ ...cycle, slots: [staleSlot, currentSlot] }, [club], [club.id], () => 'unused');
+  assert.deepEqual(result.moved.map(({ slot, from, to }) => [slot.id, from, to]), [['stale', stale, expected]]);
+  assert.equal(result.cycle.slots.find((slot) => slot.id === 'stale')!.meeting, expected);
+  assert.deepEqual(result.cycle.slots.find((slot) => slot.id === 'current'), currentSlot);
+});
+
+test('full generation dates every-6-weeks slots before drafting so assignments match their slot dates', () => {
+  const data = seed();
+  const club = { ...data.clubs[0], cadence: 2 as const, cadenceOffset: 0 as const, history: [] };
+  const cycle = { ...data.cycles[0], deadline: '2026-12-01', startsOn: '2027-01-01', endsOn: '2027-12-31', finalized: {}, slots: [] };
+  const input = { ...data, clubs: [club], cycles: [cycle], assignments: [] };
+  let sequence = 0;
+  const reset = prepareFullRegeneration(input, cycle, [], () => `s${++sequence}`);
+  const dated = dateRegeneratedSlots(input, reset.cycle, []);
+  assert.deepEqual(dated.problems, []);
+  const datedData = { ...reset.data, cycles: reset.data.cycles.map((item) => item.id === dated.cycle.id ? dated.cycle : item) };
+  const prepared = prepareDraftExclusions(datedData, dated.cycle, []);
+  const result = draft(prepared.data, prepared.cycle, true, undefined, 'clubs');
+  assert.ok(result.assignments.length > 0);
+  for (const assignment of result.assignments) {
+    assert.equal(assignment.meeting, dated.cycle.slots.find((slot) => slot.id === assignment.slotId)!.meeting);
+  }
+});
+
+test('single-club every-6-weeks reconciliation dates added slots on the recurring schedule', () => {
+  const data = seed();
+  const club = { ...data.clubs[0], cadence: 2 as const, cadenceOffset: 0 as const };
+  const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-12-31', slots: [] };
+  let sequence = 0;
+  const reconciled = reconcileCadence(cycle, [club], [club.id], () => `n${++sequence}`).cycle;
+  const dated = dateRegeneratedSlots({ ...data, clubs: [club] }, reconciled, []);
+  assert.deepEqual(dated.problems, []);
+  assert.ok(dated.cycle.slots.length > 0);
+  for (const slot of dated.cycle.slots) assert.equal(slot.meeting, slotMeetingDate(cycle, club, slot.month));
 });
 
 test('every-6-weeks slots map each month to its recurring meeting and reject months without one', () => {

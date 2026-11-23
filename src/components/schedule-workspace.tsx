@@ -192,9 +192,10 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     try {
       if (!scope) {
         const reset = prepareFullRegeneration(source.base, source.cycle, excludedClubIds, id);
-        const input = prepareDraftExclusions(reset.data, reset.cycle, excludedClubIds);
-        const result = await draftAsync(input.data, input.cycle, true, undefined, generationMode);
         const dated = dateRegeneratedSlots(source.base, reset.cycle, excludedClubIds);
+        const datedData = { ...reset.data, cycles: reset.data.cycles.map((item) => item.id === dated.cycle.id ? dated.cycle : item) };
+        const input = prepareDraftExclusions(datedData, dated.cycle, excludedClubIds);
+        const result = await draftAsync(input.data, input.cycle, true, undefined, generationMode);
         const unlockIds = regenerationUnlockIds(source.base.assignments, reset.cycle.id, source.unlockIds);
         setWorkspace({ ...source, cycle: dated.cycle, assignments: result.assignments.filter((assignment) => assignment.cycleId === reset.cycle.id),
           unlockIds, generationProblems: [...new Set([...result.problems, ...dated.problems])] });
@@ -203,24 +204,31 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
       }
       const includedIds = scope ? [scope.clubId] : source.base.clubs.filter((club) => !excludedClubIds.includes(club.id)).map((club) => club.id);
       const cadence = reconcileCadence(source.cycle, source.base.clubs, includedIds, id);
-      const removedSlotIds = new Set(cadence.removed.map((slot) => slot.id));
-      const cadenceRemoved = source.assignments.filter((assignment) => removedSlotIds.has(assignment.slotId));
-      const allAssignments = [...source.base.assignments.filter((a) => a.cycleId !== source.cycle.id), ...source.assignments.filter((a) => !removedSlotIds.has(a.slotId))];
-      const input = prepareDraftExclusions({ ...source.base, cycles: source.base.cycles.map((cycle) => cycle.id === cadence.cycle.id ? cadence.cycle : cycle), assignments: allAssignments }, cadence.cycle, excludedClubIds);
+      const dateExcluded = source.base.clubs.map((club) => club.id).filter((clubId) => !includedIds.includes(clubId));
+      const dated = dateRegeneratedSlots(source.base, cadence.cycle, dateExcluded);
+      const droppedSlotIds = new Set([...cadence.removed, ...cadence.moved.map((move) => move.slot)].map((slot) => slot.id));
+      const cadenceRemoved = source.assignments.filter((assignment) => droppedSlotIds.has(assignment.slotId));
+      const scopedSlotIds = new Set(dated.cycle.slots.filter((slot) => includedIds.includes(slot.clubId)).map((slot) => slot.id));
+      const redraft = source.assignments.filter((assignment) => scopedSlotIds.has(assignment.slotId) && !assignment.locked);
+      const redraftIds = new Set(redraft.map((assignment) => assignment.id));
+      const allAssignments = [...source.base.assignments.filter((a) => a.cycleId !== source.cycle.id),
+        ...source.assignments.filter((a) => !droppedSlotIds.has(a.slotId) && !redraftIds.has(a.id))];
+      const input = prepareDraftExclusions({ ...source.base, cycles: source.base.cycles.map((cycle) => cycle.id === dated.cycle.id ? dated.cycle : cycle), assignments: allAssignments }, dated.cycle, excludedClubIds);
       const result = await draftAsync(input.data, input.cycle, true, scope, generationMode);
       const generated = result.assignments.filter((a) => a.cycleId === source.cycle.id);
-      const unlockIds = exclusionUnlockIds(source.base.assignments.filter((assignment) => assignment.cycleId === source.cycle.id), [...input.removed, ...cadenceRemoved], source.unlockIds);
-      const cycle = preserveUnassignedMeetingDates(cadence.cycle, source.assignments, generated);
-      setWorkspace({ ...source, cycle, assignments: generated, unlockIds, generationProblems: result.problems });
+      const unlockIds = exclusionUnlockIds(source.base.assignments.filter((assignment) => assignment.cycleId === source.cycle.id), [...input.removed, ...cadenceRemoved, ...redraft], source.unlockIds);
+      const cycle = preserveUnassignedMeetingDates(dated.cycle, source.assignments, generated);
+      const problems = [...new Set([...result.problems, ...dated.problems])];
+      setWorkspace({ ...source, cycle, assignments: generated, unlockIds, generationProblems: problems });
       setValidation(null); closeSlot();
       if (scope) {
-        const before = unassignedInScope(cadence.cycle, source.assignments, scope);
-        const after = unassignedInScope(cadence.cycle, generated, scope);
+        const before = unassignedInScope(dated.cycle, source.assignments, scope);
+        const after = unassignedInScope(dated.cycle, generated, scope);
         const name = source.base.clubs.find((club) => club.id === scope.clubId)?.name ?? 'this club';
         const text = before === 0 ? `No unassigned meetings for ${name}.`
           : `Assigned ${before - after} of ${before} unassigned meetings for ${name}.${after ? ' See the reasons below.' : ''}`;
         setMessage('');
-        setClubResult({ clubId: scope.clubId, text, problems: result.problems.filter((problem) => problem.startsWith(`${name} in `)) });
+        setClubResult({ clubId: scope.clubId, text, problems: problems.filter((problem) => problem.startsWith(`${name} in `)) });
       } else { setMessage(''); setClubResult(null); }
     } catch (error: unknown) {
       setMessage(error instanceof Error ? `Unable to generate schedule: ${error.message}` : 'Unable to generate schedule.');
@@ -239,9 +247,16 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
       const date = assignment?.meeting ?? slot.meeting;
       return `${club?.name ?? slot.clubId} ${slot.month}${date ? ` (dated ${date})` : ''}${assignment ? assignment.locked || sharedLock ? ' (locked assignment will be unlocked and removed)' : ' (assignment will be removed)' : ''}`;
     });
+    const moves = cadence.moved.map(({ slot, from, to }) => {
+      const club = source.base.clubs.find((item) => item.id === slot.clubId);
+      const assignment = source.assignments.find((item) => item.slotId === slot.id);
+      const sharedLock = assignment && source.base.assignments.some((item) => item.id === assignment.id && item.locked);
+      return `${club?.name ?? slot.clubId} ${slot.month} (${from} to ${to})${assignment ? assignment.locked || sharedLock ? ' (locked assignment will be unlocked and removed)' : ' (assignment will be removed)' : ''}`;
+    });
     const additions = cadence.added.map((slot) => `${source.base.clubs.find((club) => club.id === slot.clubId)?.name ?? slot.clubId} ${slot.month}`);
     return [
       details.length ? `Cadence removes meetings: ${details.join('; ')}.` : '',
+      moves.length ? `Cadence moves meetings to the club's current rule: ${moves.join('; ')}.` : '',
       additions.length ? `Cadence adds undated meetings: ${additions.join('; ')}. Club meeting rules will be used.` : '',
     ].filter(Boolean).join('\n');
   }

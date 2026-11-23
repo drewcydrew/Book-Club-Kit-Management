@@ -20,6 +20,7 @@ const firebaseMigration = '017_firebase_identities.sql';
 const pickupRuleMigration = '020_club_pickup_rule.sql';
 const pickupAtPreviousMeetingMigration = '021_club_pickup_at_previous_meeting.sql';
 const everySixWeeksMigration = '022_club_cadence_every_six_weeks.sql';
+const previousMeetingAllCadencesMigration = '023_club_previous_meeting_all_cadences.sql';
 
 async function inspect(client, schema) {
   const actual = await inventory(client, schema);
@@ -50,7 +51,9 @@ async function inspect(client, schema) {
   }
   if (ledger.includes(pickupAtPreviousMeetingMigration)) {
     expectedSchema.clubs.columns.pickup_at_previous_meeting = { type: 'boolean', not_null: true, default_value: 'false' };
-    expectedSchema.clubs.constraints.clubs_pickup_at_previous_meeting_check = { definition: 'CHECK ((NOT pickup_at_previous_meeting OR (cadence = (1.5)::double precision)))' };
+    if (!ledger.includes(previousMeetingAllCadencesMigration)) {
+      expectedSchema.clubs.constraints.clubs_pickup_at_previous_meeting_check = { definition: 'CHECK ((NOT pickup_at_previous_meeting OR (cadence = (1.5)::double precision)))' };
+    }
   }
   if (ledger.includes(cadenceOffsetMigration)) {
     expectedSchema.clubs.columns.cadence_offset = { type: 'integer', not_null: true, default_value: '0' };
@@ -92,7 +95,7 @@ async function inspect(client, schema) {
     if (!ledger.includes(name)) issues.push(`Migration ${name} is not recorded; inspect its effects before proceeding.`);
   }
   for (const name of ledger) {
-    if (!name.startsWith('seed:') && !migrations.includes(name) && !dataMigrations.includes(name) && ![cadenceMigration, meetingRuleMigration, cadenceOffsetMigration, discussionNotesMigration, firebaseMigration, pickupRuleMigration, pickupAtPreviousMeetingMigration, everySixWeeksMigration].includes(name)) issues.push(`Unknown migration ${name}; this repair cannot verify a newer or different schema.`);
+    if (!name.startsWith('seed:') && !migrations.includes(name) && !dataMigrations.includes(name) && ![cadenceMigration, meetingRuleMigration, cadenceOffsetMigration, discussionNotesMigration, firebaseMigration, pickupRuleMigration, pickupAtPreviousMeetingMigration, everySixWeeksMigration, previousMeetingAllCadencesMigration].includes(name)) issues.push(`Unknown migration ${name}; this repair cannot verify a newer or different schema.`);
   }
   const applied = ledger.includes(last);
   const titleExists = !!actual.title_label_assignments;

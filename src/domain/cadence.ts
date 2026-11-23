@@ -34,6 +34,7 @@ export function cadenceMonths(cycle: Cycle, club: Pick<Club, 'cadence' | 'cadenc
   return monthsInRange(cycle.startsOn, cycle.endsOn).filter((_, index) => club.cadence === 1 || (index + 3 - club.cadenceOffset) % 3 !== 2);
 }
 
+// Kept slots of the eligible clubs are re-dated to the club's current rule; moved lists those whose date changed.
 export function reconcileCadence(cycle: Cycle, clubs: Club[], clubIds: readonly string[], makeId: () => string) {
   const eligible = new Set(clubIds);
   const missing = [...eligible].filter((clubId) => !clubs.some((club) => club.id === clubId));
@@ -42,6 +43,15 @@ export function reconcileCadence(cycle: Cycle, clubs: Club[], clubIds: readonly 
     .map((club) => [club.id, new Set(cadenceMonths(cycle, club))]));
   const removed = cycle.slots.filter((slot) => wanted.has(slot.clubId) && !wanted.get(slot.clubId)!.has(slot.month));
   const removedIds = new Set(removed.map((slot) => slot.id));
+  const moved: { slot: Slot; from: string; to: string }[] = [];
+  const kept = cycle.slots.filter((slot) => !removedIds.has(slot.id)).map((slot) => {
+    const club = clubs.find((item) => item.id === slot.clubId);
+    if (!club || !eligible.has(club.id) || !slot.meeting) return slot;
+    const to = slotMeetingDate(cycle, club, slot.month);
+    if (to === slot.meeting) return slot;
+    moved.push({ slot, from: slot.meeting, to });
+    return { ...slot, meeting: to };
+  });
   const added: Slot[] = [];
   for (const [clubId, months] of wanted) {
     for (const month of months) {
@@ -50,5 +60,5 @@ export function reconcileCadence(cycle: Cycle, clubs: Club[], clubIds: readonly 
       }
     }
   }
-  return { cycle: { ...cycle, slots: [...cycle.slots.filter((slot) => !removedIds.has(slot.id)), ...added] }, removed, added };
+  return { cycle: { ...cycle, slots: [...kept, ...added] }, removed, added, moved };
 }

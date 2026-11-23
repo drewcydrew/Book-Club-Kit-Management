@@ -1,0 +1,1 @@
+ALTER TABLE clubs DROP CONSTRAINT clubs_pickup_at_previous_meeting_check;
