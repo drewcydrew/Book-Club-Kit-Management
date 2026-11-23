@@ -10,8 +10,9 @@ const migrations = [
   '007_cycle_months.sql', '008_kit_labels.sql', '009_title_labels.sql',
 ];
 const last = migrations[migrations.length - 1];
+const alignHumeClubRulesMigration = '025_align_hume_club_rules.sql';
 // Data-only migrations that do not change the schema this repair verifies.
-const dataMigrations = ['010_demo_preferences_2027_aligned.sql', '011_demo_preferences_2028.sql', '012_demo_cycles_2027_2028.sql'];
+const dataMigrations = ['010_demo_preferences_2027_aligned.sql', '011_demo_preferences_2028.sql', '012_demo_cycles_2027_2028.sql', alignHumeClubRulesMigration];
 const cadenceMigration = '013_club_cadence.sql';
 const meetingRuleMigration = '014_club_meeting_rule.sql';
 const cadenceOffsetMigration = '015_club_cadence_offset.sql';
