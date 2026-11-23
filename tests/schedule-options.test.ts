@@ -83,6 +83,7 @@ test('kit previews flag duplicate titles in the local proposal, even when other 
 test('changing a flexible meeting date recalculates its loan window', () => {
   const { data, cycle, slot, current, other } = fixture();
   slot.meeting = null;
+  data.clubs[0].pickupOccurrence = 3;
   const kits = new Map(data.kits.map((kit) => [kit.id, kit]));
   const titles = new Map(data.titles.map((title) => [title.id, title]));
   const preview = previewScheduleKit(data, cycle, slot, '2026-01-05', current, kits.get('k2')!,

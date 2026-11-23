@@ -4,32 +4,12 @@ const { normaliseIsbn } = require('./isbn');
 const { lookupBookDetailed } = require('./isbndb');
 const { formatSynopsis } = require('./synopsis');
 const { parseArgs } = require('./enrich-titles');
+const { inService } = require('./synopsis-transaction');
 
 // Matches tags other than <p>, <b>, and their closers, plus entities other than &amp;, &lt; and &gt;.
 // Synopses already in the formatted form (see synopsis.js) do not match, so a rerun leaves them alone.
 // The same pattern is used in SQL and in tests.
 const markupPattern = '<(?!/?[pb]>)[^>]+>|&(?!(?:amp|lt|gt);)(#[0-9]+|#x[0-9a-f]+|[a-z]+);';
-
-// Runs callback inside a transaction scoped to one library service, so row-level security applies.
-// The shared advisory lock matches the write lock taken by withTransaction in db.js.
-async function inService(pool, serviceId, callback) {
-  const client = await pool.connect();
-  let failed = false;
-  try {
-    await client.query('BEGIN');
-    await client.query("SELECT set_config('app.library_service_id', $1, true)", [serviceId]);
-    await client.query('SELECT pg_advisory_xact_lock_shared(180313023, hashtext($1))', [serviceId]);
-    const result = await callback(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (error) {
-    failed = true;
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release(failed);
-  }
-}
 
 // Prefers the ISBNdb synopsis, which is already cleaned; otherwise cleans the stored text locally.
 // Returns null when the stored value should stay as it is.

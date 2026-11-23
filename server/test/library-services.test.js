@@ -109,7 +109,7 @@ test('library services isolate records and reject cross-service references', { s
   assert.equal((await preferences.json()).library.name, first.name);
   const clubResponse = await request('/clubs', { method: 'POST', service: first.id, body: {
     name: 'Fictional club', branch: 'Main', size: 5, cadence: 1, cadenceOffset: 0,
-    meetingWeekday: 1, meetingOccurrence: 1, pickup: 'pickup', address: '',
+    meetingWeekday: 1, meetingOccurrence: 1, pickupWeekday: 1, pickupOccurrence: 1, pickup: 'pickup', address: '',
   } });
   assert.equal(clubResponse.status, 201);
   const club = await clubResponse.json();

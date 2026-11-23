@@ -257,7 +257,7 @@ test('treats the exact turnaround-buffer boundary as a cross-cycle conflict', ()
   const cycle = data.cycles[0];
   data.cycles.push({ ...cycle, id: 'other', slots: [{ id: 'other-slot', clubId: 'c1', month: '2026-12', meeting: '2026-12-10' }] });
   data.assignments = [{ id: 'other-assignment', cycleId: 'other', slotId: 'other-slot', clubId: 'c1', kitId: 'k1',
-    ready: '2026-11-13', meeting: '2026-12-10', due: '2026-12-11', locked: false }];
+    ready: '2026-11-23', meeting: '2026-12-10', due: '2026-12-21', locked: false }];
   const result = draft(data, cycle);
   assert.deepEqual(assignedTitles(data, result.assignments), { s1: 't2' });
 });

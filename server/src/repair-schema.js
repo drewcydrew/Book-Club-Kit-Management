@@ -17,6 +17,7 @@ const meetingRuleMigration = '014_club_meeting_rule.sql';
 const cadenceOffsetMigration = '015_club_cadence_offset.sql';
 const discussionNotesMigration = '016_title_discussion_notes.sql';
 const firebaseMigration = '017_firebase_identities.sql';
+const pickupRuleMigration = '020_club_pickup_rule.sql';
 
 async function inspect(client, schema) {
   const actual = await inventory(client, schema);
@@ -37,6 +38,12 @@ async function inspect(client, schema) {
     expectedSchema.clubs.columns.meeting_occurrence = { type: 'integer', not_null: true, default_value: '1' };
     expectedSchema.clubs.constraints.clubs_meeting_weekday_check = { definition: 'CHECK (((meeting_weekday >= 0) AND (meeting_weekday <= 6)))' };
     expectedSchema.clubs.constraints.clubs_meeting_occurrence_check = { definition: "CHECK ((meeting_occurrence = ANY (ARRAY[1, 2, 3, 4, '-1'::integer])))" };
+  }
+  if (ledger.includes(pickupRuleMigration)) {
+    expectedSchema.clubs.columns.pickup_weekday = { type: 'integer', not_null: true };
+    expectedSchema.clubs.columns.pickup_occurrence = { type: 'integer', not_null: true };
+    expectedSchema.clubs.constraints.clubs_pickup_weekday_check = { definition: 'CHECK (((pickup_weekday >= 0) AND (pickup_weekday <= 6)))' };
+    expectedSchema.clubs.constraints.clubs_pickup_occurrence_check = { definition: "CHECK ((pickup_occurrence = ANY (ARRAY[1, 2, 3, 4, '-1'::integer])))" };
   }
   if (ledger.includes(cadenceOffsetMigration)) {
     expectedSchema.clubs.columns.cadence_offset = { type: 'integer', not_null: true, default_value: '0' };

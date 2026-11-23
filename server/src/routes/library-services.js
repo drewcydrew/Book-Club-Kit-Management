@@ -71,7 +71,7 @@ router.post('/library-services/setup', async (req, res) => {
     let clubId;
     if (b.club) {
       clubId = randomUUID();
-      await c.query("INSERT INTO clubs(id,name,branch,size,cadence,cadence_offset,meeting_weekday,meeting_occurrence,pickup,address) VALUES($1,$2,$3,$4,1,0,1,1,'pickup','')",
+      await c.query("INSERT INTO clubs(id,name,branch,size,cadence,cadence_offset,meeting_weekday,meeting_occurrence,pickup_weekday,pickup_occurrence,pickup,address) VALUES($1,$2,$3,$4,1,0,1,1,1,1,'pickup','')",
         [clubId, b.club.name, b.club.branch, b.club.size]);
     }
     if (b.member) {

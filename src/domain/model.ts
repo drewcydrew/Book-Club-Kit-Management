@@ -68,6 +68,8 @@ export interface Club {
   cadenceOffset: 0 | 1 | 2;
   meetingWeekday: MeetingWeekday;
   meetingOccurrence: MeetingOccurrence;
+  pickupWeekday: MeetingWeekday;
+  pickupOccurrence: MeetingOccurrence;
   pickup: 'pickup' | 'delivery';
   address: string;
   history: string[];

@@ -114,6 +114,15 @@ npm run clean-synopses
 
 This targets only synopses containing HTML tags or entities other than the formatted `<p>`, `<b>` and escaped text, across all library services, and works after migration `018_library_services` (where `enrich-titles` is blocked). Titles with an ISBN are looked up in ISBNdb and the formatted ISBNdb synopsis is used. Titles without a usable ISBN or ISBNdb synopsis are formatted locally from the stored text. Already-formatted synopses are left alone, so reruns are safe. Each change is saved with a revision check, and a title edited during the run is reported as a conflict and needs a rerun. The command uses the same ISBNdb request spacing and `--interval-ms` option as `enrich-titles`, and it exits nonzero if a lookup fails or any conflicts occur. Output lists title IDs and counts only.
 
+To refresh the synopsis of every title from ISBNdb, including titles already formatted, run from `server`:
+
+```powershell
+npm run refresh-synopses -- --dry-run
+npm run refresh-synopses
+```
+
+Each title with an ISBN is looked up and its ISBNdb synopsis replaces the stored value when it differs. Titles without an ISBN, titles not found in ISBNdb, and titles with no synopsis returned keep their stored text. The command uses the same revision checks, request spacing, `--interval-ms` option and exit codes as `clean-synopses`. Output lists title IDs and counts only.
+
 ### Import 2027 demo preferences
 
 This legacy command is unavailable after migration 018.
@@ -174,7 +183,7 @@ npm run reconcile-club-meeting-rules
 
 The runner passes connection details through the environment, not command-line arguments. The script prints the connected database, schema and user, locks the clubs table against writes, and displays a full preview. Type `APPLY` only after reviewing it; any other response rolls back. Do not leave the prompt open indefinitely. On a serialization failure, rerun and review a fresh preview. Changed clubs get a revision increment; unchanged clubs do not. Repeating the script is a no-op unless rules have since been edited, in which case it would overwrite those edits.
 
-All workbook rules start on 2027-01-01, but the app cannot store that effective date: updated rules apply to undated meetings in any cycle and to meetings rebuilt by full generation. The workbook's per-club pickup and return rules are printed for review, not applied; pickup dates are not modeled per club, and loan windows use library settings. Existing slots, dates and assignments are untouched by this script. Subsequent confirmed full generation replaces shown clubs' dates and assignments, including locked ones. Refresh the app and review the resulting schedules.
+All workbook rules start on 2027-01-01, but the app cannot store that effective date: updated rules apply to undated meetings in any cycle and to meetings rebuilt by full generation. The workbook's per-club pickup and return rules are printed for review, not applied; each club's pickup rule (pickup occurrence and weekday) sets its pickup date, and return dates are the pickup date plus the library loan length. Existing slots, dates and assignments are untouched by this script. Subsequent confirmed full generation replaces shown clubs' dates and assignments, including locked ones. Refresh the app and review the resulting schedules.
 
 If the server connection is instead configured in a root `.env` file, Node 22 can load it explicitly:
 

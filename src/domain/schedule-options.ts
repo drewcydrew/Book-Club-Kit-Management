@@ -74,9 +74,15 @@ export function previewScheduleKit(data: Data, cycle: Cycle, slot: Slot, meeting
   let previewId = selected?.id ?? `preview:${cycle.id}:${slot.id}`;
   if (selected && others.some((a) => a.id === previewId)) return { state: 'unknown', messages: ['Assignment identifiers conflict. Refresh the schedule.'] };
   while (others.some((a) => a.id === previewId)) previewId += ':';
+  const club = data.clubs.find((item) => item.id === slot.clubId);
+  if (!club) return { state: 'unknown', messages: ['A meeting, club, kit or title is unavailable.'] };
+  const fresh = windowFor(data, club, meeting);
   const candidate: Assignment = { id: previewId, cycleId: cycle.id, slotId: slot.id, clubId: slot.clubId,
-    kitId: kit.id, ...windowFor(data, meeting), locked: false };
+    kitId: kit.id, ...fresh, locked: false };
   if (selected && selected.meeting === meeting) { candidate.ready = selected.ready; candidate.due = selected.due; }
   const messages = assignmentProblems(data, candidate, [...others, candidate], kitsById);
+  if (!(selected && selected.meeting === meeting) && fresh.ready <= cycle.deadline) {
+    messages.unshift(`The pickup date ${fresh.ready} must be after the preference deadline.`);
+  }
   return { state: messages.length ? 'warning' : 'clear', messages };
 }

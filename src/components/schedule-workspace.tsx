@@ -370,8 +370,14 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
       if (!validDate(meeting) || !meeting.startsWith(`${selectedSlot.month}-`) || meeting <= cycle.deadline || (selectedSlot.meeting && meeting !== selectedSlot.meeting)) {
         setMessage('The meeting must be in the slot month, after the deadline, and match the configured meeting date.'); return;
       }
+      const club = base.clubs.find((item) => item.id === selectedSlot.clubId);
+      if (!club) { setMessage('The club for this slot is unavailable.'); return; }
+      const pickupWindow = windowFor(base, club, meeting);
+      if (pickupWindow.ready <= cycle.deadline && !(selected && selected.meeting === meeting)) {
+        setMessage(`The pickup date ${pickupWindow.ready} must be after the preference deadline.`); return;
+      }
       const next: Assignment = { id: selected?.id ?? id(), cycleId: cycle.id, slotId: selectedSlot.id, clubId: selectedSlot.clubId,
-        kitId, ...windowFor(base, meeting), locked: false };
+        kitId, ...pickupWindow, locked: false };
       if (selected && selected.meeting === meeting) { next.ready = selected.ready; next.due = selected.due; }
       change([...assignments.filter((item) => item.slotId !== selectedSlot.id), next]);
     }

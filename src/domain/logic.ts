@@ -1,6 +1,6 @@
 import { addDays, today, validDate } from './dates';
 import type { Assignment, Club, Cycle, Data, Event, Kit, Slot } from './model';
-import { meetingDate } from './meeting-rule';
+import { meetingDate, pickupDate } from './meeting-rule';
 
 export function id(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -26,8 +26,8 @@ export function meetingFor(slot: Slot, club: Club, stagedMeeting?: string): stri
   return slot.meeting ?? stagedMeeting ?? meetingDate(slot.month, club);
 }
 
-export function windowFor(data: Data, meeting: string): Pick<Assignment, 'ready' | 'meeting' | 'due'> {
-  const ready = addDays(meeting, -Math.max(1, data.library.loanDays - 7));
+export function windowFor(data: Data, club: Club, meeting: string): Pick<Assignment, 'ready' | 'meeting' | 'due'> {
+  const ready = pickupDate(meeting, club);
   return { ready, meeting, due: addDays(ready, data.library.loanDays) };
 }
 
@@ -199,9 +199,13 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
       continue;
     }
     let meeting: string;
-    try { meeting = meetingFor(slot, club, stagedMeetings.get(slot.id)); }
+    let pickup: string;
+    try {
+      meeting = meetingFor(slot, club, stagedMeetings.get(slot.id));
+      pickup = pickupDate(meeting, club);
+    }
     catch {
-      slotErrors.set(slot.id, `${club.name} in ${slot.month}: the club meeting rule is invalid. Check the club details.`);
+      slotErrors.set(slot.id, `${club.name} in ${slot.month}: the club meeting or pickup rule is invalid. Check the club details.`);
       continue;
     }
     if (!validDate(meeting)) {
@@ -212,7 +216,16 @@ function* draftSteps(data: Data, cycle: Cycle, continueWithInvalidLocks = false,
       slotErrors.set(slot.id, `${club.name} in ${slot.month}: the meeting date ${meeting} must be after the preference deadline. Adjust the meeting date or deadline.`);
       continue;
     }
-    windows.set(slot.id, windowFor(data, meeting));
+    if (pickup <= cycle.deadline) {
+      slotErrors.set(slot.id, `${club.name} in ${slot.month}: the pickup date ${pickup} must be after the preference deadline. Adjust the pickup rule or deadline.`);
+      continue;
+    }
+    const slotWindow = windowFor(data, club, meeting);
+    if (slotWindow.due < meeting) {
+      slotErrors.set(slot.id, `${club.name} in ${slot.month}: the return date ${slotWindow.due} falls before the meeting ${meeting}. Adjust the pickup rule or loan length.`);
+      continue;
+    }
+    windows.set(slot.id, slotWindow);
     candidateIds.set(slot.id, id());
   }
 

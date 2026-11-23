@@ -26,7 +26,7 @@ import {
 import type { Club, Membership, Person } from "../domain/model";
 import { id } from "../domain/logic";
 import { cadenceLabel } from "../domain/cadence";
-import { meetingOccurrences, meetingRuleLabel, meetingWeekdays } from "../domain/meeting-rule";
+import { meetingOccurrences, meetingRuleLabel, meetingWeekdays, pickupRuleLabel } from "../domain/meeting-rule";
 import type { PickerOption } from "../domain/search";
 import {
   ApiError,
@@ -85,6 +85,8 @@ const blankClub = (branch: string): Club => ({
   cadenceOffset: 0,
   meetingWeekday: 1,
   meetingOccurrence: 1,
+  pickupWeekday: 1,
+  pickupOccurrence: 1,
   pickup: "pickup",
   address: "",
   history: [],
@@ -110,6 +112,8 @@ function detailsKey(value: Draft) {
     club.cadenceOffset,
     club.meetingWeekday,
     club.meetingOccurrence,
+    club.pickupWeekday,
+    club.pickupOccurrence,
     club.pickup,
     club.address,
   ]);
@@ -955,7 +959,7 @@ function ClubsContent() {
             <View style={pageStyles.clubHeader}>
               <Text accessibilityRole="header" style={pageStyles.clubName}>{value.name}</Text>
               <Note>
-                {value.branch} · {cadenceLabel(value.cadence, value.cadenceOffset)} · {meetingRuleLabel(value)} ·{" "}
+                {value.branch} · {cadenceLabel(value.cadence, value.cadenceOffset)} · {meetingRuleLabel(value)} · pickup {pickupRuleLabel(value)} ·{" "}
                 {value.pickup === "delivery" ? `Delivery to ${value.address || "address not set"}` : "Pickup"}
               </Note>
               <Text>Leader: {leader}</Text>
@@ -1130,7 +1134,7 @@ function ClubsContent() {
                   )}
                   <Fold
                     title="Details"
-                    summary={`${cadenceLabel(draft.club.cadence, draft.club.cadenceOffset)} · ${meetingRuleLabel(draft.club)} · ${draft.club.pickup}`}
+                    summary={`${cadenceLabel(draft.club.cadence, draft.club.cadenceOffset)} · ${meetingRuleLabel(draft.club)} · pickup ${pickupRuleLabel(draft.club)} · ${draft.club.pickup}`}
                     open={open.details}
                     onToggle={() => toggleSection("details")}
                   >
@@ -1167,6 +1171,11 @@ function ClubsContent() {
                     <Label>Meeting weekday</Label>
                     <Actions>{meetingWeekdays.map(({ value, label }) => <Action key={value} title={label} selected={draft.club.meetingWeekday === value} onPress={() => changeDetails({ meetingWeekday: value })} />)}</Actions>
                     <Note>Undated meetings use {meetingRuleLabel(draft.club)}. Changing this rule alone does not move dated meetings. Full schedule generation replaces shown clubs&apos; dates after confirmation.</Note>
+                    <Label>Pickup occurrence</Label>
+                    <Actions>{meetingOccurrences.map(({ value, label }) => <Action key={`pickup-${value}`} title={label} selected={draft.club.pickupOccurrence === value} onPress={() => changeDetails({ pickupOccurrence: value })} />)}</Actions>
+                    <Label>Pickup weekday</Label>
+                    <Actions>{meetingWeekdays.map(({ value, label }) => <Action key={`pickup-${value}`} title={label} selected={draft.club.pickupWeekday === value} onPress={() => changeDetails({ pickupWeekday: value })} />)}</Actions>
+                    <Note>Pickup uses {pickupRuleLabel(draft.club)} in the meeting month, or the previous month if that would fall after the meeting. Return is pickup plus the loan length. Changing this rule alone does not move dated assignments.</Note>
                     <Action
                       title={`Method: ${draft.club.pickup}`}
                       onPress={() =>
