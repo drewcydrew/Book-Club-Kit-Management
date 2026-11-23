@@ -162,7 +162,7 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
       emptyMessage="No meetings are scheduled for this club yet."
       labels={schedule.kitLabels} titleFor={titleFor} titleIdFor={titleIdFor}
       clubNameFor={() => club.name}
-      exportClub={{ name: club.name, details: overviewClubDetails(club) }} />
+      exportClub={{ name: club.name, details: overviewClubDetails(club), priorities: schedule.priorities }} />
     <Actions>
       <Action title="Refresh" onPress={refresh} />
     </Actions>

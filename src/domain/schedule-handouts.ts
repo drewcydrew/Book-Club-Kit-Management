@@ -1,6 +1,7 @@
 import { overviewClubDetails, overviewPdfMonths, type ClubOverviewPdfClub } from './club-overview-pdf';
 import { scheduleMeetings } from './cycle-overview';
 import { memberOverviewMonths } from './member-calendar';
+import { rankings } from './logic';
 import type { Assignment, Cycle, Data } from './model';
 
 export interface HandoutCover {
@@ -19,7 +20,9 @@ export function makeHandoutClubs(data: Data, cycle: Cycle, clubIds: string[], to
     const club = data.clubs.find((item) => item.id === id);
     if (!club) throw new Error('A selected club is unavailable. Refresh the schedule.');
     const months = memberOverviewMonths(scheduleMeetings([cycle], assignments, [id]), today, true);
-    return { club: club.name, details: overviewClubDetails(club), months: overviewPdfMonths(months, titleFor) };
+    const ranks = new Map((cycle.finalized[id] ?? rankings(data, cycle, id, true)).map((titleId, index) => [titleId, index + 1] as const));
+    const priorityFor = (assignment: Assignment) => ranks.get(titleFor(assignment)?.id ?? '') ?? null;
+    return { club: club.name, details: overviewClubDetails(club), months: overviewPdfMonths(months, titleFor, priorityFor) };
   });
   const covers = [...new Map(assignments.filter((assignment) => clubIds.includes(assignment.clubId))
     .flatMap((assignment) => {

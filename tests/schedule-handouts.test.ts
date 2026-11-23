@@ -45,6 +45,15 @@ test('handout clubs include a collecting cycle that the member view would hide',
   assert.ok(clubs[0].months.some((entry) => entry.book !== undefined));
 });
 
+test('handout badges show the club priority for each assigned title, or a dash when unranked', () => {
+  const { data, cycle } = fixture();
+  const titleOfKit = (kitId: string) => data.titles.find((title) => title.id === data.kits.find((kit) => kit.id === kitId)!.titleId)!.id;
+  cycle.finalized = { c1: [titleOfKit('k2'), titleOfKit('k1')], c2: [] };
+  const { clubs } = makeHandoutClubs(data, cycle, ['c1', 'c2'], '2027-01-01');
+  assert.equal(clubs[0].months.find((entry) => entry.month === '2027-01')?.book?.priority, 2);
+  assert.equal(clubs[1].months.find((entry) => entry.month === '2027-01')?.book?.priority, null);
+});
+
 test('combined and ZIP handouts contain exactly one page per shown club', async () => {
   const { data, cycle } = fixture();
   data.clubs[0].name = '../Same/club';

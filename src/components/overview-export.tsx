@@ -6,8 +6,9 @@ import type { Assignment, Title } from '../domain/model';
 import { deliver, fontData, loadCovers } from './export-files';
 import { Action, Actions, Label, Note } from './ui';
 
-export function OverviewExport({ club, details, months, titleFor }: {
+export function OverviewExport({ club, details, months, titleFor, priorities }: {
   club: string; details: string; months: MemberOverviewMonth[]; titleFor: (assignment: Assignment) => Title | undefined;
+  priorities?: Record<string, Record<string, number>>;
 }) {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -23,9 +24,10 @@ export function OverviewExport({ club, details, months, titleFor }: {
         const title = entry.book?.assignment ? titleFor(entry.book.assignment) : undefined;
         return title ? [{ id: title.id, coverUrl: title.coverUrl ?? '', isbn: title.isbn }] : [];
       });
+      const priorityFor = priorities && ((assignment: Assignment) => priorities[assignment.cycleId]?.[titleFor(assignment)?.id ?? ''] ?? null);
       const [font, result] = await Promise.all([fontData(), loadCovers(titles)]);
       const pdf = await makeClubOverviewPdf({
-        clubs: [{ club, details, months: overviewPdfMonths(months, titleFor) }], fontBytes: font, covers: result.covers, exportedAt: date,
+        clubs: [{ club, details, months: overviewPdfMonths(months, titleFor, priorityFor) }], fontBytes: font, covers: result.covers, exportedAt: date,
       });
       await deliver(pdf.bytes, `${club.replace(/[^\w-]+/g, '-').toLowerCase() || 'club'}-overview-${date}.pdf`, 'application/pdf', 'Save overview');
       const missing = result.missing + pdf.invalidCovers;

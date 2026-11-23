@@ -271,6 +271,8 @@ export type ClubSchedule = {
   kits: SharedKit[];
   titles: SharedTitle[];
   kitLabels: KitLabel[];
+  // Club priority rank per cycle and title. Only returned to verified staff.
+  priorities?: Record<string, Record<string, number>>;
 };
 export type ClubIndexItem = { id: string; name: string; branch: string };
 
@@ -282,13 +284,20 @@ export async function loadClubSchedule(clubId: string, signal?: AbortSignal, ser
       !Array.isArray(value.assignments) || !value.assignments.every(isAssignment) ||
       !Array.isArray(value.kits) || !value.kits.every(isKit) ||
       !Array.isArray(value.titles) || !value.titles.every(isTitle) ||
-      !Array.isArray(value.kitLabels) || !value.kitLabels.every(isKitLabel)) {
+      !Array.isArray(value.kitLabels) || !value.kitLabels.every(isKitLabel) ||
+      (value.priorities !== undefined && !isPriorities(value.priorities))) {
     throw new Error(`Server returned invalid data for ${path}.`);
   }
   return {
     club: value.club, cycles: value.cycles, assignments: value.assignments,
     kits: value.kits, titles: value.titles, kitLabels: value.kitLabels,
+    priorities: value.priorities,
   };
+}
+
+function isPriorities(value: unknown): value is Record<string, Record<string, number>> {
+  return isObject(value) && Object.values(value).every((ranks) =>
+    isObject(ranks) && Object.values(ranks).every((rank) => typeof rank === 'number'));
 }
 
 export async function loadClubIndex(signal?: AbortSignal, serviceId?: string): Promise<ClubIndexItem[]> {

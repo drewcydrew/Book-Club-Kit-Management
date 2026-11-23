@@ -165,6 +165,21 @@ router.get('/club-schedules', async (_req, res) => {
   res.json(clubs);
 });
 
+async function isStaff(c, uid) {
+  if (!uid) return false;
+  const result = await c.query('SELECT p.role FROM firebase_identities f JOIN people p ON p.id=f.person_id WHERE f.uid=$1', [uid]);
+  return result.rowCount > 0 && result.rows[0].role !== 'member';
+}
+
+function rankTitles(ballots, cycleId) {
+  const scores = new Map();
+  ballots.filter((ballot) => ballot.cycleId === cycleId).forEach((ballot) => {
+    ballot.ranking.filter((titleId) => ballot.marks[titleId] === 'selected')
+      .forEach((titleId, index, list) => scores.set(titleId, (scores.get(titleId) ?? 0) + list.length - index));
+  });
+  return [...scores].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([titleId]) => titleId);
+}
+
 router.get('/club-schedules/:clubId', async (req, res) => {
   const clubId = id(req.params.clubId, 'clubId');
   const data = await withTransaction(async (c) => {
@@ -187,7 +202,22 @@ router.get('/club-schedules/:clubId', async (req, res) => {
     const kitLabels = (await c.query(`SELECT id,category,name,revision FROM kit_labels
       WHERE id IN (SELECT label_id FROM title_label_assignments WHERE title_id=ANY($1::text[]))
       ORDER BY category,lower(name),id`, [titleIds])).rows;
-    return { club, cycles, assignments, kits, titles, kitLabels };
+    const result = { club, cycles, assignments, kits, titles, kitLabels };
+    if (await isStaff(c, req.auth?.uid)) {
+      const cycleIds = [...cycleById.keys()];
+      const ballots = await loadBallots(c, ' WHERE b.club_id=$1 AND b.cycle_id=ANY($2::text[])', [clubId, cycleIds]);
+      const groups = new Set((await c.query('SELECT cycle_id FROM finalized_groups WHERE club_id=$1 AND cycle_id=ANY($2::text[])', [clubId, cycleIds])).rows.map((row) => row.cycle_id));
+      const finalized = new Map();
+      for (const row of (await c.query(`SELECT cycle_id,title_id FROM finalized_rankings
+        WHERE club_id=$1 AND cycle_id=ANY($2::text[]) ORDER BY cycle_id,rank`, [clubId, cycleIds])).rows) {
+        finalized.set(row.cycle_id, [...(finalized.get(row.cycle_id) ?? []), row.title_id]);
+      }
+      result.priorities = Object.fromEntries(cycleIds.map((cycleId) => {
+        const ranked = groups.has(cycleId) ? finalized.get(cycleId) ?? [] : rankTitles(ballots, cycleId);
+        return [cycleId, Object.fromEntries(ranked.map((titleId, index) => [titleId, index + 1]))];
+      }));
+    }
+    return result;
   }, { readOnly: true });
   res.json(data);
 });

@@ -21,7 +21,7 @@ type Props = {
   titleFor: (assignment: Assignment) => Title | undefined;
   titleIdFor: (assignment: Assignment) => string | undefined;
   clubNameFor: (clubId: string) => string;
-  exportClub?: { name: string; details: string };
+  exportClub?: { name: string; details: string; priorities?: Record<string, Record<string, number>> };
 };
 
 function meetingDate(meeting: MemberScheduleMeeting): string {
@@ -154,7 +154,7 @@ export function MemberSchedule({ view, onViewChange, meetings, today, emptyMessa
       titleFor={titleFor} clubNameFor={clubNameFor}
       onOpenMeeting={(meeting) => setDetail({ kind: 'meeting', key: meeting.key })} />}
     {view === 'overview' && exportClub && <Card>
-      <OverviewExport club={exportClub.name} details={exportClub.details} months={overviewMonths} titleFor={titleFor} />
+      <OverviewExport club={exportClub.name} details={exportClub.details} months={overviewMonths} titleFor={titleFor} priorities={exportClub.priorities} />
     </Card>}
     {view === 'meetings' && <Card>
       <Label>Meetings</Label>

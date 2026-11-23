@@ -42,7 +42,7 @@ export type OverviewPdfMonth = {
   month: string;
   weeks: (string | null)[][];
   markers: Map<string, OverviewMarkerKind[]>;
-  book?: { titleId?: string; name: string; author: string };
+  book?: { titleId?: string; name: string; author: string; priority?: number | null };
 };
 
 export type ClubOverviewPdfClub = { club: string; details: string; months: OverviewPdfMonth[] };
@@ -51,13 +51,16 @@ export function overviewClubDetails(club: Pick<Club, 'branch' | 'meetingWeekday'
   return `${club.branch} · ${meetingRuleLabel(club)} · ${cadenceLabel(club.cadence)}`;
 }
 
-export function overviewPdfMonths(months: MemberOverviewMonth[], titleFor: (assignment: Assignment) => Title | undefined): OverviewPdfMonth[] {
+// priorityFor omitted: no badges. Returning null shows "—" for an unranked title.
+export function overviewPdfMonths(months: MemberOverviewMonth[], titleFor: (assignment: Assignment) => Title | undefined,
+  priorityFor?: (assignment: Assignment) => number | null): OverviewPdfMonth[] {
   return months.map((entry) => {
     const title = entry.book?.assignment ? titleFor(entry.book.assignment) : undefined;
     const book = entry.book && {
       titleId: title?.id,
       name: title?.name ?? 'Unavailable title',
       author: title?.author ?? '',
+      priority: entry.book.assignment && priorityFor ? priorityFor(entry.book.assignment) : undefined,
     };
     const markers = new Map([...entry.markers].map(([date, list]) => [date, list.map((marker) => marker.kind)] as const));
     return { month: entry.month, weeks: entry.weeks, markers, book };
@@ -111,7 +114,7 @@ export async function makeClubOverviewPdf({ clubs, fontBytes, covers, exportedAt
   doc.registerFontkit(fontkit);
   const font = await doc.embedFont(fontBytes);
   const supported = new Set(font.getCharacterSet());
-  const text = [exportedAt, 'Overview', 'No book chosen', 'No cover', 'No meetings are scheduled for this club.',
+  const text = [exportedAt, 'Overview', 'No book chosen', 'No cover', 'No meetings are scheduled for this club.', '#', '—',
     ...Object.values(markerLabels),
     ...clubs.flatMap((club) => [club.club, club.details, ...club.months.flatMap((entry) => [calendarMonthLabel(entry.month), entry.book?.name ?? '', entry.book?.author ?? ''])])].join('');
   const unsupported = [...text].find((character) => !/\s/.test(character) && !supported.has(character.codePointAt(0)!));
@@ -198,6 +201,17 @@ function drawClubPage(page: PDFPage, font: PDFFont, images: Map<string, PDFImage
   const cardH = cardHeight * scale;
   const gridLeft = margin + contentWidth * (1 - scale) / 2;
 
+  const drawPriorityBadge = (coverRight: number, coverTop: number, priority: number | null, k: number) => {
+    const label = priority === null ? '—' : `#${priority}`;
+    const size = 6 * k;
+    const labelWidth = font.widthOfTextAtSize(label, size);
+    const radius = Math.max(6.5 * k, labelWidth / 2 + 2 * k);
+    const centerX = coverRight - 2 * k;
+    const centerY = coverTop - 2 * k;
+    page.drawCircle({ x: centerX, y: centerY, size: radius, color: ink, borderColor: paper, borderWidth: 0.6 * k });
+    page.drawText(label, { x: centerX - labelWidth / 2, y: centerY - size * 0.35, size, font, color: paper });
+  };
+
   const drawCard = (entry: OverviewPdfMonth, x: number, yTop: number, k: number) => {
     const bottom = yTop - cardH;
     page.drawRectangle({ x, y: bottom, width: cardWidth, height: cardH, color: paper, borderColor: rule, borderWidth: 0.5 });
@@ -210,6 +224,7 @@ function drawClubPage(page: PDFPage, font: PDFFont, images: Map<string, PDFImage
     const textWidth = calendarX - textX - 6 * k;
 
     const book = entry.book;
+    let coverRight = x + pad + coverWidth;
     if (book) {
       const image = book.titleId ? images.get(book.titleId) : undefined;
       if (image) {
@@ -217,10 +232,12 @@ function drawClubPage(page: PDFPage, font: PDFFont, images: Map<string, PDFImage
         const w = image.width * s;
         const h = image.height * s;
         page.drawImage(image, { x: x + pad + (coverWidth - w) / 2, y: yTop - pad - h, width: w, height: h });
+        coverRight = x + pad + (coverWidth + w) / 2;
       } else {
         page.drawRectangle({ x: x + pad, y: yTop - pad - coverHeight, width: coverWidth, height: coverHeight, color: placeholder });
         drawCentered('No cover', x + pad, coverWidth, yTop - pad - coverHeight / 2, 5.5 * k, muted);
       }
+      if (book.priority !== undefined) drawPriorityBadge(coverRight, yTop - pad, book.priority, k);
     }
 
     let cursor = yTop - pad - 2 * k;
