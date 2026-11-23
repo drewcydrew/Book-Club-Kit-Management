@@ -41,7 +41,7 @@ export interface KitCalendar {
   kits: KitSummary[];
 }
 
-export function buildKitCalendar(groups: KitGroup[], cycleMonths: string[], loanDays: number): KitCalendar {
+export function buildKitCalendar(groups: KitGroup[], cycleMonths: string[], allowedDays: number): KitCalendar {
   const marks = new Map<string, KitDayMark[]>();
   const months = new Set(cycleMonths);
   const kits = groups.map((group): KitSummary => {
@@ -49,7 +49,7 @@ export function buildKitCalendar(groups: KitGroup[], cycleMonths: string[], loan
       .filter((assignment) => validDate(assignment.ready) && validDate(assignment.due))
       .sort((a, b) => a.ready.localeCompare(b.ready) || a.id.localeCompare(b.id));
     const overruns = new Set(assignments
-      .filter((assignment) => daysBetween(assignment.ready, assignment.due) > loanDays)
+      .filter((assignment) => daysBetween(assignment.ready, assignment.due) > allowedDays)
       .map((assignment) => assignment.id));
     const gaps: KitGap[] = [];
     let overlap = false;

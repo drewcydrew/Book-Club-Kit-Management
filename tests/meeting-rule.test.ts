@@ -63,6 +63,13 @@ test('draft picks up before the meeting and reports a loan overrun as a warning,
   assert.ok(!result.problems.some((problem) => problem.includes('loan period')));
 });
 
+test('loan overrun allows the loan period plus the turnaround buffer before warning', () => {
+  const data = seed();
+  data.library = { ...data.library, loanDays: 28, bufferDays: 3 };
+  assert.equal(loanOverrun(data, { ready: '2027-01-01', due: '2027-02-01' }), null);
+  assert.match(loanOverrun(data, { ready: '2027-01-01', due: '2027-02-02' }) ?? '', /loan period plus 3-day turnaround buffer/);
+});
+
 test('explicit and staged dates take precedence over a changed club rule', () => {
   const data = seed();
   const club = { ...data.clubs[0], meetingWeekday: 4 as const, meetingOccurrence: 3 as const };

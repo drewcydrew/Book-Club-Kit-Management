@@ -44,6 +44,7 @@ test('title groups prioritize unused ranked titles, retain assigned priorities a
 
 test('kit previews replace the current slot and preserve its loan window when checking other cycles', () => {
   const { data, cycle, slot, current, other } = fixture();
+  data.library = { ...data.library, bufferDays: 0 };
   const kits = new Map(data.kits.map((kit) => [kit.id, kit]));
   const titles = new Map(data.titles.map((title) => [title.id, title]));
   const preview = (kitId: string, meeting = current.meeting, stale = false) =>

@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { ClubFilterCard } from "../components/club-filter";
+import { YearPreview } from "../components/club-year-preview";
 import { useDraftNavigationGuard } from "../components/navigation-guard";
 import { SearchPicker } from "../components/search-picker";
 import { TitleCover } from "../components/title-cover";
@@ -1266,6 +1267,7 @@ function ClubsContent() {
                       })}
                     </Actions>
                     <Note>{skipMonthsLabel(draft.club.skipMonths)}. Skipped months get no meetings or pickups. Changing this alone does not move dated assignments.</Note>
+                    <YearPreview club={draft.club} />
                     <Action
                       title={`Method: ${draft.club.pickup}`}
                       onPress={() =>

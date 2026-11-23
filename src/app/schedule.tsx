@@ -127,7 +127,7 @@ function ScheduleContent() {
         barcode: kit?.barcode ?? `Unavailable kit (${group.kitId})`,
         coverUrl: title?.coverUrl,
         isbn: title?.isbn ?? '',
-        calendar: buildKitCalendar([group], monthsInRange(cycle.startsOn, cycle.endsOn), viewData.library.loanDays),
+        calendar: buildKitCalendar([group], monthsInRange(cycle.startsOn, cycle.endsOn), viewData.library.loanDays + viewData.library.bufferDays),
       };
     })
     : null;

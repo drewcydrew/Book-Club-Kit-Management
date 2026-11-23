@@ -41,10 +41,12 @@ export function windowFor(data: Data, club: Club, meeting: string, previousMeeti
 }
 
 // Overruns are reported as warnings rather than blocking problems, so generation does not treat them as conflicts.
+// The allowance is the loan period plus the turnaround buffer.
 export function loanOverrun(data: Data, window: Pick<Assignment, 'ready' | 'due'>): string | null {
   if (!validDate(window.ready) || !validDate(window.due)) return null;
   const days = daysBetween(window.ready, window.due);
-  return days > data.library.loanDays ? `Checkout runs ${days} days, longer than the ${data.library.loanDays}-day loan period.` : null;
+  const allowed = data.library.loanDays + data.library.bufferDays;
+  return days > allowed ? `Checkout runs ${days} days, longer than the ${data.library.loanDays}-day loan period plus ${data.library.bufferDays}-day turnaround buffer.` : null;
 }
 
 export function assignmentProblem(data: Data, assignment: Assignment, others: Assignment[]): string | null {

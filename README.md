@@ -194,7 +194,7 @@ npm run align-hume-club-rules
 ```
 
 Type `APPLY` only after reviewing the preview; any other response rolls back.
-All workbook rules start on 2027-01-01, but the app cannot store that effective date: updated rules apply to undated meetings in any cycle and to meetings rebuilt by full generation. The workbook's per-club pickup and return rules are printed for review, not applied; each club's pickup rule (pickup week and weekday) sets its pickup date in the month before the meeting, and return dates are seven days after the meeting. Checkouts longer than the library loan length are flagged as warnings. Existing slots, dates and assignments are untouched by this script. Subsequent confirmed full generation replaces shown clubs' dates and assignments, including locked ones. Refresh the app and review the resulting schedules.
+All workbook rules start on 2027-01-01, but the app cannot store that effective date: updated rules apply to undated meetings in any cycle and to meetings rebuilt by full generation. The workbook's per-club pickup and return rules are printed for review, not applied; each club's pickup rule (pickup week and weekday) sets its pickup date in the month before the meeting, and return dates are seven days after the meeting. Checkouts longer than the library loan length plus the turnaround buffer are flagged as warnings. Existing slots, dates and assignments are untouched by this script. Subsequent confirmed full generation replaces shown clubs' dates and assignments, including locked ones. Refresh the app and review the resulting schedules.
 
 If the server connection is instead configured in a root `.env` file, Node 22 can load it explicitly:
 

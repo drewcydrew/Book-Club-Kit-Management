@@ -34,7 +34,7 @@ function markRole(mark: KitDayMark): string {
 
 export function KitCalendarList({ entries, clubNameFor, today, wide = false }: Props) {
   return <View style={{ gap: 12 }}>
-    <Note>Select a kit to show its calendar. Coloured bars show when it is out, from pickup to return. Amber bars are loans longer than the loan period.</Note>
+    <Note>Select a kit to show its calendar. Coloured bars show when it is out, from pickup to return. Amber bars are loans longer than the loan period plus turnaround buffer.</Note>
     {entries.length === 0 && <Note>No kits are assigned to the selected clubs in this cycle.</Note>}
     {entries.map((entry, index) => <KitEntry key={entry.kitId} entry={entry} colour={palette[index % palette.length]}
       clubNameFor={clubNameFor} today={today} wide={wide} />)}
