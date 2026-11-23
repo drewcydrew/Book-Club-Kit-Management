@@ -151,7 +151,7 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
     {picker}
     <Card>
       <Text accessibilityRole="header" style={[uiStyles.heading, { fontSize: 24 }]}>{club.name}</Text>
-      <Note>{club.branch} · {meetingRuleLabel(club)} · {cadenceLabel(club.cadence, club.cadenceOffset)}</Note>
+      <Note>{club.branch} · {meetingRuleLabel(club)} · {cadenceLabel(club.cadence)}</Note>
       <Label>Pickup & address</Label>
       <Note>{club.pickup === 'pickup' ? 'Pickup' : 'Delivery'} · {club.address || 'No address recorded'}</Note>
       <Label>Members</Label>
@@ -170,7 +170,7 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
       emptyMessage="No meetings are scheduled for this club yet."
       labels={schedule.kitLabels} titleFor={titleFor} titleIdFor={titleIdFor}
       clubNameFor={() => club.name}
-      exportClub={{ name: club.name, details: `${club.branch} · ${meetingRuleLabel(club)} · ${cadenceLabel(club.cadence, club.cadenceOffset)}` }} />
+      exportClub={{ name: club.name, details: `${club.branch} · ${meetingRuleLabel(club)} · ${cadenceLabel(club.cadence)}` }} />
     <Actions>
       <Action title="Refresh" onPress={refresh} />
     </Actions>

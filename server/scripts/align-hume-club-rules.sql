@@ -12,8 +12,8 @@ BEGIN
   END IF;
   PERFORM set_config('search_path', format('%I, pg_catalog', target_schema), true);
   IF NOT EXISTS (SELECT 1 FROM schema_migrations WHERE name = '018_library_services.sql')
-     OR NOT EXISTS (SELECT 1 FROM schema_migrations WHERE name = '020_club_pickup_rule.sql') THEN
-    RAISE EXCEPTION 'Library service and pickup-rule migrations 018 and 020 are required.';
+     OR NOT EXISTS (SELECT 1 FROM schema_migrations WHERE name = '024_standardise_club_scheduling.sql') THEN
+    RAISE EXCEPTION 'Library service and scheduling migrations 018 and 024 are required.';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM library_services WHERE id = 'hume') THEN
     RAISE EXCEPTION 'The hume library service does not exist.';
@@ -41,7 +41,8 @@ CREATE TEMP TABLE source_rules (
 
 -- Workbook: book club meeting rules (1).xlsx, Sheet1, rows 2-44 (43 clubs, rule start 2027-01-01).
 -- NULL means the workbook gives no value, so the existing club value is kept.
--- Relative pickups ("Mon Before" etc.) are approximated as the nth weekday of the month before the meeting.
+-- Pickup offsets are days from the previous meeting (-7..7). "X Before" and "On Day" rules are converted;
+-- occurrence-based pickups (e.g. "Third Mon") cannot be expressed as an offset, so the existing offset is kept for review.
 INSERT INTO source_rules VALUES
   ('Aqua Book Club', 1, 3, 3, 1, 3, 'Third Wed', 'Third Mon', ''),
   ('Attwood Book Lovers', 1, 2, 3, 1, 3, 'Third Tue', 'Third Mon', ''),
@@ -142,11 +143,17 @@ SELECT s.source, s.meeting_rule, s.pickup_rule, s.approximation,
     WHEN cs.exact THEN 'exact'
     ELSE 'alias: review' END AS match_status,
   c.id AS club_id, c.name AS club_name, c.revision,
-  c.cadence AS old_cadence, s.cadence AS new_cadence,
+  c.cadence AS old_cadence, CASE WHEN s.cadence = 1.5 THEN 2 ELSE s.cadence END AS new_cadence,
   c.meeting_weekday AS old_meeting_weekday, coalesce(s.meeting_weekday, c.meeting_weekday) AS new_meeting_weekday,
   c.meeting_occurrence AS old_meeting_occurrence, coalesce(s.meeting_occurrence, c.meeting_occurrence) AS new_meeting_occurrence,
-  c.pickup_weekday AS old_pickup_weekday, coalesce(s.pickup_weekday, c.pickup_weekday) AS new_pickup_weekday,
-  c.pickup_occurrence AS old_pickup_occurrence, coalesce(s.pickup_occurrence, c.pickup_occurrence) AS new_pickup_occurrence
+  c.pickup_offset_days AS old_pickup_offset_days,
+  CASE WHEN lower(s.pickup_rule) LIKE '%on day%' THEN 0
+    WHEN lower(s.pickup_rule) LIKE '% before' AND s.pickup_weekday IS NOT NULL AND coalesce(s.meeting_weekday, c.meeting_weekday) IS NOT NULL
+      THEN ((s.pickup_weekday + 6) % 7) - ((coalesce(s.meeting_weekday, c.meeting_weekday) + 6) % 7)
+    ELSE c.pickup_offset_days END AS new_pickup_offset_days,
+  CASE WHEN lower(s.pickup_rule) LIKE '%on day%' THEN 'on day'
+    WHEN lower(s.pickup_rule) LIKE '% before' AND s.pickup_weekday IS NOT NULL AND coalesce(s.meeting_weekday, c.meeting_weekday) IS NOT NULL THEN 'weekday offset (approximation)'
+    ELSE 'not convertible: existing offset kept' END AS pickup_note
 FROM source_rules s
 LEFT JOIN candidate_summary cs ON cs.source = s.source
 LEFT JOIN collisions ON collisions.club_id = cs.club_id AND cs.matches = 1
@@ -155,20 +162,20 @@ ORDER BY s.source;
 
 CREATE TEMP TABLE targets ON COMMIT DROP AS
 SELECT p.*,
-  (p.old_cadence, p.old_meeting_weekday, p.old_meeting_occurrence, p.old_pickup_weekday, p.old_pickup_occurrence)
+  (p.old_cadence, p.old_meeting_weekday, p.old_meeting_occurrence, p.old_pickup_offset_days)
     IS DISTINCT FROM
-  (p.new_cadence, p.new_meeting_weekday, p.new_meeting_occurrence, p.new_pickup_weekday, p.new_pickup_occurrence) AS changed
+  (p.new_cadence, p.new_meeting_weekday, p.new_meeting_occurrence, p.new_pickup_offset_days) AS changed
 FROM proposal p
 WHERE p.match_status IN ('exact', 'alias: review');
 
 \echo 'Review source rules, candidate clubs and proposed values. Weekdays: 0 Sunday, 1 Monday ... 6 Saturday.'
-\echo 'Occurrences: 1-4 or -1 for last. Six-weekly clubs use cadence 1.5 and keep the existing occurrence.'
+\echo 'Occurrences: 1-4 or -1 for last. Six-weekly source cadence 1.5 is migrated to cadence 2 (every six weeks).'
 SELECT source, meeting_rule, candidates, match_status, old_cadence, new_cadence,
   old_meeting_weekday, new_meeting_weekday, old_meeting_occurrence, new_meeting_occurrence
 FROM proposal ORDER BY source;
 
-\echo 'Pickup rules: approximated relative pickups are the nth weekday of the month before the meeting. Return is seven days after the meeting.'
-SELECT source, pickup_rule, old_pickup_weekday, new_pickup_weekday, old_pickup_occurrence, new_pickup_occurrence, approximation
+\echo 'Pickup offsets are days from the previous meeting (-7..7). Return is seven days after the meeting.'
+SELECT source, pickup_rule, old_pickup_offset_days, new_pickup_offset_days, pickup_note, approximation
 FROM proposal ORDER BY source;
 
 \echo 'Existing meeting slots and schedule assignments are not changed. Future assignments for changed clubs are reported below.'
@@ -187,8 +194,8 @@ WHERE sa.library_service_id = 'hume' AND sa.meeting >= current_date;
 SELECT :'confirmation' = 'APPLY' AS apply_changes \gset
 \if :apply_changes
   UPDATE clubs c SET cadence = t.new_cadence, meeting_weekday = t.new_meeting_weekday,
-    meeting_occurrence = t.new_meeting_occurrence, pickup_weekday = t.new_pickup_weekday,
-    pickup_occurrence = t.new_pickup_occurrence, revision = c.revision + 1
+    meeting_occurrence = t.new_meeting_occurrence, pickup_offset_days = t.new_pickup_offset_days,
+    revision = c.revision + 1
   FROM targets t WHERE t.club_id = c.id AND t.changed AND c.library_service_id = 'hume';
   COMMIT;
   \echo 'Changes committed.'

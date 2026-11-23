@@ -1,6 +1,6 @@
 import { addDays, daysBetween, today, validDate } from './dates';
 import type { Assignment, Club, Cycle, Data, Event, Kit, Slot } from './model';
-import { meetingDate, pickupDate, returnDate } from './meeting-rule';
+import { meetingDate, pickupDate, previousMonth, returnDate } from './meeting-rule';
 
 export function id(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -26,12 +26,14 @@ export function meetingFor(slot: Slot, club: Club, stagedMeeting?: string): stri
   return slot.meeting ?? stagedMeeting ?? meetingDate(slot.month, club);
 }
 
-// The club's closest earlier meeting in the same cycle, used by "previous meeting week" pickup. Undefined when there is none.
+// The meeting one cadence period before this slot, which pickup is measured from. Undefined when there is none,
+// for example the cycle's first meeting or a monthly meeting after a skipped month.
 export function previousMeetingFor(cycle: Cycle, slot: Slot, club: Club, stagedMeeting: (slotId: string) => string | undefined): string | undefined {
-  if (!club.pickupAtPreviousMeeting) return undefined;
   const [previous] = cycle.slots.filter((item) => item.clubId === slot.clubId && item.month < slot.month)
     .sort((a, b) => b.month.localeCompare(a.month));
-  return previous ? meetingFor(previous, club, stagedMeeting(previous.id)) : undefined;
+  if (!previous) return undefined;
+  if (club.cadence === 1 && previous.month !== previousMonth(slot.month)) return undefined;
+  return meetingFor(previous, club, stagedMeeting(previous.id));
 }
 
 export function windowFor(data: Data, club: Club, meeting: string, previousMeeting?: string): Pick<Assignment, 'ready' | 'meeting' | 'due'> {

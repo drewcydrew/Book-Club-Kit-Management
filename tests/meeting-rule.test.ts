@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { meetingDate, meetingRuleLabel, pickupDate, pickupRuleLabel, preserveUnassignedMeetingDates, returnDate } from '../src/domain/meeting-rule';
+import { meetingDate, meetingRuleLabel, pickupDate, pickupOffsetLabel, preserveUnassignedMeetingDates, returnDate } from '../src/domain/meeting-rule';
 import { draft, loanOverrun, meetingFor } from '../src/domain/logic';
 import { slotChanges } from '../src/domain/cycle-overview';
 import { seed } from '../src/domain/seed';
@@ -21,22 +21,22 @@ test('monthly rules calculate every weekday and the last occurrence in leap and 
   assert.throws(() => meetingDate('2027-13', { meetingWeekday: 4, meetingOccurrence: 1 }), /invalid/);
 });
 
-test('pickup rules always use the previous month, so pickup is before the meeting', () => {
-  const rule = { pickupWeekday: 4 as const, pickupOccurrence: 2 as const };
+test('pickup is an offset from the previous meeting, and falls back to the month before without one', () => {
+  const rule = { meetingWeekday: 4 as const, meetingOccurrence: 2 as const, pickupOffsetDays: -7 };
+  assert.equal(pickupDate('2027-02-15', rule, '2027-01-14'), '2027-01-07');
+  assert.equal(pickupDate('2027-06-15', { ...rule, pickupOffsetDays: 3 }, '2027-03-16'), '2027-03-19');
+  assert.equal(pickupDate('2027-06-15', { ...rule, pickupOffsetDays: 0 }, '2027-03-16'), '2027-03-16');
   assert.equal(pickupDate('2027-02-15', rule), '2027-01-07');
-  assert.equal(pickupDate('2027-02-01', rule), '2027-01-07');
-  assert.equal(pickupDate('2027-02-22', { pickupWeekday: 4, pickupOccurrence: -1 }), '2027-01-28');
   assert.equal(pickupDate('2027-01-21', rule), '2026-12-10');
-  assert.equal(pickupDate('2027-01-21', { pickupWeekday: 2, pickupOccurrence: 3 }), '2026-12-15');
-  assert.throws(() => pickupDate('2027-13', rule), /invalid/);
+  assert.equal(pickupDate('2027-01-21', { meetingWeekday: 2, meetingOccurrence: 3, pickupOffsetDays: 0 }), '2026-12-15');
+  assert.throws(() => pickupDate('2027-13-01', rule), /invalid/);
+  assert.throws(() => pickupDate('2027-02-15', { ...rule, pickupOffsetDays: 8 }, '2027-01-14'), /invalid/);
 });
 
-test('previous meeting pickup uses the pickup weekday within the previous meeting week', () => {
-  const rule = { pickupWeekday: 4 as const, pickupOccurrence: 2 as const, pickupAtPreviousMeeting: true };
-  assert.equal(pickupDate('2027-06-15', rule, '2027-03-16'), '2027-03-18');
-  assert.equal(pickupDate('2027-06-15', { ...rule, pickupWeekday: 0 }, '2027-03-21'), '2027-03-21');
-  assert.equal(pickupDate('2027-06-15', rule), '2027-05-06');
-  assert.equal(pickupRuleLabel(rule), 'Thursday in previous meeting week');
+test('pickup offset labels describe the distance and direction from the previous meeting', () => {
+  assert.equal(pickupOffsetLabel(-3), '3 days before previous meeting');
+  assert.equal(pickupOffsetLabel(1), '1 day after previous meeting');
+  assert.equal(pickupOffsetLabel(0), 'Same week as previous meeting');
 });
 
 test('return date is seven days after the meeting', () => {
@@ -45,7 +45,7 @@ test('return date is seven days after the meeting', () => {
 
 test('draft picks up before the meeting and reports a loan overrun as a warning, not a blocking problem', () => {
   const data = seed();
-  data.clubs = [{ ...data.clubs[0], history: [], meetingWeekday: 1, meetingOccurrence: 1, pickupWeekday: 4, pickupOccurrence: 2 }];
+  data.clubs = [{ ...data.clubs[0], history: [], meetingWeekday: 1, meetingOccurrence: 1, pickupOffsetDays: 0 }];
   data.kits = data.kits.filter((kit) => kit.id === 'k1');
   data.ballots = [];
   data.assignments = [];
@@ -56,7 +56,7 @@ test('draft picks up before the meeting and reports a loan overrun as a warning,
   const result = draft(data, cycle, false, undefined, 'clubs');
   assert.equal(result.assignments.length, 1);
   const [assignment] = result.assignments;
-  assert.equal(assignment.ready, '2026-12-10');
+  assert.equal(assignment.ready, '2026-12-07');
   assert.equal(assignment.due, returnDate(assignment.meeting));
   assert.ok(assignment.ready < assignment.meeting);
   assert.match(loanOverrun(data, assignment) ?? '', /longer than the 1-day loan period/);
@@ -93,22 +93,22 @@ test('both generation modes respect rule dates, deadline, staged dates and actua
     ] };
   data.cycles = [cycle];
   for (const mode of ['clubs', 'utilisation'] as const) {
-    data.clubs[1].pickupOccurrence = 1;
+    data.clubs[1].meetingOccurrence = 1;
     const conflicting = draft(data, cycle, false, undefined, mode);
     assert.equal(conflicting.assignments.length, 1);
-    data.clubs[1].pickupOccurrence = 4;
+    data.clubs[1].meetingOccurrence = 4;
     const compatible = draft(data, cycle, false, undefined, mode);
-    assert.deepEqual(compatible.assignments.map((a) => a.meeting).sort(), ['2027-01-04', '2027-02-01']);
+    assert.deepEqual(compatible.assignments.map((a) => a.meeting).sort(), ['2027-01-04', '2027-02-22']);
     const first = compatible.assignments.find((a) => a.slotId === 'jan')!;
     const scoped = draft({ ...data, assignments: [first] }, cycle, false, { clubId: 'c2' }, mode);
-    assert.equal(scoped.assignments.find((a) => a.slotId === 'feb')?.meeting, '2027-02-01');
+    assert.equal(scoped.assignments.find((a) => a.slotId === 'feb')?.meeting, '2027-02-22');
     const staged = { ...first, meeting: '2027-01-11', ready: '2026-12-21', due: '2027-01-18' };
     const regenerated = draft({ ...data, assignments: [staged] }, cycle, false, undefined, mode);
     assert.equal(regenerated.assignments.find((a) => a.slotId === 'jan')?.meeting, '2027-01-11');
     const blockedCycle = { ...cycle, deadline: '2026-12-24' };
     const blocked = draft({ ...data, cycles: [blockedCycle] }, blockedCycle, false, undefined, mode);
     assert.ok(!blocked.assignments.some((a) => a.slotId === 'jan'));
-    assert.ok(blocked.problems.some((problem) => problem.includes('the pickup date 2026-12-24 must be after the preference deadline')));
-    data.clubs[1].pickupOccurrence = 4;
+    assert.ok(blocked.problems.some((problem) => problem.includes('the pickup date 2026-12-07 must be after the preference deadline')));
+    data.clubs[1].meetingOccurrence = 4;
   }
 });

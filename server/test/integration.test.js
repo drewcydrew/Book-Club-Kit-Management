@@ -87,7 +87,7 @@ test('shared records persist, enforce constraints and reject stale edits', { ski
   assert.equal((await request(`/api/kits/${kit.json.id}`, 'PUT', { ...kitBody, revision: kit.json.revision })).status, 409);
   kit = await request(`/api/kits/${kit.json.id}`);
   assert.deepEqual(kit.json.labelIds, []);
-  const clubBody = { name: 'Test club', branch: 'Central', size: 5, cadence: 1, cadenceOffset: 0, meetingWeekday: 1, meetingOccurrence: 1, pickupWeekday: 4, pickupOccurrence: 2, pickupAtPreviousMeeting: false, pickup: 'pickup', address: '' };
+  const clubBody = { name: 'Test club', branch: 'Central', size: 5, cadence: 1, pickupOffsetDays: -7, skipMonths: 0, meetingWeekday: 1, meetingOccurrence: 1, pickup: 'pickup', address: '' };
   const club = await request('/api/clubs', 'POST', clubBody);
   assert.equal(club.status, 201);
   const link = `/api/clubs/${club.json.id}/kits/${kit.json.id}`;

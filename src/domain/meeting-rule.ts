@@ -18,16 +18,18 @@ export function meetingRuleLabel(club: Pick<Club, 'meetingWeekday' | 'meetingOcc
   return `${occurrence.label} week, ${weekday.label}`;
 }
 
-export type PickupRule = Pick<Club, 'pickupWeekday' | 'pickupOccurrence'> & Partial<Pick<Club, 'pickupAtPreviousMeeting'>>;
+export const maxPickupOffsetDays = 7;
 
-export function pickupRuleLabel(club: PickupRule): string {
-  const weekday = meetingWeekdays.find((item) => item.value === club.pickupWeekday);
-  const occurrence = meetingOccurrences.find((item) => item.value === club.pickupOccurrence);
-  if (!weekday || !occurrence) throw new Error('Club pickup rule is invalid.');
-  if (club.pickupAtPreviousMeeting) return `${weekday.label} in previous meeting week`;
-  return `${occurrence.label} week, ${weekday.label}`;
+export function pickupOffsetLabel(days: number): string {
+  if (!isPickupOffset(days)) throw new Error('Club pickup offset is invalid.');
+  if (days === 0) return 'Same week as previous meeting';
+  const count = Math.abs(days);
+  return `${count} day${count === 1 ? '' : 's'} ${days > 0 ? 'after' : 'before'} previous meeting`;
 }
 
+export function isPickupOffset(days: unknown): days is number {
+  return Number.isInteger(days) && Math.abs(days as number) <= maxPickupOffsetDays;
+}
 // Days back to the Monday of the Monday-first week containing the date.
 function mondayOffset(date: string): number {
   return (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
@@ -57,17 +59,21 @@ export function meetingDate(month: string, club: Pick<Club, 'meetingWeekday' | '
   return nthWeekdayOfMonth(month, club.meetingWeekday, club.meetingOccurrence);
 }
 
-// Pickup is in the month before the meeting, so it can never fall on the meeting day.
-// With pickupAtPreviousMeeting and a previous meeting, pickup is in that meeting's week instead.
-export function pickupDate(meeting: string, club: PickupRule, previousMeeting?: string): string {
+export function previousMonth(month: string): string {
+  return addDays(`${month}-01`, -1).slice(0, 7);
+}
+
+// Pickup always falls within maxPickupOffsetDays of the previous meeting in the cycle. A cycle's first meeting has no
+// previous meeting, so its pickup uses the meeting's own rule applied to the month before. Either way, pickup
+// never shares a day with its meeting.
+export function pickupDate(meeting: string, club: Pick<Club, 'meetingWeekday' | 'meetingOccurrence' | 'pickupOffsetDays'>, previousMeeting?: string): string {
   if (!validDate(meeting)) throw new Error('Meeting date is invalid.');
-  if (club.pickupAtPreviousMeeting && previousMeeting) {
+  if (!isPickupOffset(club.pickupOffsetDays)) throw new Error('Club pickup offset is invalid.');
+  if (previousMeeting) {
     if (!validDate(previousMeeting)) throw new Error('Previous meeting date is invalid.');
-    const weekStart = addDays(previousMeeting, -mondayOffset(previousMeeting));
-    return addDays(weekStart, (club.pickupWeekday + 6) % 7);
+    return addDays(previousMeeting, club.pickupOffsetDays);
   }
-  const previous = addDays(`${meeting.slice(0, 7)}-01`, -1).slice(0, 7);
-  return nthWeekdayOfMonth(previous, club.pickupWeekday, club.pickupOccurrence);
+  return meetingDate(previousMonth(meeting.slice(0, 7)), club);
 }
 
 export const returnDaysAfterMeeting = 7;

@@ -21,6 +21,7 @@ const pickupRuleMigration = '020_club_pickup_rule.sql';
 const pickupAtPreviousMeetingMigration = '021_club_pickup_at_previous_meeting.sql';
 const everySixWeeksMigration = '022_club_cadence_every_six_weeks.sql';
 const previousMeetingAllCadencesMigration = '023_club_previous_meeting_all_cadences.sql';
+const standardiseSchedulingMigration = '024_standardise_club_scheduling.sql';
 
 async function inspect(client, schema) {
   const actual = await inventory(client, schema);
@@ -34,7 +35,9 @@ async function inspect(client, schema) {
   const expectedSchema = structuredClone(expected);
   if (ledger.includes(cadenceMigration)) {
     expectedSchema.clubs.columns.cadence = { type: 'double precision', not_null: true, default_value: '1' };
-    const cadenceValues = ledger.includes(everySixWeeksMigration) ? '(1)::double precision, (1.5)::double precision, (2)::double precision' : '(1)::double precision, (1.5)::double precision';
+    let cadenceValues = '(1)::double precision, (1.5)::double precision';
+    if (ledger.includes(everySixWeeksMigration)) cadenceValues += ', (2)::double precision';
+    if (ledger.includes(standardiseSchedulingMigration)) cadenceValues = '(1)::double precision, (2)::double precision';
     expectedSchema.clubs.constraints.clubs_cadence_check = { definition: `CHECK ((cadence = ANY (ARRAY[${cadenceValues}])))` };
   }
   if (ledger.includes(meetingRuleMigration)) {
@@ -43,19 +46,24 @@ async function inspect(client, schema) {
     expectedSchema.clubs.constraints.clubs_meeting_weekday_check = { definition: 'CHECK (((meeting_weekday >= 0) AND (meeting_weekday <= 6)))' };
     expectedSchema.clubs.constraints.clubs_meeting_occurrence_check = { definition: "CHECK ((meeting_occurrence = ANY (ARRAY[1, 2, 3, 4, '-1'::integer])))" };
   }
-  if (ledger.includes(pickupRuleMigration)) {
+  if (ledger.includes(standardiseSchedulingMigration)) {
+    expectedSchema.clubs.columns.pickup_offset_days = { type: 'integer', not_null: true, default_value: '0' };
+    expectedSchema.clubs.columns.skip_months = { type: 'integer', not_null: true, default_value: '0' };
+    expectedSchema.clubs.constraints.clubs_pickup_offset_days_check = { definition: "CHECK (((pickup_offset_days >= '-7'::integer) AND (pickup_offset_days <= 7)))" };
+    expectedSchema.clubs.constraints.clubs_skip_months_check = { definition: 'CHECK (((skip_months >= 0) AND (skip_months <= 4095)))' };
+  } else if (ledger.includes(pickupRuleMigration)) {
     expectedSchema.clubs.columns.pickup_weekday = { type: 'integer', not_null: true };
     expectedSchema.clubs.columns.pickup_occurrence = { type: 'integer', not_null: true };
     expectedSchema.clubs.constraints.clubs_pickup_weekday_check = { definition: 'CHECK (((pickup_weekday >= 0) AND (pickup_weekday <= 6)))' };
     expectedSchema.clubs.constraints.clubs_pickup_occurrence_check = { definition: "CHECK ((pickup_occurrence = ANY (ARRAY[1, 2, 3, 4, '-1'::integer])))" };
   }
-  if (ledger.includes(pickupAtPreviousMeetingMigration)) {
+  if (ledger.includes(pickupAtPreviousMeetingMigration) && !ledger.includes(standardiseSchedulingMigration)) {
     expectedSchema.clubs.columns.pickup_at_previous_meeting = { type: 'boolean', not_null: true, default_value: 'false' };
     if (!ledger.includes(previousMeetingAllCadencesMigration)) {
       expectedSchema.clubs.constraints.clubs_pickup_at_previous_meeting_check = { definition: 'CHECK ((NOT pickup_at_previous_meeting OR (cadence = (1.5)::double precision)))' };
     }
   }
-  if (ledger.includes(cadenceOffsetMigration)) {
+  if (ledger.includes(cadenceOffsetMigration) && !ledger.includes(standardiseSchedulingMigration)) {
     expectedSchema.clubs.columns.cadence_offset = { type: 'integer', not_null: true, default_value: '0' };
     expectedSchema.clubs.constraints.clubs_cadence_offset_check = { definition: 'CHECK (((cadence_offset >= 0) AND (cadence_offset <= 2)))' };
   }
@@ -95,7 +103,7 @@ async function inspect(client, schema) {
     if (!ledger.includes(name)) issues.push(`Migration ${name} is not recorded; inspect its effects before proceeding.`);
   }
   for (const name of ledger) {
-    if (!name.startsWith('seed:') && !migrations.includes(name) && !dataMigrations.includes(name) && ![cadenceMigration, meetingRuleMigration, cadenceOffsetMigration, discussionNotesMigration, firebaseMigration, pickupRuleMigration, pickupAtPreviousMeetingMigration, everySixWeeksMigration, previousMeetingAllCadencesMigration].includes(name)) issues.push(`Unknown migration ${name}; this repair cannot verify a newer or different schema.`);
+    if (!name.startsWith('seed:') && !migrations.includes(name) && !dataMigrations.includes(name) && ![cadenceMigration, meetingRuleMigration, cadenceOffsetMigration, discussionNotesMigration, firebaseMigration, pickupRuleMigration, pickupAtPreviousMeetingMigration, everySixWeeksMigration, previousMeetingAllCadencesMigration, standardiseSchedulingMigration].includes(name)) issues.push(`Unknown migration ${name}; this repair cannot verify a newer or different schema.`);
   }
   const applied = ledger.includes(last);
   const titleExists = !!actual.title_label_assignments;

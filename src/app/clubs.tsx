@@ -27,8 +27,8 @@ import {
 } from "../components/ui";
 import type { Club, Membership, MeetingOccurrence, MeetingWeekday, Person } from "../domain/model";
 import { id } from "../domain/logic";
-import { cadenceLabel } from "../domain/cadence";
-import { meetingOccurrences, meetingRuleLabel, meetingWeekdays, pickupRuleLabel } from "../domain/meeting-rule";
+import { cadenceLabel, skipMonthsLabel } from "../domain/cadence";
+import { maxPickupOffsetDays, meetingOccurrences, meetingRuleLabel, meetingWeekdays, pickupOffsetLabel } from "../domain/meeting-rule";
 import type { PickerOption } from "../domain/search";
 import {
   ApiError,
@@ -84,18 +84,18 @@ const blankClub = (branch: string): Club => ({
   leaderId: "",
   size: 1,
   cadence: 1,
-  cadenceOffset: 0,
   meetingWeekday: 1,
   meetingOccurrence: 1,
-  pickupWeekday: 1,
-  pickupOccurrence: 1,
-  pickupAtPreviousMeeting: false,
+  pickupOffsetDays: -7,
+  skipMonths: 0,
   pickup: "pickup",
   address: "",
   history: [],
   revision: 0,
   membershipRevision: 0,
 });
+
+const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function errorText(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -112,12 +112,10 @@ function detailsKey(value: Draft) {
     club.branch,
     sizeText,
     club.cadence,
-    club.cadenceOffset,
     club.meetingWeekday,
     club.meetingOccurrence,
-    club.pickupWeekday,
-    club.pickupOccurrence,
-    club.pickupAtPreviousMeeting,
+    club.pickupOffsetDays,
+    club.skipMonths,
     club.pickup,
     club.address,
   ]);
@@ -294,7 +292,6 @@ function RuleEditor({
   onOccurrence,
   onWeekday,
   note,
-  previousOption,
 }: {
   title: string;
   summary: string;
@@ -305,9 +302,7 @@ function RuleEditor({
   onOccurrence: (value: MeetingOccurrence) => void;
   onWeekday: (value: MeetingWeekday) => void;
   note: React.ReactNode;
-  previousOption?: { selected: boolean; onPress: () => void };
 }) {
-  const previousSelected = previousOption?.selected ?? false;
   return (
     <View style={modalStyles.ruleBlock}>
       <View style={modalStyles.ruleRow}>
@@ -320,8 +315,7 @@ function RuleEditor({
       {open && <>
         <Label>{title} week</Label>
         <Actions>
-          {meetingOccurrences.map(({ value, label }) => <Action key={value} title={label} selected={!previousSelected && occurrence === value} onPress={() => onOccurrence(value)} />)}
-          {previousOption && <Action title="Previous meeting week" selected={previousSelected} onPress={previousOption.onPress} />}
+          {meetingOccurrences.map(({ value, label }) => <Action key={value} title={label} selected={occurrence === value} onPress={() => onOccurrence(value)} />)}
         </Actions>
         <Label>{title} weekday</Label>
         <Actions>{meetingWeekdays.map(({ value, label }) => <Action key={value} title={label} selected={weekday === value} onPress={() => onWeekday(value)} />)}</Actions>
@@ -387,7 +381,7 @@ function ClubsContent() {
   const [creatingMember, setCreatingMember] = useState(false);
   const [createdMember, setCreatedMember] = useState<Person | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [ruleOpen, setRuleOpen] = useState({ meeting: false, pickup: false });
+  const [ruleOpen, setRuleOpen] = useState({ meeting: false });
   const draftRef = useRef<Draft | null>(null);
   const confirmedRef = useRef<Confirmed>({
     details: "",
@@ -406,7 +400,7 @@ function ClubsContent() {
     (draft.club.name.trim() !== "" ||
       draft.club.address.trim() !== "" ||
       draft.club.cadence !== 1 ||
-      draft.club.cadenceOffset !== 0 ||
+      draft.club.skipMonths !== 0 ||
       draft.sizeText !== "1");
 
   const states = Object.values(status);
@@ -1039,7 +1033,7 @@ function ClubsContent() {
             <View style={pageStyles.clubHeader}>
               <Text accessibilityRole="header" style={pageStyles.clubName}>{value.name}</Text>
               <Note>
-                {value.branch} · {cadenceLabel(value.cadence, value.cadenceOffset)} · {meetingRuleLabel(value)} · pickup {pickupRuleLabel(value)} ·{" "}
+                {value.branch} · {cadenceLabel(value.cadence)} · {meetingRuleLabel(value)} · pickup {pickupOffsetLabel(value.pickupOffsetDays)} ·{" "}
                 {value.pickup === "delivery" ? `Delivery to ${value.address || "address not set"}` : "Pickup"}
               </Note>
               <Text>Leader: {leader}</Text>
@@ -1214,7 +1208,7 @@ function ClubsContent() {
                   )}
                   <Fold
                     title="Details"
-                    summary={`${cadenceLabel(draft.club.cadence, draft.club.cadenceOffset)} · ${meetingRuleLabel(draft.club)} · pickup ${pickupRuleLabel(draft.club)} · ${draft.club.pickup}`}
+                    summary={`${cadenceLabel(draft.club.cadence)} · ${meetingRuleLabel(draft.club)} · pickup ${pickupOffsetLabel(draft.club.pickupOffsetDays)} · ${skipMonthsLabel(draft.club.skipMonths)} · ${draft.club.pickup}`}
                     open={open.details}
                     onToggle={() => toggleSection("details")}
                   >
@@ -1236,18 +1230,9 @@ function ClubsContent() {
                     <Label>Meeting cadence</Label>
                     <Actions>
                       <Action title="Monthly" selected={draft.club.cadence === 1} onPress={() => changeDetails({ cadence: 1 })} />
-                      <Action title="Six weeks" selected={draft.club.cadence === 1.5} onPress={() => changeDetails({ cadence: 1.5 })} />
-                      <Action title="Every 6 weeks" selected={draft.club.cadence === 2} onPress={() => changeDetails({ cadence: 2, cadenceOffset: 0 })} />
+                      <Action title="Every 6 weeks" selected={draft.club.cadence === 2} onPress={() => changeDetails({ cadence: 2 })} />
                     </Actions>
-                    {draft.club.cadence === 1.5 && <Note>Six weeks skips one month in each three-month group, restarting at the first month of each cycle. This is an approximation, not exact six-week dates.</Note>}
                     {draft.club.cadence === 2 && <Note>Every 6 weeks starts on the club&apos;s meeting week-of-month rule in the first month of the cycle, then repeats every 42 days within the cycle.</Note>}
-                    {draft.club.cadence === 1.5 && <>
-                      <Label>Skipped-month offset</Label>
-                      <Actions>{([0, 1, 2] as const).map((offset) => <Action key={offset}
-                        title={offset === 0 ? '0 · skip month 3' : offset === 1 ? '1 · skip month 1' : '2 · skip month 2'}
-                        selected={draft.club.cadenceOffset === offset} onPress={() => changeDetails({ cadenceOffset: offset })} />)}</Actions>
-                      <Note>The offset shifts skipped months later, wrapping within each three-month group. Saving it does not change existing meetings; regenerate to apply it.</Note>
-                    </>}
                     <RuleEditor
                       title="Meeting"
                       summary={meetingRuleLabel(draft.club)}
@@ -1259,23 +1244,28 @@ function ClubsContent() {
                       onWeekday={(value) => changeDetails({ meetingWeekday: value })}
                       note={<Note>Undated meetings use {meetingRuleLabel(draft.club)}. Changing this rule alone does not move dated meetings. Full schedule generation replaces shown clubs&apos; dates after confirmation.</Note>}
                     />
-                    <RuleEditor
-                      title="Pickup"
-                      summary={pickupRuleLabel(draft.club)}
-                      open={ruleOpen.pickup}
-                      onToggle={() => setRuleOpen((current) => ({ ...current, pickup: !current.pickup }))}
-                      occurrence={draft.club.pickupOccurrence}
-                      weekday={draft.club.pickupWeekday}
-                      onOccurrence={(value) => changeDetails({ pickupOccurrence: value, pickupAtPreviousMeeting: false })}
-                      onWeekday={(value) => changeDetails({ pickupWeekday: value })}
-                      previousOption={{
-                        selected: draft.club.pickupAtPreviousMeeting,
-                        onPress: () => changeDetails({ pickupAtPreviousMeeting: true }),
-                      }}
-                      note={draft.club.pickupAtPreviousMeeting
-                        ? <Note>Pickup uses {pickupRuleLabel(draft.club)} for the week of the previous meeting in the cycle. The first meeting of each cycle has no previous meeting, so it uses the month-before rule. Return is pickup plus the loan length. Changing this rule alone does not move dated assignments.</Note>
-                        : <Note>Pickup uses {pickupRuleLabel(draft.club)} in the meeting month, or the previous month if that would fall after the meeting. Return is pickup plus the loan length. Changing this rule alone does not move dated assignments.</Note>}
-                    />
+                    <Label>Pickup</Label>
+                    <Actions>
+                      <Action
+                        title="Earlier"
+                        onPress={() => changeDetails({ pickupOffsetDays: Math.max(-maxPickupOffsetDays, draft.club.pickupOffsetDays - 1) })}
+                      />
+                      <Action
+                        title="Later"
+                        onPress={() => changeDetails({ pickupOffsetDays: Math.min(maxPickupOffsetDays, draft.club.pickupOffsetDays + 1) })}
+                      />
+                    </Actions>
+                    <Note>Pickup is {pickupOffsetLabel(draft.club.pickupOffsetDays)} the previous meeting, up to {maxPickupOffsetDays} days either side. The first meeting of a cycle has no previous meeting, so it uses the month-before rule. Return is seven days after the meeting. Changing this alone does not move dated assignments.</Note>
+                    <Label>Skipped months</Label>
+                    <Actions>
+                      {monthNames.map((name, index) => {
+                        const bit = 1 << index;
+                        const skipped = (draft.club.skipMonths & bit) !== 0;
+                        return <Action key={name} title={name} selected={skipped}
+                          onPress={() => changeDetails({ skipMonths: draft.club.skipMonths ^ bit })} />;
+                      })}
+                    </Actions>
+                    <Note>{skipMonthsLabel(draft.club.skipMonths)}. Skipped months get no meetings or pickups. Changing this alone does not move dated assignments.</Note>
                     <Action
                       title={`Method: ${draft.club.pickup}`}
                       onPress={() =>

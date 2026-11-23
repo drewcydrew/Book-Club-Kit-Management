@@ -64,13 +64,11 @@ export interface Club {
   branch: string;
   leaderId: string;
   size: number;
-  cadence: 1 | 1.5 | 2;
-  cadenceOffset: 0 | 1 | 2;
+  cadence: 1 | 2;
   meetingWeekday: MeetingWeekday;
   meetingOccurrence: MeetingOccurrence;
-  pickupWeekday: MeetingWeekday;
-  pickupOccurrence: MeetingOccurrence;
-  pickupAtPreviousMeeting: boolean;
+  pickupOffsetDays: number;
+  skipMonths: number;
   pickup: 'pickup' | 'delivery';
   address: string;
   history: string[];

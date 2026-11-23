@@ -23,20 +23,20 @@ test('hume club rules preview, apply only Hume pickups and repeat safely', { ski
   await migrate(pool);
   await pool.query(`
     UPDATE clubs SET name = 'Seed ' || id;
-    INSERT INTO clubs(id,name,branch,size,cadence,pickup,address,meeting_weekday,meeting_occurrence,pickup_weekday,pickup_occurrence) VALUES
-      ('h-aqua','Aqua Book Club','Central',8,1,'pickup','',3,2,2,1),
-      ('h-bites','Books & Bites','Central',8,1,'pickup','',6,1,3,2),
-      ('h-fiction','Fiction Addiction','Central',8,1,'pickup','',4,2,4,4),
-      ('h-untouched','Unlisted Club','Central',8,1,'pickup','',1,1,1,1);
+    INSERT INTO clubs(id,name,branch,size,cadence,pickup,address,meeting_weekday,meeting_occurrence,pickup_offset_days) VALUES
+      ('h-aqua','Aqua Book Club','Central',8,1,'pickup','',3,2,2),
+      ('h-bites','Books & Bites','Central',8,1,'pickup','',6,1,0),
+      ('h-fiction','Fiction Addiction','Central',8,1,'pickup','',4,2,3),
+      ('h-untouched','Unlisted Club','Central',8,1,'pickup','',1,1,0);
     INSERT INTO library_services(id,name) VALUES ('other','Other');
-    INSERT INTO clubs(id,name,branch,size,cadence,pickup,address,library_service_id,meeting_weekday,meeting_occurrence,pickup_weekday,pickup_occurrence)
-      VALUES ('other-aqua','Aqua Book Club','Central',8,1,'pickup','','other',3,2,2,1);
+    INSERT INTO clubs(id,name,branch,size,cadence,pickup,address,library_service_id,meeting_weekday,meeting_occurrence,pickup_offset_days)
+      VALUES ('other-aqua','Aqua Book Club','Central',8,1,'pickup','','other',3,2,2);
   `);
   const run = (input, file = script) => spawnSync('psql', ['-X', '-w', '-f', file], {
     env: { ...psqlEnvironment(url), PGOPTIONS: `-c search_path=${schema}` },
     input: `${input}\n`, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 30000,
   });
-  const clubs = async () => (await pool.query('SELECT id,library_service_id,cadence,meeting_weekday,meeting_occurrence,pickup_weekday,pickup_occurrence,revision FROM clubs ORDER BY id')).rows;
+  const clubs = async () => (await pool.query('SELECT id,library_service_id,cadence,meeting_weekday,meeting_occurrence,pickup_offset_days,revision FROM clubs ORDER BY id')).rows;
   const before = await clubs();
 
   const preview = run('');
@@ -51,9 +51,9 @@ test('hume club rules preview, apply only Hume pickups and repeat safely', { ski
   assert.match(apply.stdout, /Changes committed/);
   const after = await clubs();
   const byId = (id) => after.find((club) => club.id === id);
-  assert.deepEqual(byId('h-aqua'), { id: 'h-aqua', library_service_id: 'hume', cadence: 1, meeting_weekday: 3, meeting_occurrence: 3, pickup_weekday: 1, pickup_occurrence: 3, revision: 2 });
-  assert.deepEqual(byId('h-bites'), { id: 'h-bites', library_service_id: 'hume', cadence: 1, meeting_weekday: 6, meeting_occurrence: 1, pickup_weekday: 1, pickup_occurrence: -1, revision: 2 });
-  assert.deepEqual(byId('h-fiction'), { id: 'h-fiction', library_service_id: 'hume', cadence: 1.5, meeting_weekday: 4, meeting_occurrence: 2, pickup_weekday: 4, pickup_occurrence: 4, revision: 2 });
+  assert.deepEqual(byId('h-aqua'), { id: 'h-aqua', library_service_id: 'hume', cadence: 1, meeting_weekday: 3, meeting_occurrence: 3, pickup_offset_days: 2, revision: 2 });
+  assert.deepEqual(byId('h-bites'), { id: 'h-bites', library_service_id: 'hume', cadence: 1, meeting_weekday: 6, meeting_occurrence: 1, pickup_offset_days: -5, revision: 2 });
+  assert.deepEqual(byId('h-fiction'), { id: 'h-fiction', library_service_id: 'hume', cadence: 2, meeting_weekday: 4, meeting_occurrence: 2, pickup_offset_days: 0, revision: 2 });
   assert.deepEqual(byId('h-untouched'), before.find((club) => club.id === 'h-untouched'));
   assert.deepEqual(byId('other-aqua'), before.find((club) => club.id === 'other-aqua'));
 
@@ -62,9 +62,9 @@ test('hume club rules preview, apply only Hume pickups and repeat safely', { ski
   assert.match(repeat.stdout, /UPDATE 0/);
   assert.deepEqual(await clubs(), after);
 
-  await pool.query("DELETE FROM schema_migrations WHERE name='020_club_pickup_rule.sql'");
+  await pool.query("DELETE FROM schema_migrations WHERE name='024_standardise_club_scheduling.sql'");
   const missing = run('APPLY');
   assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /migrations 018 and 020 are required/);
+  assert.match(missing.stderr, /018 and 024 are required/);
   assert.deepEqual(await clubs(), after);
 });

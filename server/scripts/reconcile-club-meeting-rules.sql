@@ -139,7 +139,7 @@ SELECT s.source, s.meeting_rule, s.pickup_rule, s.return_rule,
     WHEN cs.exact THEN 'exact'
     ELSE 'alias: review' END AS match_status,
   c.id AS club_id, c.name AS club_name, c.revision,
-  c.cadence AS old_cadence, s.cadence AS new_cadence,
+  c.cadence AS old_cadence, CASE WHEN s.cadence = 1.5 THEN 2 ELSE s.cadence END AS new_cadence,
   c.meeting_weekday AS old_weekday, coalesce(s.weekday, c.meeting_weekday) AS new_weekday,
   c.meeting_occurrence AS old_occurrence, coalesce(s.occurrence, c.meeting_occurrence) AS new_occurrence,
   CASE WHEN s.weekday IS NULL THEN 'weekday and occurrence retained'
@@ -153,7 +153,7 @@ ORDER BY s.source;
 
 \echo 'Review source rules, candidate clubs, proposed numeric values and approximations:'
 \echo 'Weekdays: 0 Sunday, 1 Monday, 2 Tuesday, 3 Wednesday, 4 Thursday, 5 Friday, 6 Saturday.'
-\echo 'Occurrences: 1-4 or -1 for last. Six-week cadence (1.5) is a two-month-on, one-month-off approximation.'
+\echo 'Occurrences: 1-4 or -1 for last. Six-week source cadence (1.5) maps to every 6 weeks (2).'
 SELECT source, meeting_rule, candidates, match_status, old_cadence, new_cadence,
   old_weekday, new_weekday, old_occurrence, new_occurrence, approximation
 FROM proposal ORDER BY source;

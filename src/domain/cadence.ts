@@ -4,34 +4,51 @@ import { meetingDate } from './meeting-rule';
 import type { Club, Cycle, Slot } from './model';
 
 export const recurringMeetingStepDays = 42;
+const monthAbbreviations = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const allMonthsMask = 0xfff;
 
-export function cadenceLabel(cadence: Club['cadence'], offset: Club['cadenceOffset']): string {
-  if (cadence === 1) return 'Monthly';
-  if (cadence === 2) return 'Every 6 weeks';
-  return `Six weeks · offset ${offset}`;
+export function cadenceLabel(cadence: Club['cadence']): string {
+  return cadence === 1 ? 'Monthly' : 'Every 6 weeks';
+}
+
+export function validSkipMonths(mask: unknown): mask is number {
+  return Number.isInteger(mask) && (mask as number) >= 0 && (mask as number) <= allMonthsMask;
+}
+
+// Bit n-1 of the mask marks month n (1 = January) as skipped.
+export function isSkippedMonth(month: string, skipMonths: number): boolean {
+  return ((skipMonths >> (Number(month.slice(5, 7)) - 1)) & 1) === 1;
+}
+
+export function skipMonthsLabel(skipMonths: number): string {
+  if (!validSkipMonths(skipMonths)) throw new Error('Club skipped months are invalid.');
+  const skipped = monthAbbreviations.filter((_, index) => isSkippedMonth(`2000-${String(index + 1).padStart(2, '0')}`, skipMonths));
+  return skipped.length ? `Skips ${skipped.join(', ')}` : 'No skipped months';
 }
 
 // Every-6-weeks clubs start at their week-of-month rule in the cycle's first month that falls within the cycle,
-// then meet every 42 days until the cycle ends.
-export function recurringMeetingDates(cycle: Pick<Cycle, 'startsOn' | 'endsOn'>, club: Pick<Club, 'meetingWeekday' | 'meetingOccurrence'>): string[] {
+// then meet every 42 days until the cycle ends. Dates in a skipped month are dropped without resetting the step.
+export function recurringMeetingDates(cycle: Pick<Cycle, 'startsOn' | 'endsOn'>, club: Pick<Club, 'meetingWeekday' | 'meetingOccurrence' | 'skipMonths'>): string[] {
   const first = monthsInRange(cycle.startsOn, cycle.endsOn).map((month) => meetingDate(month, club))
     .find((date) => date >= cycle.startsOn);
   if (!first) return [];
   const dates: string[] = [];
-  for (let date = first; date <= cycle.endsOn; date = addDays(date, recurringMeetingStepDays)) dates.push(date);
+  for (let date = first; date <= cycle.endsOn; date = addDays(date, recurringMeetingStepDays)) {
+    if (!isSkippedMonth(date, club.skipMonths)) dates.push(date);
+  }
   return dates;
 }
 
-export function slotMeetingDate(cycle: Pick<Cycle, 'startsOn' | 'endsOn'>, club: Pick<Club, 'cadence' | 'meetingWeekday' | 'meetingOccurrence'>, month: string): string {
+export function slotMeetingDate(cycle: Pick<Cycle, 'startsOn' | 'endsOn'>, club: Pick<Club, 'cadence' | 'meetingWeekday' | 'meetingOccurrence' | 'skipMonths'>, month: string): string {
   if (club.cadence !== 2) return meetingDate(month, club);
   const date = recurringMeetingDates(cycle, club).find((item) => item.startsWith(`${month}-`));
   if (!date) throw new Error('Meeting month is outside the every-6-weeks schedule.');
   return date;
 }
 
-export function cadenceMonths(cycle: Cycle, club: Pick<Club, 'cadence' | 'cadenceOffset' | 'meetingWeekday' | 'meetingOccurrence'>): string[] {
+export function cadenceMonths(cycle: Cycle, club: Pick<Club, 'cadence' | 'meetingWeekday' | 'meetingOccurrence' | 'skipMonths'>): string[] {
   if (club.cadence === 2) return [...new Set(recurringMeetingDates(cycle, club).map((date) => date.slice(0, 7)))];
-  return monthsInRange(cycle.startsOn, cycle.endsOn).filter((_, index) => club.cadence === 1 || (index + 3 - club.cadenceOffset) % 3 !== 2);
+  return monthsInRange(cycle.startsOn, cycle.endsOn).filter((month) => !isSkippedMonth(month, club.skipMonths));
 }
 
 // Kept slots of the eligible clubs are re-dated to the club's current rule; moved lists those whose date changed.

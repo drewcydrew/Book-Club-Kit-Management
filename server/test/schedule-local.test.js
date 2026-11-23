@@ -72,7 +72,7 @@ test('local schedule overrides require current specific validation and explicit 
   const beforeOffset = { ...based, basis:await updatedBasis() };
   const offsetValidation = await req(`${route}/validate`, 'POST', beforeOffset);
   const offsetClub = (await state()).clubs.find((item) => item.id === 'c1');
-  assert.equal((await req('/api/clubs/c1', 'PUT', { ...offsetClub, cadenceOffset:1 })).status, 200);
+  assert.equal((await req('/api/clubs/c1', 'PUT', { ...offsetClub, pickupOffsetDays:1 })).status, 200);
   assert.equal((await req(route, 'PUT', { ...beforeOffset, validationToken:offsetValidation.json.token, acknowledge:true })).status, 409);
   const beforeSettings = { ...based, basis:await updatedBasis() };
   const settingsValidation = await req(`${route}/validate`, 'POST', beforeSettings);

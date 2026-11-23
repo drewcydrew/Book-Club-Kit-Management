@@ -63,13 +63,12 @@ function isKitLabel(value: unknown): value is KitLabel {
 }
 function isClub(value: unknown): value is SharedClub {
   return isObject(value) && isString(value.id) && isString(value.name) && isString(value.branch) &&
-    isNumber(value.size) && (value.cadence === 1 || value.cadence === 1.5 || value.cadence === 2) &&
-    (value.cadenceOffset === 0 || value.cadenceOffset === 1 || value.cadenceOffset === 2) &&
+    isNumber(value.size) && (value.cadence === 1 || value.cadence === 2) &&
     isNumber(value.meetingWeekday) && Number.isInteger(value.meetingWeekday) && value.meetingWeekday >= 0 && value.meetingWeekday <= 6 &&
     (value.meetingOccurrence === -1 || value.meetingOccurrence === 1 || value.meetingOccurrence === 2 || value.meetingOccurrence === 3 || value.meetingOccurrence === 4) &&
-    isNumber(value.pickupWeekday) && Number.isInteger(value.pickupWeekday) && value.pickupWeekday >= 0 && value.pickupWeekday <= 6 &&
-    (value.pickupOccurrence === -1 || value.pickupOccurrence === 1 || value.pickupOccurrence === 2 || value.pickupOccurrence === 3 || value.pickupOccurrence === 4) &&
-    typeof value.pickupAtPreviousMeeting === 'boolean' && (value.pickup === 'pickup' || value.pickup === 'delivery') && isString(value.address) && isNumber(value.revision);
+    isNumber(value.pickupOffsetDays) && Number.isInteger(value.pickupOffsetDays) && value.pickupOffsetDays >= -7 && value.pickupOffsetDays <= 7 &&
+    isNumber(value.skipMonths) && Number.isInteger(value.skipMonths) && value.skipMonths >= 0 && value.skipMonths <= 4095 &&
+    (value.pickup === 'pickup' || value.pickup === 'delivery') && isString(value.address) && isNumber(value.revision);
 }
 function isLink(value: unknown): value is ClubKit {
   return isObject(value) && isString(value.clubId) && isString(value.kitId);

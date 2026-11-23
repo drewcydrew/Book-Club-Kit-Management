@@ -31,15 +31,17 @@ test('cadence migration reports unknown values and rolls back before converting 
   assert.equal((await pool.query("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='clubs' AND column_name='cadence'")).rows[0].data_type, 'text');
   await pool.query("UPDATE clubs SET cadence='' WHERE id='c'");
   await migrate(pool);
-  assert.deepEqual((await pool.query("SELECT cadence FROM clubs WHERE id IN ('a','b','c') ORDER BY id")).rows.map((row) => row.cadence), [1, 1.5, 1]);
+  assert.deepEqual((await pool.query("SELECT cadence FROM clubs WHERE id IN ('a','b','c') ORDER BY id")).rows.map((row) => row.cadence), [1, 2, 1]);
   assert.deepEqual((await pool.query("SELECT meeting_weekday,meeting_occurrence FROM clubs WHERE id='a'")).rows[0], { meeting_weekday: 1, meeting_occurrence: 1 });
   assert.equal((await pool.query("SELECT revision FROM clubs WHERE id='a'")).rows[0].revision, 1);
-  assert.deepEqual((await pool.query("SELECT cadence_offset FROM clubs WHERE id IN ('a','b','c') ORDER BY id")).rows.map((row) => row.cadence_offset), [0, 0, 0]);
+  assert.deepEqual((await pool.query("SELECT pickup_offset_days FROM clubs WHERE id IN ('a','b','c') ORDER BY id")).rows.map((row) => row.pickup_offset_days), [0, 0, 0]);
   assert.equal((await pool.query("SELECT to_char(meeting,'YYYY-MM-DD') AS meeting FROM meeting_slots WHERE id='proof-slot'")).rows[0].meeting, '2027-01-20');
   const report = await repairSchema(pool);
   assert.equal(report.state, 'current', report.issues.join('\n'));
   await assert.rejects(pool.query("UPDATE clubs SET cadence=3 WHERE id='a'"), { code: '23514' });
-  await assert.rejects(pool.query("UPDATE clubs SET cadence_offset=3 WHERE id='a'"), { code: '23514' });
+  await assert.rejects(pool.query("UPDATE clubs SET cadence=1.5 WHERE id='a'"), { code: '23514' });
+  await assert.rejects(pool.query("UPDATE clubs SET pickup_offset_days=8 WHERE id='a'"), { code: '23514' });
+  await assert.rejects(pool.query("UPDATE clubs SET skip_months=4096 WHERE id='a'"), { code: '23514' });
   await assert.rejects(pool.query("UPDATE clubs SET meeting_occurrence=5 WHERE id='a'"), { code: '23514' });
 });
 
@@ -66,46 +68,44 @@ test('validated draft removes an assigned slot atomically only with the required
   }
   let shared = (await req('/api/shared')).json;
   const club = shared.clubs.find((item) => item.id === 'c1');
-  assert.equal(club.cadenceOffset, 0);
+  assert.equal(club.pickupOffsetDays, 0);
   const originalSlots = shared.cycles.find((item) => item.id === 'cycle1').slots;
   assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, meetingWeekday: 7 })).status, 400);
   assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, meetingOccurrence: 5 })).status, 400);
   const { meetingWeekday: _missing, ...oldClient } = club;
   assert.equal((await req('/api/clubs/c1', 'PUT', oldClient)).status, 400);
   assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, cadence: 3 })).status, 400);
-  for (const invalid of [-1, 3, 1.5, '1', null]) {
-    assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, cadenceOffset: invalid })).status, 400);
+  for (const invalid of [-8, 8, 1.5, '1', null]) {
+    assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, pickupOffsetDays: invalid })).status, 400);
   }
-  const { cadenceOffset: _missingOffset, ...oldOffsetClient } = club;
+  for (const invalid of [-1, 4096, 1.5, '1', null]) {
+    assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, skipMonths: invalid })).status, 400);
+  }
+  const { pickupOffsetDays: _missingOffset, ...oldOffsetClient } = club;
   assert.equal((await req('/api/clubs/c1', 'PUT', oldOffsetClient)).status, 400);
-  assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, cadence: 1.5, cadenceOffset: 1, meetingWeekday: 4, meetingOccurrence: -1 })).status, 200);
+  assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, cadence: 1.5 })).status, 400);
+  assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, cadence: 2, pickupOffsetDays: 1, skipMonths: 0, meetingWeekday: 4, meetingOccurrence: -1 })).status, 200);
   shared = (await req('/api/shared')).json;
-  assert.equal(shared.clubs.find((item) => item.id === 'c1').cadence, 1.5);
-  assert.equal(shared.clubs.find((item) => item.id === 'c1').cadenceOffset, 1);
-  assert.deepEqual(shared.cycles.find((item) => item.id === 'cycle1').slots, originalSlots);
-  assert.equal(shared.clubs.find((item) => item.id === 'c1').meetingWeekday, 4);
-  assert.equal(shared.clubs.find((item) => item.id === 'c1').meetingOccurrence, -1);
   const edited = shared.clubs.find((item) => item.id === 'c1');
+  assert.equal(edited.cadence, 2);
+  assert.equal(edited.pickupOffsetDays, 1);
+  assert.deepEqual(shared.cycles.find((item) => item.id === 'cycle1').slots, originalSlots);
+  assert.equal(edited.meetingWeekday, 4);
+  assert.equal(edited.meetingOccurrence, -1);
   const monthly = await req('/api/clubs/c1', 'PUT', { ...edited, cadence: 1 });
   assert.equal(monthly.status, 200);
-  assert.equal(monthly.json.cadenceOffset, 1);
-  const restored = await req('/api/clubs/c1', 'PUT', { ...monthly.json, cadence: 1.5 });
-  assert.equal(restored.status, 200);
-  assert.equal(restored.json.cadenceOffset, 1);
-  const everySixWeeks = await req('/api/clubs/c1', 'PUT', { ...restored.json, cadence: 2 });
+  assert.equal(monthly.json.pickupOffsetDays, 1);
+  const skipping = await req('/api/clubs/c1', 'PUT', { ...monthly.json, skipMonths: 1 | (1 << 11) });
+  assert.equal(skipping.status, 200);
+  assert.equal(skipping.json.skipMonths, 2049);
+  const everySixWeeks = await req('/api/clubs/c1', 'PUT', { ...skipping.json, cadence: 2 });
   assert.equal(everySixWeeks.status, 200);
   assert.equal(everySixWeeks.json.cadence, 2);
-  assert.equal(everySixWeeks.json.cadenceOffset, 0);
-  const monthlyPrevious = await req('/api/clubs/c1', 'PUT', { ...restored.json, cadence: 1, pickupAtPreviousMeeting: true });
-  assert.equal(monthlyPrevious.status, 200);
-  assert.equal(monthlyPrevious.json.pickupAtPreviousMeeting, true);
-  const sixWeeksPrevious = await req('/api/clubs/c1', 'PUT', { ...monthlyPrevious.json, cadence: 2 });
-  assert.equal(sixWeeksPrevious.status, 200);
-  assert.equal(sixWeeksPrevious.json.pickupAtPreviousMeeting, true);
+  assert.equal(everySixWeeks.json.pickupOffsetDays, 1);
   const created = await req('/api/clubs', 'POST', { name: 'Offset club', branch: 'Central', size: 2,
-    cadence: 1.5, cadenceOffset: 2, meetingWeekday: 1, meetingOccurrence: 1, pickupWeekday: 4, pickupOccurrence: 2, pickupAtPreviousMeeting: false, pickup: 'pickup', address: '' });
+    cadence: 2, pickupOffsetDays: 2, skipMonths: 0, meetingWeekday: 1, meetingOccurrence: 1, pickup: 'pickup', address: '' });
   assert.equal(created.status, 201);
-  assert.equal((await req(`/api/clubs/${created.json.id}`)).json.cadenceOffset, 2);
+  assert.equal((await req(`/api/clubs/${created.json.id}`)).json.pickupOffsetDays, 2);
   const cycle = shared.cycles.find((item) => item.id === 'cycle1');
   const slot = cycle.slots[0];
   const plus = (date, days) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);

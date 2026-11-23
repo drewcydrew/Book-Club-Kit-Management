@@ -14,7 +14,7 @@ function scenario(choices: string[][]): Data {
   data.ballots = [];
   data.assignments = [];
   const cycle = data.cycles[0];
-  cycle.deadline = '2026-12-15';
+  cycle.deadline = '2026-11-15';
   cycle.startsOn = '2027-01-01';
   cycle.endsOn = '2027-12-31';
   cycle.finalized = Object.fromEntries(choices.map((ranking, index) => [`c${index + 1}`, ranking]));

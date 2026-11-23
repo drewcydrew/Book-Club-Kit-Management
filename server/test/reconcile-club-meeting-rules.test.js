@@ -76,8 +76,8 @@ test('club meeting rules preview, safely apply and repeat without changing sched
   const after = await clubs();
   const byId = (id) => after.find((club) => club.id === id);
   assert.deepEqual(byId('club-002'), { id: 'club-002', cadence: 1, meeting_weekday: 5, meeting_occurrence: -1, revision: 2 });
-  assert.deepEqual(byId('club-027'), { id: 'club-027', cadence: 1.5, meeting_weekday: 4, meeting_occurrence: 4, revision: 2 });
-  assert.deepEqual(byId('club-009'), { id: 'club-009', cadence: 1.5, meeting_weekday: 5, meeting_occurrence: 4, revision: 2 });
+  assert.deepEqual(byId('club-027'), { id: 'club-027', cadence: 2, meeting_weekday: 4, meeting_occurrence: 4, revision: 2 });
+  assert.deepEqual(byId('club-009'), { id: 'club-009', cadence: 2, meeting_weekday: 5, meeting_occurrence: 4, revision: 2 });
   assert.deepEqual(byId('club-004'), before.find((club) => club.id === 'club-004'));
   assert.deepEqual(byId('duplicate-attwood'), before.find((club) => club.id === 'duplicate-attwood'));
   assert.deepEqual(byId('outside'), before.find((club) => club.id === 'outside'));

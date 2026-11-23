@@ -8,7 +8,7 @@ import { seed } from '../src/domain/seed';
 test('full regeneration replaces participating slots and dates in both modes while preserving hidden slots', () => {
   const data = seed();
   data.clubs = [
-    { ...data.clubs[0], cadence: 1.5, meetingWeekday: 4, meetingOccurrence: 3, history: [] },
+    { ...data.clubs[0], cadence: 1, meetingWeekday: 4, meetingOccurrence: 3, skipMonths: 4, history: [] },
     data.clubs[1],
     { ...data.clubs[0], id: 'c3' },
   ];
@@ -40,10 +40,10 @@ test('full regeneration replaces participating slots and dates in both modes whi
     assert.equal(byMonth.get('2027-01')?.meeting, null);
     assert.equal(byMonth.get('2027-02')?.meeting, '2027-02-18');
     assert.equal(byMonth.get('2027-04')?.meeting, '2027-04-15');
-    assert.ok(result.problems.some((problem) => problem.includes('2027-01-14') && problem.includes('deadline')));
+    assert.ok(result.problems.some((problem) => problem.includes('2027-01-07') && problem.includes('deadline')));
     assert.ok(!result.assignments.some((item) => item.slotId === byMonth.get('2027-01')?.id));
-    assert.ok(result.assignments.some((item) => item.meeting === '2027-02-18'));
-    assert.ok(!result.assignments.some((item) => item.slotId === byMonth.get('2027-04')?.id));
+    assert.ok(!result.assignments.some((item) => item.meeting === '2027-02-18'));
+    assert.ok(result.assignments.some((item) => item.meeting === '2027-04-15'));
     assert.equal(dated.cycle.slots.find((slot) => slot.id === hidden.id), hidden);
     const changes = slotChanges(cycle.slots, dated.cycle.slots);
     assert.deepEqual(changes.removedSlotIds.sort(), ['old-feb', 'old-jan']);
@@ -60,7 +60,7 @@ test('full generation creates and dates slots for shown clubs even when none exi
   const data = seed();
   data.clubs = [
     { ...data.clubs[0], history: [] },
-    { ...data.clubs[1], cadence: 1.5, cadenceOffset: 1, history: [] },
+    { ...data.clubs[1], cadence: 1, skipMonths: 9, history: [] },
     { ...data.clubs[0], id: 'hidden', name: 'Hidden club' },
   ];
   data.ballots = [];
@@ -137,7 +137,8 @@ test('full regeneration keeps other-cycle assignments as kit availability constr
 
 test('full regeneration staggers six-week clubs for both scheduling modes', () => {
   const data = seed();
-  data.clubs = data.clubs.map((club, index) => ({ ...club, cadence: 1.5, cadenceOffset: index === 0 ? 1 : 2, history: [] }));
+  data.clubs[0] = { ...data.clubs[0], cadence: 2, meetingOccurrence: 1, history: [] };
+  data.clubs[1] = { ...data.clubs[1], cadence: 2, meetingOccurrence: 2, history: [] };
   data.ballots = [];
   const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-04-30', deadline: '2026-12-01',
     finalized: { c1: ['t1', 't2', 't3'], c2: ['t1', 't2', 't3'] }, slots: [
@@ -149,8 +150,8 @@ test('full regeneration staggers six-week clubs for both scheduling modes', () =
   for (const mode of ['clubs', 'utilisation'] as const) {
     let sequence = 0;
     const prepared = prepareFullRegeneration(data, cycle, [], () => `${mode}-${++sequence}`);
-    assert.deepEqual(prepared.cycle.slots.filter((slot) => slot.clubId === 'c1').map((slot) => slot.month), ['2027-02', '2027-03']);
-    assert.deepEqual(prepared.cycle.slots.filter((slot) => slot.clubId === 'c2').map((slot) => slot.month), ['2027-01', '2027-03', '2027-04']);
+    assert.deepEqual(prepared.cycle.slots.filter((slot) => slot.clubId === 'c1').map((slot) => slot.month), ['2027-01', '2027-02', '2027-03']);
+    assert.deepEqual(prepared.cycle.slots.filter((slot) => slot.clubId === 'c2').map((slot) => slot.month), ['2027-01', '2027-02', '2027-03']);
     const generated = draft(prepared.data, prepared.cycle, false, undefined, mode);
     for (const assignment of generated.assignments.filter((item) => item.cycleId === cycle.id)) {
       assert.ok(prepared.cycle.slots.some((slot) => slot.id === assignment.slotId && slot.clubId === assignment.clubId));
