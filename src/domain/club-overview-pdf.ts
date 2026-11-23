@@ -1,9 +1,11 @@
 import fontkit from '@pdf-lib/fontkit';
-import type { Color, PDFImage } from 'pdf-lib';
+import type { Color, PDFFont, PDFImage, PDFPage } from 'pdf-lib';
+import { cadenceLabel } from './cadence';
+import { meetingRuleLabel } from './meeting-rule';
 import { calendarMonthLabel, type MemberOverviewMonth, type OverviewMarkerKind } from './member-calendar';
-import type { Assignment, Title } from './model';
-import { shorten, wrap } from './schedule-handouts-pdf';
+import type { Assignment, Club, Title } from './model';
 
+// Use the same Metro-compatible build as the existing schedule PDF.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { PDFDocument, rgb }: typeof import('pdf-lib') = require('pdf-lib/dist/pdf-lib.js');
 
@@ -38,6 +40,12 @@ export type OverviewPdfMonth = {
   book?: { titleId?: string; name: string; author: string };
 };
 
+export type ClubOverviewPdfClub = { club: string; details: string; months: OverviewPdfMonth[] };
+
+export function overviewClubDetails(club: Pick<Club, 'branch' | 'meetingWeekday' | 'meetingOccurrence' | 'cadence'>): string {
+  return `${club.branch} · ${meetingRuleLabel(club)} · ${cadenceLabel(club.cadence)}`;
+}
+
 export function overviewPdfMonths(months: MemberOverviewMonth[], titleFor: (assignment: Assignment) => Title | undefined): OverviewPdfMonth[] {
   return months.map((entry) => {
     const title = entry.book?.assignment ? titleFor(entry.book.assignment) : undefined;
@@ -51,16 +59,45 @@ export function overviewPdfMonths(months: MemberOverviewMonth[], titleFor: (assi
   });
 }
 
-export async function makeOverviewPdf({ club, details, months, fontBytes, covers, exportedAt }: {
-  club: string; details: string; months: OverviewPdfMonth[]; fontBytes: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string;
+export function wrap(value: string, font: PDFFont, size: number, maxWidth: number): string[] {
+  const result: string[] = [];
+  let line = '';
+  for (const word of value.replace(/\s+/g, ' ').trim().split(' ')) {
+    if (!word) continue;
+    const candidate = line ? `${line} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) { line = candidate; continue; }
+    if (line) result.push(line);
+    line = '';
+    for (const character of word) {
+      if (line && font.widthOfTextAtSize(line + character, size) > maxWidth) { result.push(line); line = ''; }
+      line += character;
+    }
+  }
+  if (line) result.push(line);
+  return result;
+}
+
+export function shorten(lines: string[], count: number, font: PDFFont, size: number, maxWidth: number): string[] {
+  if (lines.length <= count) return lines;
+  if (!count) return [];
+  const visible = lines.slice(0, count);
+  let last = visible[count - 1];
+  while (last && font.widthOfTextAtSize(`${last}…`, size) > maxWidth) last = [...last].slice(0, -1).join('');
+  visible[count - 1] = `${last.trimEnd()}…`;
+  return visible;
+}
+
+// Produces one A4 page per club, all sharing one embedded font and cover set.
+export async function makeClubOverviewPdf({ clubs, fontBytes, covers, exportedAt }: {
+  clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string;
 }) {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const font = await doc.embedFont(fontBytes);
   const supported = new Set(font.getCharacterSet());
-  const text = [club, details, exportedAt, 'Overview', 'No book chosen', 'No cover', 'No meetings are scheduled for this club.',
+  const text = [exportedAt, 'Overview', 'No book chosen', 'No cover', 'No meetings are scheduled for this club.',
     ...Object.values(markerLabels),
-    ...months.flatMap((entry) => [calendarMonthLabel(entry.month), entry.book?.name ?? '', entry.book?.author ?? ''])].join('');
+    ...clubs.flatMap((club) => [club.club, club.details, ...club.months.flatMap((entry) => [calendarMonthLabel(entry.month), entry.book?.name ?? '', entry.book?.author ?? ''])])].join('');
   const unsupported = [...text].find((character) => !/\s/.test(character) && !supported.has(character.codePointAt(0)!));
   if (unsupported) throw new Error(`The PDF font cannot display the character "${unsupported}".`);
 
@@ -72,7 +109,13 @@ export async function makeOverviewPdf({ club, details, months, fontBytes, covers
     } catch { invalidCovers++; }
   }
 
-  const page = doc.addPage([pageWidth, pageHeight]);
+  for (const club of clubs) {
+    drawClubPage(doc.addPage([pageWidth, pageHeight]), font, images, { ...club, exportedAt });
+  }
+  return { bytes: await doc.save(), invalidCovers };
+}
+
+function drawClubPage(page: PDFPage, font: PDFFont, images: Map<string, PDFImage>, { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }) {
   const draw = (value: string, x: number, y: number, size: number, color = ink) => {
     if (value) page.drawText(value, { x, y, size, font, color });
   };
@@ -109,12 +152,12 @@ export async function makeOverviewPdf({ club, details, months, fontBytes, covers
     draw(fitLines(label, 7.5, columnWidth, 1)[0] ?? '', margin + 8 + (index % 2) * columnWidth, overviewTop - 24 - row * 11, 7.5);
   });
 
-  if (!months.length) return { bytes: await doc.save(), invalidCovers };
+  if (!months.length) return;
 
   const gridTop = overviewTop - overviewHeight - 10;
   const rows = Math.ceil(months.length / 2);
   const scale = Math.min(1, (gridTop - margin - rowGap * (rows - 1)) / (rows * cardHeight));
-  if (scale < minScale) throw new Error('The club overview is too long to fit on one A4 page. Reduce the number of months shown.');
+  if (scale < minScale) throw new Error(`The overview for ${club} is too long to fit on one A4 page. Reduce the number of months shown.`);
   const cardWidth = ((contentWidth - cardGap) / 2) * scale;
   const cardH = cardHeight * scale;
   const gridLeft = margin + contentWidth * (1 - scale) / 2;
@@ -182,5 +225,4 @@ export async function makeOverviewPdf({ club, details, months, fontBytes, covers
     const col = index % 2;
     drawCard(entry, gridLeft + col * (cardWidth + cardGap * scale), gridTop - row * (cardH + rowGap), scale);
   });
-  return { bytes: await doc.save(), invalidCovers };
 }

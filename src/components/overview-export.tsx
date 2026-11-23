@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import type { MemberOverviewMonth } from '../domain/member-calendar';
-import { makeOverviewPdf, overviewPdfMonths } from '../domain/member-overview-pdf';
+import { makeClubOverviewPdf, overviewPdfMonths } from '../domain/club-overview-pdf';
 import type { Assignment, Title } from '../domain/model';
 import { deliver, fontData, loadCovers } from './export-files';
 import { Action, Actions, Label, Note } from './ui';
@@ -24,8 +24,8 @@ export function OverviewExport({ club, details, months, titleFor }: {
         return title ? [{ id: title.id, coverUrl: title.coverUrl ?? '', isbn: title.isbn }] : [];
       });
       const [font, result] = await Promise.all([fontData(), loadCovers(titles)]);
-      const pdf = await makeOverviewPdf({
-        club, details, months: overviewPdfMonths(months, titleFor), fontBytes: font, covers: result.covers, exportedAt: date,
+      const pdf = await makeClubOverviewPdf({
+        clubs: [{ club, details, months: overviewPdfMonths(months, titleFor) }], fontBytes: font, covers: result.covers, exportedAt: date,
       });
       await deliver(pdf.bytes, `${club.replace(/[^\w-]+/g, '-').toLowerCase() || 'club'}-overview-${date}.pdf`, 'application/pdf', 'Save overview');
       const missing = result.missing + pdf.invalidCovers;

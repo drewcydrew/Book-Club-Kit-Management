@@ -6,6 +6,7 @@ import { MemberSchedule, type MemberView } from '../components/member-schedule';
 import { Action, Actions, Card, Label, Note, narrowWidth, styles as uiStyles } from '../components/ui';
 import { cadenceLabel } from '../domain/cadence';
 import { memberScheduleMeetings } from '../domain/cycle-overview';
+import { overviewClubDetails } from '../domain/club-overview-pdf';
 import { meetingRuleLabel } from '../domain/meeting-rule';
 import { loadClubIndex, loadClubSchedule, type ClubIndexItem, type ClubSchedule } from '../state/api';
 import { useSelection } from '../state/selection';
@@ -161,7 +162,7 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
       emptyMessage="No meetings are scheduled for this club yet."
       labels={schedule.kitLabels} titleFor={titleFor} titleIdFor={titleIdFor}
       clubNameFor={() => club.name}
-      exportClub={{ name: club.name, details: `${club.branch} · ${meetingRuleLabel(club)} · ${cadenceLabel(club.cadence)}` }} />
+      exportClub={{ name: club.name, details: overviewClubDetails(club) }} />
     <Actions>
       <Action title="Refresh" onPress={refresh} />
     </Actions>

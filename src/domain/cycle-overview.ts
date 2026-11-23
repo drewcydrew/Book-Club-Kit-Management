@@ -296,12 +296,16 @@ export interface MemberScheduleMeeting {
 }
 
 export function memberScheduleMeetings(data: Pick<Data, 'cycles' | 'assignments'>, clubIds: string[]): MemberScheduleMeeting[] {
+  return scheduleMeetings(data.cycles.filter(memberVisibleCycle), data.assignments, clubIds);
+}
+
+// Unlike memberScheduleMeetings, this does not apply member visibility, so staff can use any cycle.
+export function scheduleMeetings(cycles: Cycle[], assignments: Assignment[], clubIds: string[]): MemberScheduleMeeting[] {
   const clubs = new Set(clubIds);
-  const cycles = data.cycles.filter(memberVisibleCycle);
   const cycleById = new Map(cycles.map((cycle) => [cycle.id, cycle]));
   const assignedSlots = new Set<string>();
   const meetings: MemberScheduleMeeting[] = [];
-  for (const assignment of data.assignments) {
+  for (const assignment of assignments) {
     const cycle = cycleById.get(assignment.cycleId);
     if (!cycle || !clubs.has(assignment.clubId)) continue;
     assignedSlots.add(JSON.stringify([assignment.cycleId, assignment.slotId]));
