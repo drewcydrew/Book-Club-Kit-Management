@@ -998,7 +998,7 @@ function ClubsContent() {
       <Note>
         Manage clubs, their members, leaders, reading history and kit links.
         Staff can also create members and share a link so they can vote right
-        away. Kit links do not mean kits are checked out. Demo members and
+        away. Kit links do not mean kits are picked up. Demo members and
         leaders can be impersonated; use fictional information only.
       </Note>
       <View style={pageStyles.summaryRow}>
@@ -1037,7 +1037,7 @@ function ClubsContent() {
                 <Note>People, titles, kits, kit statuses, circulation events, other clubs and cycles are retained.
                   Published schedule information, due dates and loan associations for this club can disappear.</Note>
                 {deleting.preview.affectedKits.length > 0 && <View>
-                  <Text style={modalStyles.syncError}>Reserved or checked-out kits need manual follow-up. Their status is not changed:</Text>
+                  <Text style={modalStyles.syncError}>Reserved or picked-up kits need manual follow-up. Their status is not changed:</Text>
                   {deleting.preview.affectedKits.map((kit) => <Text key={kit.id}>{kit.barcode} · {kit.status}</Text>)}
                   <Note>Kit status is shared and may not identify which club holds the kit.</Note>
                 </View>}

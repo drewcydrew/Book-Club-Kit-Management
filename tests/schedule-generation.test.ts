@@ -294,7 +294,7 @@ test('does not use an unavailable or previously read title and chooses an altern
   assert.equal(result.problems.length, 0);
 });
 
-test('does not use a checked-out kit without an active published loan', () => {
+test('does not use a picked-up kit without an active published loan', () => {
   const data = scenario([['t1', 't2']]);
   data.kits.find((kit) => kit.id === 'k1')!.status = 'out';
   const result = draft(data, data.cycles[0]);

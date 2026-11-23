@@ -320,7 +320,7 @@ function ScheduleContent() {
       {staff && toolsOpen && <>
         <Note>Loans include a {viewData.library.bufferDays}-day turnaround buffer.</Note>
         {cycle.status === 'collecting' && cycleAssignments.length > 0 && <Note>
-          Existing assignments may be provisional. Full generation replaces shown clubs&apos; dates and assignments, including locked assignments after confirmation. Checked-out kits or reading history can prevent drafting or publication.
+          Existing assignments may be provisional. Full generation replaces shown clubs&apos; dates and assignments, including locked assignments after confirmation. Picked-up kits or reading history can prevent drafting or publication.
         </Note>}
         <Actions>
           <Action tone="primary" title="Publish schedule" disabled={validating || editor.busy || editor.dirty || !!publication || cycle.status !== 'drafted'} onPress={() => { void publish(); }} />

@@ -8,7 +8,7 @@ import { calendarDateLabel, calendarMonthLabel, type MemberOverviewMonth, type O
 import type { Assignment, Title } from '../domain/model';
 
 const markerColors: Record<OverviewMarkerKind, string> = { ready: '#b45309', meeting: '#245e51', due: '#9a3412' };
-const markerLabels: Record<OverviewMarkerKind, string> = { ready: 'Checkout', meeting: 'Meeting', due: 'Return' };
+const markerLabels: Record<OverviewMarkerKind, string> = { ready: 'Pickup', meeting: 'Meeting', due: 'Return' };
 const weekdayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const previewWidth = 240;
 
@@ -55,7 +55,7 @@ function DayCell({ date, markers, isToday, onOpen, onHover }: {
     backgroundColor: markers ? '#f1f7f3' : '#fffefa',
   };
   return markers
-    ? <Pressable ref={cellRef} accessibilityRole="button" accessibilityHint={isWeb ? undefined : 'Shows the checkout, meeting and return details for this day'}
+    ? <Pressable ref={cellRef} accessibilityRole="button" accessibilityHint={isWeb ? undefined : 'Shows the pickup, meeting and return details for this day'}
       accessibilityLabel={accessibilityLabel} onPress={isWeb ? undefined : () => onOpen(date)}
       onHoverIn={() => { if (cellRef.current) onHover({ cell: cellRef.current, date, markers: markers ?? [] }); }}
       onHoverOut={() => onHover(null)} style={style}>{content}</Pressable>
@@ -156,11 +156,11 @@ function MonthCard({ entry, today, narrow, titleFor, clubNameFor, onOpenMeeting,
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={{ fontWeight: '700', color: '#183a36' }}>{title?.name ?? 'Unavailable title'}</Text>
             <Text>{title?.author || 'Author unavailable'}</Text>
-            <Text style={{ fontSize: 12, color: '#465c56' }}>Checkout {assignment.ready}</Text>
+            <Text style={{ fontSize: 12, color: '#465c56' }}>Pickup {assignment.ready}</Text>
             <Text style={{ fontSize: 12, color: '#465c56' }}>Meeting {assignment.meeting} · {clubNameFor(book.clubId)}</Text>
             <Text style={{ fontSize: 12, color: '#465c56' }}>Return {assignment.due}</Text>
           </View>
-        </Pressable> : <Note>{entry.meetings.length ? 'No book chosen yet' : entry.markers.size ? 'No meeting this month. Checkouts and returns are shown in the calendar.' : 'No meeting scheduled this month'}</Note>}
+        </Pressable> : <Note>{entry.meetings.length ? 'No book chosen yet' : entry.markers.size ? 'No meeting this month. Pickups and returns are shown in the calendar.' : 'No meeting scheduled this month'}</Note>}
         {others.map(({ meeting, assignment: other }) => <Pressable key={meeting.key} accessibilityRole="button"
           onPress={() => onOpenMeeting(meeting)} style={{ borderTopWidth: 1, borderTopColor: '#e1e8e3', paddingTop: 8 }}>
           <Text style={{ fontSize: 13 }}>Also this month: {titleFor(other)?.name ?? 'Unavailable title'} · {meeting.date}</Text>

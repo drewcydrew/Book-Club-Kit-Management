@@ -1,4 +1,5 @@
-import { highlightedGrid, memberScheduleMeetings, memberVisibleCycle, scheduleByKit, scheduleGrid, type MemberScheduleMeeting } from './cycle-overview';
+import { highlightedGrid, memberScheduleMeetings, memberVisibleCycle, monthsInRange, scheduleByKit, scheduleGrid, type MemberScheduleMeeting } from './cycle-overview';
+import { buildKitCalendar, type KitDayMark, type KitSummary } from './kit-calendar';
 import { fairness, rankings } from './logic';
 import type { Cycle, Data } from './model';
 import { csvCell } from './csv';
@@ -36,6 +37,19 @@ export interface ScheduleExport {
   mode?: StaffScheduleView;
   grid?: { cycleId: string; cycleName: string; cycleStatus: string; months: string[]; rows: { clubId: string; clubName: string; cells: (ExportMeeting | null)[] }[] };
   highlight?: HighlightedScheduleExport;
+  kitPages?: KitPageSchedule;
+}
+
+export interface KitPage {
+  allocations: ExportMeeting[];
+  summary: KitSummary;
+  marks: Map<string, KitDayMark[]>;
+}
+
+export interface KitPageSchedule {
+  months: string[];
+  kits: KitPage[];
+  unassigned: ExportMeeting[];
 }
 
 export interface HighlightedScheduleExport {
@@ -123,20 +137,27 @@ export function makeScheduleExport(data: Data, clubIds: string[], staffCycle?: C
       };
     }
   }
+  let kitPages: KitPageSchedule | undefined;
   if (staffCycle && mode === 'kits') {
     const byAssignment = new Map(rows.filter((row) => row.assignmentId).map((row) => [row.assignmentId, row]));
+    const unassigned = rows.filter((row) => !row.assignmentId);
+    const cycleMonths = monthsInRange(staffCycle.startsOn, staffCycle.endsOn);
+    const allowedDays = data.library.loanDays + data.library.bufferDays;
+    const pages: KitPage[] = [];
     rows.length = 0;
     for (const group of scheduleByKit(data, staffCycle.id, clubIds)) {
-      for (const assignment of group.assignments) {
-        const row = byAssignment.get(assignment.id);
-        if (row) rows.push(row);
-      }
+      const allocations = group.assignments.flatMap((assignment) => byAssignment.get(assignment.id) ?? []);
+      rows.push(...allocations);
+      if (!allocations.length) continue;
+      const calendar = buildKitCalendar([group], cycleMonths, allowedDays);
+      pages.push({ allocations, summary: calendar.kits[0], marks: calendar.marks });
     }
+    kitPages = { months: cycleMonths, kits: pages, unassigned };
   }
   return {
     library: data.library.name,
     label: staffCycle ? `${staffCycle.name} · ${staffCycle.status}${unsaved ? ' · Unsaved local schedule' : ''}` : 'Your schedule · Drafted and published cycles',
-    meetings: rows, mode: staffCycle ? mode : undefined, grid, highlight,
+    meetings: rows, mode: staffCycle ? mode : undefined, grid, highlight, kitPages,
   };
 }
 
@@ -149,7 +170,7 @@ export function makeMemberScheduleExport(data: Data, clubIds: string[], cycleId:
 export function scheduleCsv(schedule: ScheduleExport): string {
   if (schedule.mode === 'grid' && schedule.grid) {
     const grid = schedule.grid;
-    const fields = ['Status', 'Slot ID', 'Assignment ID', 'Meeting date', 'Ready date', 'Due date', 'Title ID',
+    const fields = ['Status', 'Slot ID', 'Assignment ID', 'Meeting date', 'Pickup date', 'Due date', 'Title ID',
       'Title', 'Author', 'ISBN', 'Cover URL', 'Kit ID', 'Kit barcode', 'Kit branch', 'Copies', 'Locked'];
     const headers = ['Export scope', 'Cycle ID', 'Cycle', 'Cycle status', 'Club ID', 'Club', ...grid.months.flatMap((month) => fields.map((field) => `${month} ${field}`))];
     const lines = grid.rows.map((row) => [
@@ -163,7 +184,7 @@ export function scheduleCsv(schedule: ScheduleExport): string {
   if (schedule.mode === 'kits') {
     const headers = ['Export scope', 'Cycle ID', 'Cycle', 'Cycle status', 'Kit ID', 'Kit barcode', 'Kit branch', 'Copies',
       'Title ID', 'Title', 'Author', 'ISBN', 'Cover URL', 'Club ID', 'Club', 'Slot ID', 'Assignment ID', 'Month',
-      'Meeting date', 'Ready date', 'Due date', 'Locked'];
+      'Meeting date', 'Pickup date', 'Due date', 'Locked'];
     const lines = schedule.meetings.map((row) => [
       schedule.label, row.cycleId, row.cycleName, row.cycleStatus, row.kitId, row.barcode, row.branch, row.copies,
       row.titleId, row.title, row.author, row.isbn, row.coverUrl, row.clubId, row.clubName, row.slotId, row.assignmentId,
@@ -172,7 +193,7 @@ export function scheduleCsv(schedule: ScheduleExport): string {
     return `\uFEFF${[headers.map(csvCell).join(','), ...lines].join('\r\n')}\r\n`;
   }
   const headers = ['Export scope', 'Cycle ID', 'Cycle', 'Cycle status', 'Club ID', 'Club', 'Slot ID', 'Assignment ID',
-    'Assignment status', 'Month', 'Meeting date', 'Ready date', 'Due date', 'Title ID', 'Title',
+    'Assignment status', 'Month', 'Meeting date', 'Pickup date', 'Due date', 'Title ID', 'Title',
     'Author', 'ISBN', 'Cover URL', 'Kit ID', 'Kit barcode', 'Kit branch', 'Copies', 'Locked'];
   const lines = schedule.meetings.map((row) => [
     schedule.label, row.cycleId, row.cycleName, row.cycleStatus, row.clubId, row.clubName, row.slotId, row.assignmentId,

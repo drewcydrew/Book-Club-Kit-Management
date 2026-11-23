@@ -46,7 +46,7 @@ export function loanOverrun(data: Data, window: Pick<Assignment, 'ready' | 'due'
   if (!validDate(window.ready) || !validDate(window.due)) return null;
   const days = daysBetween(window.ready, window.due);
   const allowed = data.library.loanDays + data.library.bufferDays;
-  return days > allowed ? `Checkout runs ${days} days, longer than the ${data.library.loanDays}-day loan period plus ${data.library.bufferDays}-day turnaround buffer.` : null;
+  return days > allowed ? `Pickup runs ${days} days, longer than the ${data.library.loanDays}-day loan period plus ${data.library.bufferDays}-day turnaround buffer.` : null;
 }
 
 export function assignmentProblem(data: Data, assignment: Assignment, others: Assignment[]): string | null {
@@ -69,10 +69,10 @@ export function assignmentProblems(data: Data, assignment: Assignment, others: A
     const active = others.filter((a) => a.kitId === kit.id && a.ready <= today() &&
       data.cycles.some((c) => c.id === a.cycleId && c.status === 'published'))
       .sort((a, b) => b.ready.localeCompare(a.ready))[0];
-    if (!active) problems.push('Kit is checked out without a current published assignment.');
+    if (!active) problems.push('Kit is picked up without a current published assignment.');
     else if (!validDate(active.ready) || !validDate(active.due)) problems.push('The current published kit loan has invalid dates.');
     else if (active.id !== assignment.id && (assignment.ready <= addDays(active.due, data.library.bufferDays) ||
-      (active.due < today() && assignment.ready <= addDays(today(), data.library.bufferDays)))) problems.push('A checked-out or overdue kit blocks this assignment.');
+      (active.due < today() && assignment.ready <= addDays(today(), data.library.bufferDays)))) problems.push('A picked-up or overdue kit blocks this assignment.');
   }
   if (club.history.includes(kit.titleId)) problems.push('The club has already read this title.');
   for (const other of others) {

@@ -37,7 +37,7 @@ export function generationConfirmation(
   const inUse = new Map(affected.flatMap((assignment) => {
     const kit = kits.find((item) => item.id === assignment.kitId);
     return kit && (kit.status === 'out' || kit.status === 'reserved')
-      ? [[`${assignment.clubId}:${kit.id}`, `${describe(assignment)}: ${kit.status === 'out' ? 'checked out' : 'reserved'}`] as const] : [];
+      ? [[`${assignment.clubId}:${kit.id}`, `${describe(assignment)}: ${kit.status === 'out' ? 'picked up' : 'reserved'}`] as const] : [];
   }));
   if (!excluded.size && !resetSlots.length && !affected.length && !dirty && !hasPending) return null;
   const scopeText = `Generate for ${shownCount} shown ${shownCount === 1 ? 'club' : 'clubs'}; ${excluded.size} hidden ${excluded.size === 1 ? 'club is' : 'clubs are'} excluded.`;

@@ -17,7 +17,7 @@ test('a kit is out on every day from pickup to return and only the meeting day i
   assert.deepEqual(calendar.marks.get('2026-04-28')?.map((mark) => [mark.ready, mark.meeting, mark.due]), [[false, false, true]]);
 });
 
-test('the gap between one return and the next checkout is reported, and overlapping kit loans are flagged instead', () => {
+test('the gap between one return and the next pickup is reported, and overlapping kit loans are flagged instead', () => {
   const groups: KitGroup[] = [{ kitId: 'kit-1', assignments: [
     assignment('first', '2026-03-17', '2026-04-21', '2026-04-28'),
     assignment('second', '2026-05-18', '2026-05-19', '2026-05-26'),

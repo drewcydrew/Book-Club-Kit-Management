@@ -25,13 +25,18 @@ const cellFill = rgb(1, 0.996, 0.98);
 const markedFill = rgb(0.945, 0.969, 0.953);
 const placeholder = rgb(0.88, 0.91, 0.89);
 const markerKinds: OverviewMarkerKind[] = ['ready', 'meeting', 'due'];
-const markerLabels: Record<OverviewMarkerKind, string> = { ready: 'Checkout', meeting: 'Meeting', due: 'Return' };
+const markerLabels: Record<OverviewMarkerKind, string> = { ready: 'Pickup', meeting: 'Meeting', due: 'Return' };
 const markerColors: Record<OverviewMarkerKind, Color> = {
   ready: rgb(0.706, 0.325, 0.035),
   meeting: rgb(0.141, 0.369, 0.318),
   due: rgb(0.604, 0.204, 0.071),
 };
 const weekdays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+// Shared with the kit calendar export so both PDFs use one visual style.
+export const overviewStyle = {
+  pageWidth, pageHeight, margin, contentWidth, ink, muted, paper, rule, cellFill, markedFill, placeholder,
+  markerColors, markerLabels, weekdays,
+};
 
 export type OverviewPdfMonth = {
   month: string;
@@ -88,6 +93,17 @@ export function shorten(lines: string[], count: number, font: PDFFont, size: num
 }
 
 // Produces one A4 page per club, all sharing one embedded font and cover set.
+export async function embedCovers(doc: import('pdf-lib').PDFDocument, covers: Map<string, Uint8Array>) {
+  const images = new Map<string, PDFImage>();
+  let invalidCovers = 0;
+  for (const [id, bytes] of covers) {
+    try {
+      images.set(id, bytes[0] === 0xff && bytes[1] === 0xd8 ? await doc.embedJpg(bytes) : await doc.embedPng(bytes));
+    } catch { invalidCovers++; }
+  }
+  return { images, invalidCovers };
+}
+
 export async function makeClubOverviewPdf({ clubs, fontBytes, covers, exportedAt }: {
   clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string;
 }) {
@@ -101,18 +117,38 @@ export async function makeClubOverviewPdf({ clubs, fontBytes, covers, exportedAt
   const unsupported = [...text].find((character) => !/\s/.test(character) && !supported.has(character.codePointAt(0)!));
   if (unsupported) throw new Error(`The PDF font cannot display the character "${unsupported}".`);
 
-  const images = new Map<string, PDFImage>();
-  let invalidCovers = 0;
-  for (const [id, bytes] of covers) {
-    try {
-      images.set(id, bytes[0] === 0xff && bytes[1] === 0xd8 ? await doc.embedJpg(bytes) : await doc.embedPng(bytes));
-    } catch { invalidCovers++; }
-  }
+  const { images, invalidCovers } = await embedCovers(doc, covers);
 
   for (const club of clubs) {
     drawClubPage(doc.addPage([pageWidth, pageHeight]), font, images, { ...club, exportedAt });
   }
   return { bytes: await doc.save(), invalidCovers };
+}
+
+// Draws a Monday-first month grid. Shaded dates are filled like marked dates without a marker.
+export function drawCalendarGrid(page: PDFPage, font: PDFFont, weeks: (string | null)[][], markers: Map<string, OverviewMarkerKind[]>,
+  { left, top, width, k, shaded }: { left: number; top: number; width: number; k: number; shaded?: Set<string> }) {
+  const cellWidth = width / 7;
+  const headerHeight = 8 * k;
+  const rowHeight = 13 * k;
+  const centered = (value: string, x: number, y: number, size: number, color: Color) => {
+    page.drawText(value, { x: x + (cellWidth - font.widthOfTextAtSize(value, size)) / 2, y, size, font, color });
+  };
+  weekdays.forEach((day, index) => centered(day, left + index * cellWidth, top - 6.5 * k, 6.5 * k, muted));
+  weeks.forEach((week, weekIndex) => week.forEach((date, dayIndex) => {
+    if (!date) return;
+    const cellX = left + dayIndex * cellWidth;
+    const cellTop = top - headerHeight - weekIndex * rowHeight;
+    const cellBottom = cellTop - rowHeight;
+    const dayMarkers = markers.get(date) ?? [];
+    const filled = dayMarkers.length > 0 || !!shaded?.has(date);
+    page.drawRectangle({ x: cellX, y: cellBottom, width: cellWidth, height: rowHeight, color: filled ? markedFill : cellFill, borderColor: rule, borderWidth: 0.4 });
+    centered(String(Number(date.slice(8))), cellX, cellTop - 7 * k, 7 * k, ink);
+    dayMarkers.forEach((kind, index) => {
+      const centerX = cellX + cellWidth / 2 + (index - (dayMarkers.length - 1) / 2) * 4.5 * k;
+      page.drawCircle({ x: centerX, y: cellBottom + 2.8 * k, size: 1.8 * k, color: markerColors[kind] });
+    });
+  }));
 }
 
 function drawClubPage(page: PDFPage, font: PDFFont, images: Map<string, PDFImage>, { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }) {
@@ -200,24 +236,7 @@ function drawClubPage(page: PDFPage, font: PDFFont, images: Map<string, PDFImage
       line('No book chosen', 7 * k, 9 * k, muted);
     }
 
-    const cellWidth = calendarWidth / 7;
-    const headerHeight = 8 * k;
-    const rowHeight = 13 * k;
-    const calendarTop = yTop - pad;
-    weekdays.forEach((day, index) => drawCentered(day, calendarX + index * cellWidth, cellWidth, calendarTop - 6.5 * k, 6.5 * k, muted));
-    entry.weeks.forEach((week, weekIndex) => week.forEach((date, dayIndex) => {
-      if (!date) return;
-      const cellX = calendarX + dayIndex * cellWidth;
-      const cellTop = calendarTop - headerHeight - weekIndex * rowHeight;
-      const cellBottom = cellTop - rowHeight;
-      const markers = entry.markers.get(date) ?? [];
-      page.drawRectangle({ x: cellX, y: cellBottom, width: cellWidth, height: rowHeight, color: markers.length ? markedFill : cellFill, borderColor: rule, borderWidth: 0.4 });
-      drawCentered(String(Number(date.slice(8))), cellX, cellWidth, cellTop - 7 * k, 7 * k);
-      markers.forEach((kind, index) => {
-        const centerX = cellX + cellWidth / 2 + (index - (markers.length - 1) / 2) * 4.5 * k;
-        page.drawCircle({ x: centerX, y: cellBottom + 2.8 * k, size: 1.8 * k, color: markerColors[kind] });
-      });
-    }));
+    drawCalendarGrid(page, font, entry.weeks, entry.markers, { left: calendarX, top: yTop - pad, width: calendarWidth, k });
   };
 
   months.forEach((entry, index) => {

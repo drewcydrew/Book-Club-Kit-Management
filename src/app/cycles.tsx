@@ -130,7 +130,7 @@ function CyclesContent() {
         </> : <Action title="Reopen for editing" disabled={shared.saving} onPress={() => { setMessage(''); setReopenId(cycle.id); }} />)}
         {cycleAssignments.length > 0 && (discardId === cycle.id ? <>
           <Note>Discard the schedule for {cycle.name}? This deletes {cycleAssignments.length} assignments ({lockedCount} locked) and returns the cycle to collecting. Slots, ballots and finalized rankings are kept.</Note>
-          {heldKits.length > 0 && <Note>Warning: {heldKits.length} kit{heldKits.length === 1 ? ' is' : 's are'} checked out or reserved under these assignments ({heldKits.map((kit) => kit?.barcode).join(', ')}). {heldKits.length === 1 ? 'It' : 'They'} will have no published assignment until rescheduled.</Note>}
+          {heldKits.length > 0 && <Note>Warning: {heldKits.length} kit{heldKits.length === 1 ? ' is' : 's are'} picked up or reserved under these assignments ({heldKits.map((kit) => kit?.barcode).join(', ')}). {heldKits.length === 1 ? 'It' : 'They'} will have no published assignment until rescheduled.</Note>}
           <Actions>
             <Action tone="danger" title="Confirm discard schedule" disabled={shared.saving} onPress={() => {
               void shared.mutate(() => discardCycleSchedule(cycle.id, cycle.revision)).then(() => {
@@ -160,7 +160,7 @@ function CyclesContent() {
             const assignment = data.assignments.find((item) => item.cycleId === cycle.id && item.slotId === slot.id);
             const kit = data.kits.find((item) => item.id === assignment?.kitId);
             return <View key={slot.id} style={{ gap: 6 }}>
-              <Text>{slotText(data, cycle, slot)}{assignment?.locked ? ' · Locked' : ''}{kit?.status === 'out' ? ' · Kit checked out (may be in use)' : ''}</Text>
+              <Text>{slotText(data, cycle, slot)}{assignment?.locked ? ' · Locked' : ''}{kit?.status === 'out' ? ' · Kit picked up (may be in use)' : ''}</Text>
               <Actions>
                 <Action title="Edit slot" accessibilityLabel={`Edit slot for ${clubName(data, slot.clubId)} in ${monthLabel(month)}`} disabled={shared.saving} onPress={() => setEditingSlotId(slot.id)} />
                 <Action title="Remove slot" accessibilityLabel={`Remove slot for ${clubName(data, slot.clubId)} in ${monthLabel(month)}`} disabled={shared.saving} onPress={() => {

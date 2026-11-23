@@ -68,7 +68,7 @@ export function ScheduleExportActions(props: ExportProps) {
     <Note>{preview.highlight
       ? 'CSV includes all meetings for the clubs shown, including unassigned meetings.'
       : preview.mode === 'kits'
-      ? 'Exports include assigned meetings grouped by kit; unassigned meetings are not included.'
+      ? 'PDF has one page per kit with its allocations on a calendar, plus an appendix of unassigned meetings. CSV includes assigned meetings only.'
       : 'Exports include all meetings for the clubs shown, including unassigned meetings.'} {preview.label}.</Note>
     {staffClubCount !== undefined && <Note>{staffClubCount} {staffClubCount === 1 ? 'club is' : 'clubs are'} selected in Clubs shown. {preview.highlight
       ? `PDF shows ${preview.highlight.count} ${preview.highlight.count === 1 ? 'club' : 'clubs'} matching ${preview.highlight.title} on one page; CSV includes all selected clubs.`

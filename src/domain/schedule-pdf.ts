@@ -1,5 +1,6 @@
 import fontkit from '@pdf-lib/fontkit';
 import type { PDFFont, PDFImage, PDFPage } from 'pdf-lib';
+import { makeKitCalendarPdf } from './kit-pdf';
 import type { HighlightedScheduleExport, ScheduleExport } from './schedule-export';
 
 // The bundled build avoids Metro resolving pdf-lib's ESM tslib wrapper incorrectly.
@@ -136,6 +137,7 @@ export async function makeSchedulePdf(
   covers: Map<string, Uint8Array>,
   exportedAt: string,
 ): Promise<{ bytes: Uint8Array; invalidCovers: number; smallText?: boolean }> {
+  if (schedule.kitPages) return makeKitCalendarPdf({ schedule: schedule.kitPages, fontBytes, covers, exportedAt });
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   // fontkit's subset has invalid TrueType checksums and renders incorrectly in PDF readers.
@@ -146,7 +148,7 @@ export async function makeSchedulePdf(
       [row.clubName, row.summary, ...row.cells.map((cell) => cell.meeting?.title ?? '')])].join('')
     : [schedule.library, schedule.label, ...schedule.meetings.flatMap((row) =>
       [row.clubName, row.cycleName, row.cycleStatus, row.title, row.author, row.meeting, row.month, row.ready, row.due,
-        ...(schedule.mode === 'kits' ? [row.barcode, row.branch, row.kitId] : [])]),
+      ]),
       ...(schedule.grid?.rows.map((row) => row.clubName) ?? [])].join('');
   const unsupported = [...text].find((character) => !/\s/.test(character) && !supported.has(character.codePointAt(0)!));
   if (unsupported) throw new Error(`The PDF font cannot display the character "${unsupported}".`);
@@ -262,22 +264,19 @@ export async function makeSchedulePdf(
   } else {
     let previousGroup = '';
     for (const row of schedule.meetings) {
-      const group = schedule.mode === 'kits' ? row.kitId : row.clubId;
-      if (group !== previousGroup) {
+      if (row.clubId !== previousGroup) {
         ensure(145);
         y -= 8;
-        heading(schedule.mode === 'kits' ? `${row.title || 'Unavailable title'} · ${row.barcode || `Unavailable kit (${row.kitId})`}` : row.clubName, 17);
-        if (schedule.mode === 'kits' && row.branch) heading(row.branch, 10, muted);
-        previousGroup = group;
+        heading(row.clubName, 17);
+        previousGroup = row.clubId;
       }
       const title = row.assignmentId ? (row.title || 'Unavailable title') : 'Not assigned';
       const details = [
-        ...(schedule.mode === 'kits' ? [{ text: row.clubName, size: 11 }] : []),
         { text: row.meeting ? `Meeting ${row.meeting}` : `Meeting ${row.month} · Date to be confirmed`, size: 11 },
         { text: title, size: 14 },
         ...(row.author ? [{ text: row.author, size: 10 }] : []),
         { text: `${row.cycleName} · ${row.cycleStatus}`, size: 9 },
-        ...(row.ready || row.due ? [{ text: `Ready ${row.ready || '—'}   ·   Due ${row.due || '—'}`, size: 10 }] : []),
+        ...(row.ready || row.due ? [{ text: `Pickup ${row.ready || '—'}   ·   Due ${row.due || '—'}`, size: 10 }] : []),
       ];
       const lines = details.flatMap((detail) => wrap(detail.text, font, detail.size, width - margin * 2 - 100)
         .map((line) => ({ ...detail, text: line })));

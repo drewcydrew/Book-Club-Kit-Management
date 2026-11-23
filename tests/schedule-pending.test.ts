@@ -41,7 +41,7 @@ test('generation confirmation accounts for hidden and locked assignments', () =>
   assert.match(message ?? '', /1 shown-club meeting slot and their dates and assignments will be replaced/);
   assert.match(message ?? '', /1 hidden-club assignment will be removed/);
   assert.match(message ?? '', /Locked assignments will be unlocked/);
-  assert.match(message ?? '', /KIT-101\): checked out/);
+  assert.match(message ?? '', /KIT-101\): picked up/);
   assert.match(message ?? '', /remain local until validated and saved/);
   assert.match(confirm([shown]) ?? '', /0 hidden-club assignments/);
   assert.ok(generationConfirmation(1, [], [shown], base, false, false, cycle, data.clubs, data.kits));

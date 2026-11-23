@@ -55,7 +55,7 @@ test('hiding past retains today, current undated meetings, and future empty mont
   assert.equal(memberCalendarMonths(meetings, '2027-04-01', false).length, 0);
 });
 
-test('overview months pick the first assigned book, keep skipped months, and mark checkout, meeting and return dates', () => {
+test('overview months pick the first assigned book, keep skipped months, and mark pickup, meeting and return dates', () => {
   const c = cycle('c', '2027-01-01', '2027-03-31');
   const booked = (key: string, date: string, ready: string, due: string): MemberScheduleMeeting => ({
     ...meeting(key, c, date.slice(0, 7), date),

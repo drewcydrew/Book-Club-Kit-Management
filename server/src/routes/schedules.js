@@ -117,7 +117,7 @@ async function schedule(req, res, validateOnly) {
       if (changed && a.ready >= a.meeting) throw new HttpError(409,'Pickup must be before the meeting.');
       if (changed && a.due !== addDays(a.meeting,7)) throw new HttpError(409,'Return must be 7 days after the meeting.');
       const loanLength = (Date.parse(`${a.due}T00:00:00Z`) - Date.parse(`${a.ready}T00:00:00Z`)) / 86400000;
-      if (loanLength > settings.loan_days + settings.buffer_days) warn(a,`Checkout runs ${loanLength} days, longer than the ${settings.loan_days}-day loan period plus ${settings.buffer_days}-day turnaround buffer.`);
+      if (loanLength > settings.loan_days + settings.buffer_days) warn(a,`Pickup runs ${loanLength} days, longer than the ${settings.loan_days}-day loan period plus ${settings.buffer_days}-day turnaround buffer.`);
       if (readTitles.has(`${a.clubId}|${kit.titleId}`)) {
         const historic = previous && previous.clubId === a.clubId && previous.kitId === a.kitId && previous.meeting === a.meeting && previous.meeting < dbToday;
         if (cycle.status !== 'published' || !historic) warn(a,`Club ${a.clubId} has already read title ${kit.titleId}.`);
@@ -125,7 +125,7 @@ async function schedule(req, res, validateOnly) {
       if (kit.status === 'out') {
         const current = activeByKit.get(a.kitId);
         if (!current || (current.id !== a.id && (a.ready <= addDays(current.due,settings.buffer_days) || (current.due < dbToday && a.ready <= addDays(dbToday,settings.buffer_days))))) {
-          warn(a,`Checked-out or overdue kit ${a.kitId} blocks this assignment.`);
+          warn(a,`Picked-up or overdue kit ${a.kitId} blocks this assignment.`);
         }
       }
       const candidate = { ...a, titleId: kit.titleId };

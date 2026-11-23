@@ -90,5 +90,5 @@ test('changing a flexible meeting date recalculates its loan window', () => {
   const titles = new Map(data.titles.map((title) => [title.id, title]));
   const preview = previewScheduleKit(data, cycle, slot, '2026-01-05', current, kits.get('k2')!,
     [current, other], false, kits, titles);
-  assert.match(preview.messages.join(' '), /Checkout runs 42 days/);
+  assert.match(preview.messages.join(' '), /Pickup runs 42 days/);
 });
