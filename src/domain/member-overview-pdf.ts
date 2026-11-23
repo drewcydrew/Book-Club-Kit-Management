@@ -2,7 +2,6 @@ import fontkit from '@pdf-lib/fontkit';
 import type { Color, PDFImage } from 'pdf-lib';
 import { calendarMonthLabel, type MemberOverviewMonth, type OverviewMarkerKind } from './member-calendar';
 import type { Assignment, Title } from './model';
-import { synopsisPlainText } from './synopsis';
 import { shorten, wrap } from './schedule-handouts-pdf';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -12,7 +11,7 @@ const pageWidth = 595.28;
 const pageHeight = 841.89;
 const margin = 28;
 const contentWidth = pageWidth - 2 * margin;
-const cardHeight = 84;
+const cardHeight = 96;
 const cardGap = 10;
 const rowGap = 6;
 const minScale = 0.6;
@@ -36,7 +35,7 @@ export type OverviewPdfMonth = {
   month: string;
   weeks: (string | null)[][];
   markers: Map<string, OverviewMarkerKind[]>;
-  book?: { titleId?: string; name: string; author: string; synopsis: string };
+  book?: { titleId?: string; name: string; author: string };
 };
 
 export function overviewPdfMonths(months: MemberOverviewMonth[], titleFor: (assignment: Assignment) => Title | undefined): OverviewPdfMonth[] {
@@ -46,7 +45,6 @@ export function overviewPdfMonths(months: MemberOverviewMonth[], titleFor: (assi
       titleId: title?.id,
       name: title?.name ?? 'Unavailable title',
       author: title?.author ?? '',
-      synopsis: synopsisPlainText(title?.synopsis),
     };
     const markers = new Map([...entry.markers].map(([date, list]) => [date, list.map((marker) => marker.kind)] as const));
     return { month: entry.month, weeks: entry.weeks, markers, book };
@@ -62,7 +60,7 @@ export async function makeOverviewPdf({ club, details, months, fontBytes, covers
   const supported = new Set(font.getCharacterSet());
   const text = [club, details, exportedAt, 'Overview', 'No book chosen', 'No cover', 'No meetings are scheduled for this club.',
     ...Object.values(markerLabels),
-    ...months.flatMap((entry) => [calendarMonthLabel(entry.month), entry.book?.name ?? '', entry.book?.author ?? '', entry.book?.synopsis ?? ''])].join('');
+    ...months.flatMap((entry) => [calendarMonthLabel(entry.month), entry.book?.name ?? '', entry.book?.author ?? ''])].join('');
   const unsupported = [...text].find((character) => !/\s/.test(character) && !supported.has(character.codePointAt(0)!));
   if (unsupported) throw new Error(`The PDF font cannot display the character "${unsupported}".`);
 
@@ -125,9 +123,9 @@ export async function makeOverviewPdf({ club, details, months, fontBytes, covers
     const bottom = yTop - cardH;
     page.drawRectangle({ x, y: bottom, width: cardWidth, height: cardH, color: paper, borderColor: rule, borderWidth: 0.5 });
     const pad = 5 * k;
-    const coverWidth = 34 * k;
-    const coverHeight = 46 * k;
-    const calendarWidth = 117 * k;
+    const coverWidth = 36 * k;
+    const coverHeight = 50 * k;
+    const calendarWidth = 130 * k;
     const calendarX = x + cardWidth - pad - calendarWidth;
     const textX = x + pad + coverWidth + 5 * k;
     const textWidth = calendarX - textX - 6 * k;
@@ -153,21 +151,17 @@ export async function makeOverviewPdf({ club, details, months, fontBytes, covers
     };
     line(calendarMonthLabel(entry.month), 7 * k, 9 * k, muted);
     if (book) {
-      fitLines(book.name, 7.5 * k, textWidth, 2).forEach((value) => line(value, 7.5 * k, 9 * k));
-      if (book.author) line(fitLines(book.author, 6.5 * k, textWidth, 1)[0] ?? '', 6.5 * k, 8 * k, muted);
-      const space = Math.floor((cursor - 6 * k - bottom - pad) / (7 * k)) + 1;
-      if (book.synopsis && space > 0) {
-        fitLines(book.synopsis, 6 * k, textWidth, space).forEach((value) => line(value, 6 * k, 7 * k, muted));
-      }
+      fitLines(book.name, 8 * k, textWidth, 3).forEach((value) => line(value, 8 * k, 10 * k));
+      if (book.author) line(fitLines(book.author, 7 * k, textWidth, 2)[0] ?? '', 7 * k, 9 * k, muted);
     } else {
       line('No book chosen', 7 * k, 9 * k, muted);
     }
 
     const cellWidth = calendarWidth / 7;
     const headerHeight = 8 * k;
-    const rowHeight = 11 * k;
+    const rowHeight = 13 * k;
     const calendarTop = yTop - pad;
-    weekdays.forEach((day, index) => drawCentered(day, calendarX + index * cellWidth, cellWidth, calendarTop - 6 * k, 6 * k, muted));
+    weekdays.forEach((day, index) => drawCentered(day, calendarX + index * cellWidth, cellWidth, calendarTop - 6.5 * k, 6.5 * k, muted));
     entry.weeks.forEach((week, weekIndex) => week.forEach((date, dayIndex) => {
       if (!date) return;
       const cellX = calendarX + dayIndex * cellWidth;
@@ -175,10 +169,10 @@ export async function makeOverviewPdf({ club, details, months, fontBytes, covers
       const cellBottom = cellTop - rowHeight;
       const markers = entry.markers.get(date) ?? [];
       page.drawRectangle({ x: cellX, y: cellBottom, width: cellWidth, height: rowHeight, color: markers.length ? markedFill : cellFill, borderColor: rule, borderWidth: 0.4 });
-      drawCentered(String(Number(date.slice(8))), cellX, cellWidth, cellTop - 6.5 * k, 6 * k);
+      drawCentered(String(Number(date.slice(8))), cellX, cellWidth, cellTop - 7 * k, 7 * k);
       markers.forEach((kind, index) => {
-        const centerX = cellX + cellWidth / 2 + (index - (markers.length - 1) / 2) * 4 * k;
-        page.drawCircle({ x: centerX, y: cellBottom + 2.6 * k, size: 1.6 * k, color: markerColors[kind] });
+        const centerX = cellX + cellWidth / 2 + (index - (markers.length - 1) / 2) * 4.5 * k;
+        page.drawCircle({ x: centerX, y: cellBottom + 2.8 * k, size: 1.8 * k, color: markerColors[kind] });
       });
     }));
   };

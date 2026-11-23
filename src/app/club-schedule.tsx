@@ -139,12 +139,9 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
     return <ScrollView contentContainerStyle={pageStyle} keyboardShouldPersistTaps="handled">{header}{picker}<Note>Loading club schedule…</Note></ScrollView>;
   }
 
-  const { club, cycles } = schedule;
+  const { club } = schedule;
   const titleFor = (assignment: { kitId: string }) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '');
   const titleIdFor = (assignment: { kitId: string }) => kitById.get(assignment.kitId)?.titleId;
-  const cycleSummary = cycles.length
-    ? cycles.map((cycle) => `${cycle.name} (${cycle.status})`).join(', ')
-    : 'No drafted or published schedules are available yet.';
 
   return <ScrollView contentContainerStyle={pageStyle} keyboardShouldPersistTaps="handled">
     {header}
@@ -152,12 +149,6 @@ function ClubScheduleContent({ serviceId, clubId, selectedService }: { serviceId
     <Card>
       <Text accessibilityRole="header" style={[uiStyles.heading, { fontSize: 24 }]}>{club.name}</Text>
       <Note>{club.branch} · {meetingRuleLabel(club)} · {cadenceLabel(club.cadence)}</Note>
-      <Label>Pickup & address</Label>
-      <Note>{club.pickup === 'pickup' ? 'Pickup' : 'Delivery'} · {club.address || 'No address recorded'}</Note>
-      <Label>Members</Label>
-      <Note>{club.size} {club.size === 1 ? 'member' : 'members'}</Note>
-      <Label>Schedules</Label>
-      <Note>{cycleSummary}</Note>
     </Card>
     {staff && selectedClubId && <Card soft>
       <Label>Share with club members</Label>

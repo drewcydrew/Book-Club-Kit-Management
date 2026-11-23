@@ -1,7 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions, type HostInstance } from 'react-native';
 import { Action, Actions, Card, Label, Note, narrowWidth } from './ui';
-import { SynopsisText } from './synopsis-text';
 import { radius } from './design';
 import { TitleCover } from './title-cover';
 import type { MemberScheduleMeeting } from '../domain/cycle-overview';
@@ -45,13 +44,13 @@ function DayCell({ date, markers, isToday, onOpen, onHover }: {
   const names = markers?.map((marker) => markerLabels[marker.kind]).join(', ');
   const accessibilityLabel = `${calendarDateLabel(date)}${isToday ? ', today' : ''}${names ? `, ${names}` : ''}`;
   const content = <>
-    <Text style={{ fontSize: 12, fontWeight: markers || isToday ? '700' : '400', color: '#183a36' }}>{Number(date.slice(8))}</Text>
-    {markers && <View style={{ flexDirection: 'row', gap: 2 }}>
-      {markers.map((marker) => <View key={`${marker.kind}:${marker.meeting.key}`} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: markerColors[marker.kind] }} />)}
+    <Text style={{ fontSize: 15, fontWeight: markers || isToday ? '700' : '400', color: '#183a36' }}>{Number(date.slice(8))}</Text>
+    {markers && <View style={{ flexDirection: 'row', gap: 3 }}>
+      {markers.map((marker) => <View key={`${marker.kind}:${marker.meeting.key}`} style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: markerColors[marker.kind] }} />)}
     </View>}
   </>;
   const style = {
-    flex: 1, height: 38, alignItems: 'center' as const, justifyContent: 'center' as const,
+    flex: 1, height: 50, alignItems: 'center' as const, justifyContent: 'center' as const,
     borderWidth: isToday ? 2 : 1, borderColor: isToday ? '#75958a' : '#e1e8e3',
     backgroundColor: markers ? '#f1f7f3' : '#fffefa',
   };
@@ -66,14 +65,14 @@ function DayCell({ date, markers, isToday, onOpen, onHover }: {
 function MiniCalendar({ entry, today, narrow, onOpen, onHover }: {
   entry: MemberOverviewMonth; today: string; narrow: boolean; onOpen: (date: string) => void; onHover: (target: HoverTarget | null) => void;
 }) {
-  return <View accessible accessibilityLabel={`${calendarMonthLabel(entry.month)} calendar`} style={{ width: narrow ? '100%' : 216, maxWidth: 360, gap: 2 }}>
+  return <View accessible accessibilityLabel={`${calendarMonthLabel(entry.month)} calendar`} style={{ width: narrow ? '100%' : 300, maxWidth: 420, gap: 4 }}>
     <View style={{ flexDirection: 'row' }}>
-      {weekdayLetters.map((letter, index) => <Text key={index} style={{ flex: 1, textAlign: 'center', fontSize: 11, color: '#465c56', fontWeight: '600' }}>{letter}</Text>)}
+      {weekdayLetters.map((letter, index) => <Text key={index} style={{ flex: 1, textAlign: 'center', fontSize: 13, color: '#465c56', fontWeight: '600' }}>{letter}</Text>)}
     </View>
     {entry.weeks.map((week, weekIndex) => <View key={weekIndex} style={{ flexDirection: 'row' }}>
       {week.map((date, dayIndex) => date
         ? <DayCell key={date} date={date} markers={entry.markers.get(date)} isToday={today === date} onOpen={onOpen} onHover={onHover} />
-        : <View key={`empty:${dayIndex}`} style={{ flex: 1, height: 38 }} />)}
+        : <View key={`empty:${dayIndex}`} style={{ flex: 1, height: 50 }} />)}
     </View>)}
   </View>;
 }
@@ -157,7 +156,6 @@ function MonthCard({ entry, today, narrow, titleFor, clubNameFor, onOpenMeeting,
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={{ fontWeight: '700', color: '#183a36' }}>{title?.name ?? 'Unavailable title'}</Text>
             <Text>{title?.author || 'Author unavailable'}</Text>
-            {title?.synopsis ? <SynopsisText synopsis={title.synopsis} numberOfLines={3} /> : null}
             <Text style={{ fontSize: 12, color: '#465c56' }}>Checkout {assignment.ready}</Text>
             <Text style={{ fontSize: 12, color: '#465c56' }}>Meeting {assignment.meeting} · {clubNameFor(book.clubId)}</Text>
             <Text style={{ fontSize: 12, color: '#465c56' }}>Return {assignment.due}</Text>

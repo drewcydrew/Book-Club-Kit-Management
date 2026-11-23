@@ -411,6 +411,17 @@ export async function deleteClub(id: string, revision: number, token: string): P
   await request(`/api/clubs/${encodeURIComponent(id)}`, 'DELETE', { token, acknowledge: true }, revision);
 }
 
+export type ClubRuleUpdate = Pick<SharedClub, 'id' | 'revision' | 'cadence' | 'meetingWeekday' | 'meetingOccurrence' | 'pickupOffsetDays' | 'skipMonths'>;
+
+export async function importClubDefinitions(rows: ClubRuleUpdate[]): Promise<SharedClub[]> {
+  const value = await request('/api/clubs/import', 'POST', { rows });
+  if (!Array.isArray(value) || value.length !== rows.length || !value.every(isClub) ||
+      value.some((club, index) => club.id !== rows[index].id || club.revision !== rows[index].revision + 1)) {
+    throw new Error('Server applied the import but returned an invalid response; refresh before retrying.');
+  }
+  return value;
+}
+
 export async function setClubKit(clubId: string, kitId: string, linked: boolean): Promise<void> {
   await request(`/api/clubs/${encodeURIComponent(clubId)}/kits/${encodeURIComponent(kitId)}`, linked ? 'PUT' : 'DELETE');
 }

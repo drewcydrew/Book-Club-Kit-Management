@@ -12,7 +12,7 @@ function month(value: string, book?: string): OverviewPdfMonth {
     month: value,
     weeks: calendarWeeks(value),
     markers: new Map([[`${value}-15`, ['ready', 'meeting']], [`${value}-22`, ['due']]]),
-    book: book ? { name: book, author: 'Author', synopsis: 'A long synopsis. '.repeat(20) } : undefined,
+    book: book ? { name: book, author: 'Author' } : undefined,
   };
 }
 

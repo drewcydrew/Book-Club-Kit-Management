@@ -36,7 +36,7 @@ export function OverviewExport({ club, details, months, titleFor }: {
   }
   return <View style={{ gap: 8 }}>
     <Label>Print overview</Label>
-    <Note>A one-page A4 PDF with the covers, synopses and calendars shown in this overview, for future reference.</Note>
+    <Note>A one-page A4 PDF with the covers, assigned books and calendars shown in this overview, for future reference.</Note>
     <Actions>
       <Action title={busy ? 'Preparing PDF…' : 'Export overview PDF'} disabled={busy} onPress={() => { void exportPdf(); }} />
     </Actions>

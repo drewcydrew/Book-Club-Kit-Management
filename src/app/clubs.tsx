@@ -15,6 +15,9 @@ import { YearPreview } from "../components/club-year-preview";
 import { useDraftNavigationGuard } from "../components/navigation-guard";
 import { SearchPicker } from "../components/search-picker";
 import { TitleCover } from "../components/title-cover";
+import { deliver } from "../components/export-files";
+import { clubDefinitionsCsv } from "../domain/club-export";
+import { parseClubDefinitionsCsv, planClubDefinitionImport, type ClubImportPlan } from "../domain/club-import";
 import { sortClubs, type ClubSortOrder } from "../domain/club-list";
 import {
   Action,
@@ -35,6 +38,7 @@ import {
   ApiError,
   deleteClub,
   enrolInClub,
+  importClubDefinitions,
   previewClubDeletion,
   saveHistory,
   saveMemberships,
@@ -358,6 +362,12 @@ function ClubsContent() {
     error: string;
   } | null>(null);
   const deletionInFlight = useRef(false);
+  const [importReview, setImportReview] = useState<{
+    fileName: string;
+    plan: ClubImportPlan;
+    errors: string[];
+    failure: string;
+  } | null>(null);
   const [unlinking, setUnlinking] = useState<{
     clubId: string;
     kitId: string;
@@ -894,6 +904,61 @@ function ClubsContent() {
       )
     : [];
 
+  async function exportDefinitions() {
+    try {
+      const date = new Date().toISOString().slice(0, 10);
+      await deliver(clubDefinitionsCsv(shownClubs), `book-club-definitions-${date}.csv`, "text/csv", "Export club definitions");
+      setMessage(`Exported ${shownClubs.length} club definition${shownClubs.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setMessage(errorText(error, "Unable to export club definitions."));
+    }
+  }
+
+  function chooseImportFile() {
+    if (Platform.OS !== "web" || typeof document === "undefined") {
+      setMessage("Importing club definitions is available in the web app.");
+      return;
+    }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv,text/csv";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      void file.text().then(
+        (text) => {
+          const parsed = parseClubDefinitionsCsv(text);
+          const plan = planClubDefinitionImport(parsed.rows, data.clubs);
+          setImportReview({ fileName: file.name, plan, errors: [...parsed.errors, ...plan.errors], failure: "" });
+          setMessage("");
+        },
+        (error: unknown) => setMessage(errorText(error, "Unable to read the CSV file.")),
+      );
+    };
+    input.click();
+  }
+
+  async function applyImport() {
+    if (!importReview || importReview.plan.updates.length === 0) return;
+    const rows = importReview.plan.updates.map(({ club, definition }) => ({
+      id: club.id,
+      revision: club.revision,
+      cadence: definition.cadence,
+      meetingWeekday: definition.meetingWeekday,
+      meetingOccurrence: definition.meetingOccurrence,
+      pickupOffsetDays: definition.pickupOffsetDays,
+      skipMonths: definition.skipMonths,
+    }));
+    try {
+      const count = rows.length;
+      await shared.mutate(() => importClubDefinitions(rows));
+      setImportReview(null);
+      setMessage(`Updated ${count} club definition${count === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setImportReview((current) => current && { ...current, failure: errorText(error, "Unable to import club definitions. Nothing was changed.") });
+    }
+  }
+
   return (
     <Page title="Clubs" wide>
       {navigationConfirmation}
@@ -904,6 +969,18 @@ function ClubsContent() {
             void shared.refresh().catch(() => undefined);
           }}
         />
+        <Action
+          title="Export definitions"
+          onPress={() => {
+            void exportDefinitions();
+          }}
+        />
+        {staff && (
+          <Action
+            title="Import definitions"
+            onPress={chooseImportFile}
+          />
+        )}
         {staff && (
           <Action
             title="Create member"
@@ -969,6 +1046,39 @@ function ClubsContent() {
               <Actions>
                 {deleting.preview && <Action tone="danger" title="Confirm permanent deletion" disabled={deleting.loading || busy} onPress={() => { void confirmDeletion(); }} />}
                 <Action title="Cancel deletion" disabled={deleting.loading || busy} onPress={() => setDeleting(null)} />
+              </Actions>
+            </ScrollView>
+          </View></View>
+        </Modal>
+      )}
+      {importReview && (
+        <Modal transparent visible onRequestClose={() => { if (!busy) setImportReview(null); }} accessibilityLabel="Import club definitions">
+          <View style={modalStyles.backdrop}><View style={modalStyles.dialog}>
+            <ScrollView contentContainerStyle={modalStyles.content}>
+              <Label>Import definitions from {importReview.fileName}?</Label>
+              <Note>{importReview.plan.updates.length} club{importReview.plan.updates.length === 1 ? "" : "s"} will change · {importReview.plan.unchanged} unchanged · {importReview.plan.unmatched.length} unmatched</Note>
+              <Note>Changing meeting rules can make existing schedules stale. Regenerate affected schedules afterwards.</Note>
+              {importReview.errors.length > 0 && <View>
+                <Text style={modalStyles.syncError}>Fix these rows in the CSV, then choose the file again. Nothing will be imported:</Text>
+                {importReview.errors.map((error) => <Text key={error}>{error}</Text>)}
+              </View>}
+              {importReview.plan.updates.map(({ club, changes }) => <View key={club.id}>
+                <Text style={modalStyles.ruleTitle}>{club.name}</Text>
+                {changes.map((change) => <Note key={change.field}>{change.field}: {change.from} → {change.to}</Note>)}
+              </View>)}
+              {importReview.plan.unmatched.length > 0 && <View>
+                <Text style={modalStyles.syncError}>No club with this exact name exists. These rows will be skipped:</Text>
+                {importReview.plan.unmatched.map((row) => <Text key={row.line}>Line {row.line}: {row.name}</Text>)}
+              </View>}
+              {importReview.failure ? <Text accessibilityRole="alert" style={modalStyles.syncError}>{importReview.failure}</Text> : null}
+              <Actions>
+                <Action
+                  tone="primary"
+                  title={`Apply ${importReview.plan.updates.length} change${importReview.plan.updates.length === 1 ? "" : "s"}`}
+                  disabled={busy || importReview.errors.length > 0 || importReview.plan.updates.length === 0}
+                  onPress={() => { void applyImport(); }}
+                />
+                <Action title="Cancel import" disabled={busy} onPress={() => setImportReview(null)} />
               </Actions>
             </ScrollView>
           </View></View>
