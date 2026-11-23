@@ -10,9 +10,11 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { ClubFilterCard } from "../components/club-filter";
 import { useDraftNavigationGuard } from "../components/navigation-guard";
 import { SearchPicker } from "../components/search-picker";
 import { TitleCover } from "../components/title-cover";
+import { sortClubs, type ClubSortOrder } from "../domain/club-list";
 import {
   Action,
   Actions,
@@ -358,6 +360,9 @@ function ClubsContent() {
     kitId: string;
   } | null>(null);
   const [openClubs, setOpenClubs] = useState<Record<string, boolean>>({});
+  const [shownClubIds, setShownClubIds] = useState<string[] | null>(null);
+  const [clubFiltersOpen, setClubFiltersOpen] = useState(false);
+  const [clubSort, setClubSort] = useState<ClubSortOrder>("az");
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [status, setStatus] = useState<Record<Section, SyncState>>(idleStatus);
@@ -852,13 +857,17 @@ function ClubsContent() {
     } finally { deletionInFlight.current = false; }
   }
 
-  const visibleClubs = data.clubs.filter(
+  const scopedClubs = data.clubs.filter(
     (value) =>
       staff ||
       data.memberships.some(
         (membership) =>
           membership.personId === person?.id && membership.clubId === value.id,
       ),
+  );
+  const shownClubs = sortClubs(
+    scopedClubs.filter((value) => shownClubIds === null || shownClubIds.includes(value.id)),
+    clubSort,
   );
 
   const query = memberQuery.trim().toLowerCase();
@@ -987,7 +996,28 @@ function ClubsContent() {
           </Actions>
         </Card>
       )}
-      {visibleClubs.map((value) => {
+      {scopedClubs.length > 0 && (
+        <>
+          <ClubFilterCard
+            title={staff ? "Clubs shown" : "Your clubs"}
+            clubs={scopedClubs}
+            selectedIds={shownClubIds ?? scopedClubs.map((value) => value.id)}
+            onChange={setShownClubIds}
+            open={clubFiltersOpen}
+            onOpenChange={setClubFiltersOpen}
+            order={clubSort}
+            onOrderChange={setClubSort}
+          />
+          <Actions>
+            <Action
+              title={clubSort === "az" ? "Sort list Z to A" : "Sort list A to Z"}
+              onPress={() => setClubSort(clubSort === "az" ? "za" : "az")}
+            />
+            <Note>{`Showing ${shownClubs.length} of ${scopedClubs.length} ${scopedClubs.length === 1 ? "club" : "clubs"}`}</Note>
+          </Actions>
+        </>
+      )}
+      {shownClubs.map((value) => {
         const members = data.memberships.filter(
           (membership) => membership.clubId === value.id,
         );

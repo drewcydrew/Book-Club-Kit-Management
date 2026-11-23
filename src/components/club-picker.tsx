@@ -3,11 +3,14 @@ import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 import { filterClubs, sortClubs, type ClubListItem, type ClubSortOrder } from '../domain/club-list';
 import { Action, Actions, Note, styles as uiStyles } from './ui';
 
-export function ClubPicker<T extends ClubListItem>({ clubs, onPress, isSelected, disabled = false }: {
+export function ClubPicker<T extends ClubListItem>({ clubs, onPress, isSelected, disabled = false, order: controlledOrder, onOrderChange }: {
   clubs: readonly T[]; onPress: (club: T) => void; isSelected?: (club: T) => boolean; disabled?: boolean;
+  order?: ClubSortOrder; onOrderChange?: (order: ClubSortOrder) => void;
 }) {
   const [query, setQuery] = useState('');
-  const [order, setOrder] = useState<ClubSortOrder>('az');
+  const [localOrder, setLocalOrder] = useState<ClubSortOrder>('az');
+  const order = controlledOrder ?? localOrder;
+  const setOrder = onOrderChange ?? setLocalOrder;
   const isWeb = Platform.OS === 'web';
   const visible = useMemo(() => sortClubs(filterClubs(clubs, query), order), [clubs, query, order]);
 
