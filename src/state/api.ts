@@ -63,7 +63,7 @@ function isKitLabel(value: unknown): value is KitLabel {
 }
 function isClub(value: unknown): value is SharedClub {
   return isObject(value) && isString(value.id) && isString(value.name) && isString(value.branch) &&
-    isNumber(value.size) && (value.cadence === 1 || value.cadence === 1.5) &&
+    isNumber(value.size) && (value.cadence === 1 || value.cadence === 1.5 || value.cadence === 2) &&
     (value.cadenceOffset === 0 || value.cadenceOffset === 1 || value.cadenceOffset === 2) &&
     isNumber(value.meetingWeekday) && Number.isInteger(value.meetingWeekday) && value.meetingWeekday >= 0 && value.meetingWeekday <= 6 &&
     (value.meetingOccurrence === -1 || value.meetingOccurrence === 1 || value.meetingOccurrence === 2 || value.meetingOccurrence === 3 || value.meetingOccurrence === 4) &&

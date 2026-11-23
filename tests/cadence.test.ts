@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cadenceMonths, reconcileCadence } from '../src/domain/cadence';
+import { cadenceMonths, reconcileCadence, recurringMeetingDates, slotMeetingDate } from '../src/domain/cadence';
+import { addDays } from '../src/domain/dates';
+import { meetingDate } from '../src/domain/meeting-rule';
 import { draft } from '../src/domain/logic';
 import { seed } from '../src/domain/seed';
 
@@ -114,4 +116,42 @@ test('full and single-club generation use reconciled slots in both modes and off
       }
     }
   }
+});
+
+test('every-6-weeks meetings are 42 days apart, starting from the first cycle meeting', () => {
+  const data = seed();
+  const club = { ...data.clubs[0], cadence: 2 as const, cadenceOffset: 0 as const };
+  const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-12-31' };
+  const dates = recurringMeetingDates(cycle, club);
+  assert.equal(dates[0], meetingDate('2027-01', club));
+  for (let index = 1; index < dates.length; index++) assert.equal(dates[index], addDays(dates[index - 1], 42));
+  assert.ok(dates.at(-1)! <= cycle.endsOn);
+  assert.ok(addDays(dates.at(-1)!, 42) > cycle.endsOn);
+  assert.deepEqual(cadenceMonths(cycle, club), [...new Set(dates.map((date) => date.slice(0, 7)))]);
+});
+
+test('every-6-weeks meetings cross year boundaries and are respected by the cycle end', () => {
+  const data = seed();
+  const club = { ...data.clubs[0], cadence: 2 as const, cadenceOffset: 0 as const };
+  const cycle = { ...data.cycles[0], startsOn: '2027-11-01', endsOn: '2028-04-30' };
+  const dates = recurringMeetingDates(cycle, club);
+  assert.ok(dates.length >= 3);
+  assert.ok(dates.some((date) => date.startsWith('2028-')));
+  for (const date of dates) assert.equal(slotMeetingDate(cycle, club, date.slice(0, 7)), date);
+  const first = dates[0];
+  assert.deepEqual(recurringMeetingDates({ ...cycle, endsOn: first }, club), [first]);
+  assert.deepEqual(recurringMeetingDates({ ...cycle, endsOn: addDays(first, -1) }, club), []);
+});
+
+test('every-6-weeks slots map each month to its recurring meeting and reject months without one', () => {
+  const data = seed();
+  const club = { ...data.clubs[0], cadence: 2 as const, cadenceOffset: 0 as const };
+  const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-12-31', slots: [] };
+  const months = cadenceMonths(cycle, club);
+  assert.ok(months.length < 12);
+  const reconciled = reconcileCadence(cycle, [club], [club.id], () => 'new').cycle;
+  assert.deepEqual(reconciled.slots.map((slot) => slot.month).sort(), months);
+  const missing = ['2027-01', '2027-02', '2027-03', '2027-04', '2027-05', '2027-06'].find((month) => !months.includes(month));
+  assert.ok(missing);
+  assert.throws(() => slotMeetingDate(cycle, club, missing!), /every-6-weeks/);
 });

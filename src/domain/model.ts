@@ -64,7 +64,7 @@ export interface Club {
   branch: string;
   leaderId: string;
   size: number;
-  cadence: 1 | 1.5;
+  cadence: 1 | 1.5 | 2;
   cadenceOffset: 0 | 1 | 2;
   meetingWeekday: MeetingWeekday;
   meetingOccurrence: MeetingOccurrence;

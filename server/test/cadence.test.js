@@ -38,7 +38,7 @@ test('cadence migration reports unknown values and rolls back before converting 
   assert.equal((await pool.query("SELECT to_char(meeting,'YYYY-MM-DD') AS meeting FROM meeting_slots WHERE id='proof-slot'")).rows[0].meeting, '2027-01-20');
   const report = await repairSchema(pool);
   assert.equal(report.state, 'current', report.issues.join('\n'));
-  await assert.rejects(pool.query("UPDATE clubs SET cadence=2 WHERE id='a'"), { code: '23514' });
+  await assert.rejects(pool.query("UPDATE clubs SET cadence=3 WHERE id='a'"), { code: '23514' });
   await assert.rejects(pool.query("UPDATE clubs SET cadence_offset=3 WHERE id='a'"), { code: '23514' });
   await assert.rejects(pool.query("UPDATE clubs SET meeting_occurrence=5 WHERE id='a'"), { code: '23514' });
 });
@@ -72,7 +72,7 @@ test('validated draft removes an assigned slot atomically only with the required
   assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, meetingOccurrence: 5 })).status, 400);
   const { meetingWeekday: _missing, ...oldClient } = club;
   assert.equal((await req('/api/clubs/c1', 'PUT', oldClient)).status, 400);
-  assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, cadence: 2 })).status, 400);
+  assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, cadence: 3 })).status, 400);
   for (const invalid of [-1, 3, 1.5, '1', null]) {
     assert.equal((await req('/api/clubs/c1', 'PUT', { ...club, cadenceOffset: invalid })).status, 400);
   }
@@ -92,6 +92,10 @@ test('validated draft removes an assigned slot atomically only with the required
   const restored = await req('/api/clubs/c1', 'PUT', { ...monthly.json, cadence: 1.5 });
   assert.equal(restored.status, 200);
   assert.equal(restored.json.cadenceOffset, 1);
+  const everySixWeeks = await req('/api/clubs/c1', 'PUT', { ...restored.json, cadence: 2 });
+  assert.equal(everySixWeeks.status, 200);
+  assert.equal(everySixWeeks.json.cadence, 2);
+  assert.equal(everySixWeeks.json.cadenceOffset, 0);
   assert.equal((await req('/api/clubs/c1', 'PUT', { ...restored.json, cadence: 1, pickupAtPreviousMeeting: true })).status, 400);
   const created = await req('/api/clubs', 'POST', { name: 'Offset club', branch: 'Central', size: 2,
     cadence: 1.5, cadenceOffset: 2, meetingWeekday: 1, meetingOccurrence: 1, pickupWeekday: 4, pickupOccurrence: 2, pickupAtPreviousMeeting: false, pickup: 'pickup', address: '' });

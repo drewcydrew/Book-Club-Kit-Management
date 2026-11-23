@@ -117,6 +117,7 @@ function detailsKey(value: Draft) {
     club.meetingOccurrence,
     club.pickupWeekday,
     club.pickupOccurrence,
+    club.pickupAtPreviousMeeting,
     club.pickup,
     club.address,
   ]);
@@ -1236,8 +1237,10 @@ function ClubsContent() {
                     <Actions>
                       <Action title="Monthly" selected={draft.club.cadence === 1} onPress={() => changeDetails({ cadence: 1, pickupAtPreviousMeeting: false })} />
                       <Action title="Six weeks" selected={draft.club.cadence === 1.5} onPress={() => changeDetails({ cadence: 1.5 })} />
+                      <Action title="Every 6 weeks" selected={draft.club.cadence === 2} onPress={() => changeDetails({ cadence: 2, cadenceOffset: 0, pickupAtPreviousMeeting: false })} />
                     </Actions>
-                    <Note>Six weeks skips one month in each three-month group, restarting at the first month of each cycle. This is an approximation, not exact six-week dates.</Note>
+                    {draft.club.cadence === 1.5 && <Note>Six weeks skips one month in each three-month group, restarting at the first month of each cycle. This is an approximation, not exact six-week dates.</Note>}
+                    {draft.club.cadence === 2 && <Note>Every 6 weeks starts on the club&apos;s meeting week-of-month rule in the first month of the cycle, then repeats every 42 days within the cycle.</Note>}
                     {draft.club.cadence === 1.5 && <>
                       <Label>Skipped-month offset</Label>
                       <Actions>{([0, 1, 2] as const).map((offset) => <Action key={offset}

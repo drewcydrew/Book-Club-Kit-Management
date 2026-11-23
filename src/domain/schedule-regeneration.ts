@@ -1,5 +1,4 @@
-import { cadenceMonths } from './cadence';
-import { meetingDate } from './meeting-rule';
+import { cadenceMonths, slotMeetingDate } from './cadence';
 import type { Assignment, Cycle, Data, Slot } from './model';
 
 export function prepareFullRegeneration(data: Data, cycle: Cycle, excludedClubIds: readonly string[], makeId: () => string) {
@@ -38,7 +37,7 @@ export function dateRegeneratedSlots(data: Data, cycle: Cycle, excludedClubIds: 
     if (!club) throw new Error('Some meetings reference unavailable clubs. Refresh before generating.');
     let date: string;
     try {
-      date = meetingDate(slot.month, club);
+      date = slotMeetingDate(cycle, club, slot.month);
     } catch {
       problems.push(`${club.name} in ${slot.month}: the club meeting rule is invalid. Check the club details.`);
       return slot;
