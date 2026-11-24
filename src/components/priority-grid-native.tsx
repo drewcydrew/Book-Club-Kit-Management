@@ -1,115 +1,91 @@
-import React, { useCallback, useMemo, type ReactNode } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
-import { priorityCellsForTitle, priorityRowsForClub, type PriorityCell, type PriorityMatrix, type PriorityRow, type PrioritySort } from '../domain/cycle-overview';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { Animated, Text, useWindowDimensions, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
+import type { PriorityRow } from '../domain/cycle-overview';
 import type { Title } from '../domain/model';
-import { SearchPicker } from './search-picker';
-import { TitleCover } from './title-cover';
-import { Action, Actions, Note } from './ui';
+import { Note } from './ui';
+import {
+  ClubHeaderCell, GRID_BODY_BACKGROUND, GRID_BORDER, GRID_CELL_WIDTH, GRID_HEADER_BACKGROUND, GRID_HEADER_HEIGHT, GRID_ROW_HEIGHT,
+  GridStatus, PriorityCellView, TitleCell, gridTitleWidth, nextSort, usePriorityGrid, type PriorityGridProps,
+} from './priority-grid-shared';
 
-interface Props {
-  matrix: PriorityMatrix;
-  clubNameFor: (id: string) => string;
-  titleFor: (id: string) => Title | undefined;
-  onHideClub: (id: string) => void;
+type GridItem = { kind: 'club-header' } | { kind: 'row'; row: PriorityRow };
+
+const STICKY_HEADER_INDICES = [0];
+const CLUB_HEADER_ITEM: GridItem = { kind: 'club-header' };
+
+interface NativeGridProps extends PriorityGridProps {
   header: ReactNode;
   footer: ReactNode;
-  hiddenTitleIds: string[];
-  setHiddenTitleIds: React.Dispatch<React.SetStateAction<string[]>>;
-  selectedClubId: string;
-  setSelectedClubId: React.Dispatch<React.SetStateAction<string>>;
-  titleDirection: PrioritySort['direction'];
-  setTitleDirection: React.Dispatch<React.SetStateAction<PrioritySort['direction']>>;
-  clubDirection: PrioritySort['direction'];
-  setClubDirection: React.Dispatch<React.SetStateAction<PrioritySort['direction']>>;
-  expandedTitleId: string | null;
-  setExpandedTitleId: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
-function cellDescription(cell: PriorityCell): string {
-  return [
-    cell.rank === null ? 'Not ranked' : `Rank ${cell.rank}`,
-    cell.assignment ? 'Assigned' : cell.rank === null ? '' : 'Ranked',
-    cell.month ? `Scheduled ${cell.month}` : '',
-  ].filter(Boolean).join(' · ');
-}
+export function NativePriorityGridView({ header, footer, matrix, clubNameFor, titleFor, onHideClub, hiddenTitleIds, setHiddenTitleIds,
+  sortClub, setSortClub, sortTitle, setSortTitle }: NativeGridProps) {
+  const { width: windowWidth } = useWindowDimensions();
+  const titleWidth = gridTitleWidth(windowWidth);
+  const { activeClub, activeTitle, sorted } = usePriorityGrid(matrix, hiddenTitleIds, sortClub, sortTitle);
+  const contentWidth = titleWidth + sorted.clubIds.length * GRID_CELL_WIDTH;
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [scrollX] = useState(() => new Animated.Value(0));
+  const onScroll = useMemo(() => Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: true }), [scrollX]);
 
-export function NativePriorityGridView({ matrix, clubNameFor, titleFor, onHideClub, header, footer, hiddenTitleIds, setHiddenTitleIds,
-  selectedClubId, setSelectedClubId, titleDirection, setTitleDirection, clubDirection, setClubDirection, expandedTitleId, setExpandedTitleId }: Props) {
-  const selectedClub = matrix.clubIds.includes(selectedClubId) ? selectedClubId : matrix.clubIds[0] ?? '';
+  const data = useMemo<GridItem[]>(() => sorted.clubIds.length
+    ? [CLUB_HEADER_ITEM, ...sorted.rows.map((row) => ({ kind: 'row' as const, row }))]
+    : [], [sorted]);
+  const extraData = useMemo(() => ({ activeClub, activeTitle }), [activeClub, activeTitle]);
 
-  const rows = useMemo(() => priorityRowsForClub(matrix, selectedClub, hiddenTitleIds, titleDirection),
-    [matrix, selectedClub, hiddenTitleIds, titleDirection]);
-  const clubOptions = useMemo(() => matrix.clubIds.map((id) => ({
-    id, label: clubNameFor(id), detail: '', group: 'all',
-  })), [matrix.clubIds, clubNameFor]);
-
-  const renderItem = useCallback(({ item: row }: { item: PriorityRow }) => {
-    const title = titleFor(row.titleId);
-    const name = title?.name ?? 'Unavailable title';
-    const selectedCell = row.cells.find((cell) => cell.clubId === selectedClub);
-    const expanded = expandedTitleId === row.titleId;
-    const clubCells = expanded ? priorityCellsForTitle(matrix, row, clubDirection) : [];
-    return <View style={{ backgroundColor: '#fffefa', borderWidth: 1, borderColor: '#cbd8d2', marginBottom: 8, padding: 10, gap: 8 }}>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded }}
-        accessibilityLabel={`${name}, ${clubNameFor(selectedClub)}, ${selectedCell ? cellDescription(selectedCell) : 'not ranked'}, ${row.rankedClubCount} clubs rank this title`}
-        onPress={() => setExpandedTitleId(expanded ? null : row.titleId)}
-        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 60, opacity: pressed ? 0.7 : 1 })}>
-        {title && (title.coverUrl || title.isbn.trim()) ?
-          <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ width: 40, height: 60, marginRight: 0 }} /> :
-          <View style={{ width: 40, height: 60, borderRadius: 4, backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ fontSize: 10, color: '#6b7280', textAlign: 'center' }}>No cover</Text>
-          </View>}
-        <View style={{ flex: 1, gap: 3 }}>
-          <Text style={{ fontWeight: '700', color: '#183a36' }}>{name}</Text>
-          <Text style={{ color: '#465c56' }}>{selectedCell ? cellDescription(selectedCell) : 'Not ranked'}</Text>
-          <Text style={{ color: row.contested ? '#b45309' : '#465c56', fontSize: 12 }}>
-            {row.contested ? 'Contested · ' : ''}{row.rankedClubCount} {row.rankedClubCount === 1 ? 'club ranks' : 'clubs rank'} this title
-          </Text>
-        </View>
-        <Text style={{ color: '#244c40' }}>{expanded ? '▾' : '▸'}</Text>
-      </Pressable>
-      {expanded && <>
-        <Actions>
-          <Action title={`Club ranks: ${clubDirection === 'ascending' ? 'highest priority first' : 'lowest priority first'}`}
-            description="Reverse the club ranking order"
-            onPress={() => setClubDirection((current) => current === 'ascending' ? 'descending' : 'ascending')} />
-          <Action title="Hide title" accessibilityLabel={`Hide title ${name}`} onPress={() => {
-            setHiddenTitleIds((ids) => [...ids, row.titleId]);
-            setExpandedTitleId(null);
-          }} />
-        </Actions>
-        {clubCells.map((cell) => <View key={cell.clubId} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, borderColor: '#e1e8e3', paddingTop: 8 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: '#183a36', fontWeight: '600' }}>{clubNameFor(cell.clubId)}</Text>
-            <Text style={{ color: '#465c56' }}>{cellDescription(cell)}</Text>
-          </View>
-          <Action title="Hide club" accessibilityLabel={`Hide ${clubNameFor(cell.clubId)}`} onPress={() => onHideClub(cell.clubId)} />
-        </View>)}
-      </>}
+  const renderItem = useCallback(({ item }: { item: GridItem }) => {
+    if (item.kind === 'club-header') {
+      return <View style={{ flexDirection: 'row', width: contentWidth, height: GRID_HEADER_HEIGHT, backgroundColor: GRID_HEADER_BACKGROUND }}>
+        <Animated.View style={{ width: titleWidth, height: GRID_HEADER_HEIGHT, zIndex: 1, justifyContent: 'flex-end', padding: 8,
+          backgroundColor: GRID_HEADER_BACKGROUND, borderRightWidth: 1, borderBottomWidth: 1, borderColor: GRID_BORDER,
+          transform: [{ translateX: scrollX }] }}>
+          <Text style={{ fontWeight: '700', color: '#183a36' }}>Title</Text>
+        </Animated.View>
+        {sorted.clubIds.map((clubId) => <ClubHeaderCell key={clubId} name={clubNameFor(clubId)}
+          direction={activeClub?.id === clubId ? activeClub.direction : null}
+          onSort={() => setSortClub((current) => nextSort(current, clubId))}
+          onHide={() => onHideClub(clubId)} />)}
+      </View>;
+    }
+    const { row } = item;
+    const title: Title | undefined = titleFor(row.titleId);
+    return <View style={{ flexDirection: 'row', width: contentWidth, height: GRID_ROW_HEIGHT }}>
+      <Animated.View style={{ width: titleWidth, height: GRID_ROW_HEIGHT, zIndex: 1, backgroundColor: GRID_BODY_BACKGROUND,
+        transform: [{ translateX: scrollX }] }}>
+        <TitleCell title={title} rankedClubCount={row.rankedClubCount} contested={row.contested}
+          direction={activeTitle?.id === row.titleId ? activeTitle.direction : null}
+          onSort={() => setSortTitle((current) => nextSort(current, row.titleId))}
+          onHide={() => setHiddenTitleIds((ids) => [...ids, row.titleId])} />
+      </Animated.View>
+      {row.cells.map((cell) => <PriorityCellView key={cell.clubId} cell={cell}
+        titleName={title?.name ?? 'Unavailable title'} clubName={clubNameFor(cell.clubId)} />)}
     </View>;
-  }, [clubDirection, clubNameFor, expandedTitleId, matrix, onHideClub, selectedClub, titleFor, setClubDirection, setExpandedTitleId, setHiddenTitleIds]);
+  }, [activeClub, activeTitle, clubNameFor, contentWidth, onHideClub, scrollX, setHiddenTitleIds, setSortClub, setSortTitle, sorted.clubIds, titleFor, titleWidth]);
 
-  return <FlatList style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 60 }}
-    data={rows} renderItem={renderItem} keyExtractor={(row) => row.titleId}
-    initialNumToRender={8} maxToRenderPerBatch={8} windowSize={5}
-    ListHeaderComponent={<View style={{ gap: 12 }}>
-      {header}
-      {selectedClub && <>
-        <Note>Reviewing {clubNameFor(selectedClub)}. Choose a club to review its title rankings; expand a title to compare all shown clubs.</Note>
-        <SearchPicker label="Review club" options={clubOptions} selectedId={selectedClub}
-          groups={[{ value: 'all', label: 'All' }]} onSelect={setSelectedClubId} />
-        <Actions>
-          <Action title={`Title ranks: ${titleDirection === 'ascending' ? 'highest priority first' : 'lowest priority first'}`}
-            description="Reverse the title ranking order"
-            onPress={() => setTitleDirection((current) => current === 'ascending' ? 'descending' : 'ascending')} />
-          {hiddenTitleIds.length > 0 && <Action title={`Clear hidden titles (${hiddenTitleIds.length})`} onPress={() => setHiddenTitleIds([])} />}
-        </Actions>
-        <Note>Unranked titles and clubs appear last.</Note>
-      </>}
-    </View>}
-    ListEmptyComponent={selectedClub ? <Text style={{ color: '#6b7280' }}>
-      {matrix.rows.length ? 'All available titles are hidden.' : 'No priorities or assignments for these clubs yet.'}
-    </Text> : undefined}
-    ListFooterComponent={<View style={{ gap: 18, marginTop: 18 }}>{footer}</View>}
-  />;
+  return <View style={{ flex: 1 }} onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}>
+    {viewportHeight > 0 && <Animated.ScrollView horizontal showsHorizontalScrollIndicator scrollEventThrottle={16}
+      onScroll={onScroll} style={{ height: viewportHeight }}>
+      <FlashList style={{ width: contentWidth, height: viewportHeight }}
+        data={data}
+        renderItem={renderItem}
+        keyExtractor={(item) => item.kind === 'club-header' ? 'club-header' : item.row.titleId}
+        getItemType={(item) => item.kind}
+        extraData={extraData}
+        stickyHeaderIndices={STICKY_HEADER_INDICES}
+        ListHeaderComponent={<View style={{ width: windowWidth, gap: 12, paddingBottom: 12 }}>
+          {header}
+          <GridStatus hiddenCount={hiddenTitleIds.length} onClearHidden={() => setHiddenTitleIds([])}
+            activeClub={activeClub && { name: clubNameFor(activeClub.id), direction: activeClub.direction }}
+            activeTitle={activeTitle && { name: titleFor(activeTitle.id)?.name ?? 'unavailable title', direction: activeTitle.direction }}
+            onReset={() => { setSortClub(null); setSortTitle(null); }} />
+          {matrix.clubIds.length === 0 && <Note>No clubs shown.</Note>}
+          {matrix.clubIds.length > 0 && sorted.rows.length === 0 && <Text style={{ color: '#6b7280' }}>
+            {matrix.rows.length > 0 ? 'All available titles are hidden.' : 'No priorities or assignments for these clubs yet.'}
+          </Text>}
+        </View>}
+        ListFooterComponent={<View style={{ width: windowWidth, gap: 18, marginTop: 18, paddingBottom: 24 }}>{footer}</View>}
+      />
+    </Animated.ScrollView>}
+  </View>;
 }

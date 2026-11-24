@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import { catalogueMatches, indexKits, titleLabelSummary } from '../domain/kit-label-search';
 import type { Kit, KitLabel, Title } from '../domain/model';
+import { KitLabelManager } from './kit-label-manager';
 import { KitPanel } from './kit-panel';
 import { PendingStatus, type PendingAction } from './pending-status';
 import { SynopsisText } from './synopsis-text';
@@ -18,6 +19,7 @@ type TitlePanelProps = {
 export function TitlePanel({ titles, kits, labels, query, onQueryChange, staff, saving, pendingTitleFor, pendingKitFor,
   onAddTitle, onAddKit, onEdit, onDelete, onEditKit, onDeleteKit }: TitlePanelProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [labelsOpen, setLabelsOpen] = useState(false);
   const kitsByTitle = useMemo(() => indexKits(kits), [kits]);
   const labelById = useMemo(() => new Map(labels.map((label) => [label.id, label])), [labels]);
   const rows = titles.map((title) => {
@@ -27,7 +29,9 @@ export function TitlePanel({ titles, kits, labels, query, onQueryChange, staff, 
 
   return <View style={{ gap: 12 }}>
     <Label>Titles and kits</Label>
-    {staff && <Actions><Action tone="primary" title="Add title" onPress={onAddTitle} /><Action title="Add kit" onPress={() => onAddKit()} /></Actions>}
+    {staff && <Actions><Action tone="primary" title="Add title" onPress={onAddTitle} /><Action title="Add kit" onPress={() => onAddKit()} />
+      <Action title={labelsOpen ? 'Hide genre and vibe management' : 'Manage genres and vibes'} onPress={() => setLabelsOpen(!labelsOpen)} /></Actions>}
+    {staff && labelsOpen && <KitLabelManager labels={labels} />}
     <Field label="Search titles, authors, ISBN, barcodes or title labels" value={query} onChangeText={(value) => { setExpanded({}); onQueryChange(value); }} />
     <Note>{rows.length} of {titles.length} titles</Note>
     {rows.length === 0 && <Note>{query.trim() ? 'No matching titles or kits.' : 'No titles yet.'}</Note>}

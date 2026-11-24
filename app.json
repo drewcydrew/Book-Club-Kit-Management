@@ -5,7 +5,8 @@
     "scheme": "bookclubkits",
     "plugins": [
       "expo-router",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-font"
     ],
     "version": "1.0.0",
     "orientation": "portrait",

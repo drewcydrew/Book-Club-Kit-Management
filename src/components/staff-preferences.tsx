@@ -4,6 +4,7 @@ import { Action, Actions, Card, Label, Note } from "./ui";
 import { ClubFilterCard } from "./club-filter";
 import { PriorityGridView } from "./priority-grid";
 import { NativePriorityGridView } from "./priority-grid-native";
+import { usePriorityGrid } from "./priority-grid-shared";
 import { PreferencesExportActions } from "./preferences-export";
 import { priorityMatrix, titleDemand, type PriorityMatrix, type PrioritySort } from "../domain/cycle-overview";
 import { sortClubs, type ClubSortOrder } from "../domain/club-list";
@@ -105,35 +106,17 @@ function PreferencesGridWorkspace({ data, cycle, matrix, clubNameFor, titleFor, 
   const [hiddenTitleIds, setHiddenTitleIds] = useState<string[]>([]);
   const [sortClub, setSortClub] = useState<PrioritySort | null>(null);
   const [sortTitle, setSortTitle] = useState<PrioritySort | null>(null);
-  const [selectedClubId, setSelectedClubId] = useState(matrix.clubIds[0] ?? '');
-  const [titleDirection, setTitleDirection] = useState<PrioritySort['direction']>('ascending');
-  const [clubDirection, setClubDirection] = useState<PrioritySort['direction']>('ascending');
-  const [expandedTitleId, setExpandedTitleId] = useState<string | null>(null);
-  const selectedClub = matrix.clubIds.includes(selectedClubId) ? selectedClubId : matrix.clubIds[0] ?? '';
-  if (selectedClub !== selectedClubId) setSelectedClubId(selectedClub);
-  const activeClub = sortClub && matrix.clubIds.includes(sortClub.id) ? sortClub : null;
-  const activeTitle = sortTitle && matrix.rows.some((row) => row.titleId === sortTitle.id && !hiddenTitleIds.includes(row.titleId)) ? sortTitle : null;
-  if (sortClub && !activeClub) setSortClub(null);
-  if (sortTitle && !activeTitle) setSortTitle(null);
-  const visibleMatrix = useMemo(() => {
-    const native = nativeHeader !== undefined;
-    const nativeTitle = expandedTitleId && !hiddenTitleIds.includes(expandedTitleId) && matrix.rows.some((row) => row.titleId === expandedTitleId)
-      ? { id: expandedTitleId, direction: clubDirection } : null;
-    return visiblePreferencesMatrix(matrix, hiddenTitleIds,
-      native ? (selectedClub ? { id: selectedClub, direction: titleDirection } : null) : activeClub,
-      native ? nativeTitle : activeTitle);
-  }, [matrix, hiddenTitleIds, nativeHeader, expandedTitleId, clubDirection, selectedClub, titleDirection, activeClub, activeTitle]);
+  const { activeClub, activeTitle } = usePriorityGrid(matrix, hiddenTitleIds, sortClub, sortTitle);
+  const visibleMatrix = useMemo(() => visiblePreferencesMatrix(matrix, hiddenTitleIds, activeClub, activeTitle),
+    [matrix, hiddenTitleIds, activeClub, activeTitle]);
   const exportControls = <PreferencesExportActions data={data} cycle={cycle} matrix={visibleMatrix} />;
+  const gridProps = { matrix, clubNameFor, titleFor, onHideClub, hiddenTitleIds, setHiddenTitleIds,
+    sortClub, setSortClub, sortTitle, setSortTitle };
   if (nativeHeader !== undefined) {
-    return <NativePriorityGridView matrix={matrix} clubNameFor={clubNameFor} titleFor={titleFor} onHideClub={onHideClub}
-      hiddenTitleIds={hiddenTitleIds} setHiddenTitleIds={setHiddenTitleIds}
-      selectedClubId={selectedClub} setSelectedClubId={setSelectedClubId} titleDirection={titleDirection} setTitleDirection={setTitleDirection}
-      clubDirection={clubDirection} setClubDirection={setClubDirection} expandedTitleId={expandedTitleId} setExpandedTitleId={setExpandedTitleId}
+    return <NativePriorityGridView {...gridProps}
       header={<>{nativeHeader}{filters}<Card>{intro}{exportControls}</Card></>} footer={footer} />;
   }
-  return <>{filters}<Card>{intro}{exportControls}<PriorityGridView matrix={matrix} clubNameFor={clubNameFor} titleFor={titleFor}
-    onHideClub={onHideClub} hiddenTitleIds={hiddenTitleIds} setHiddenTitleIds={setHiddenTitleIds}
-    sortClub={activeClub} setSortClub={setSortClub} sortTitle={activeTitle} setSortTitle={setSortTitle} /></Card>{footer}</>;
+  return <>{filters}<Card>{intro}{exportControls}<PriorityGridView {...gridProps} /></Card>{footer}</>;
 }
 
 const styles = StyleSheet.create({

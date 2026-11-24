@@ -10,7 +10,6 @@ import {
   Text,
   View,
 } from "react-native";
-import { KitLabelManager } from "../components/kit-label-manager";
 import { useNavigationGuard } from "../components/navigation-guard";
 import {
   PendingStatus,
@@ -652,20 +651,11 @@ function CatalogContent() {
   );
 
   return (
-    <Page title="Catalog & kits">
-      <Actions>
-        <Action
-          title="Refresh shared catalog"
-          onPress={() => {
-            void shared.refresh().catch(() => undefined);
-          }}
-        />
-      </Actions>
+    <Page title="Catalog & kits" wide>
       <Note>
         Titles, kits, kit status and circulation are shared across devices.
       </Note>
       {message ? <Text>{message}</Text> : null}
-      {staff && <KitLabelManager labels={data.kitLabels} />}
       {titlePanel}
       {draft && (
         <Modal

@@ -11,7 +11,7 @@ import { reconcileBallot, saveStagedBallots, stageBallot, type StagedBallots } f
 import { memberCycleStatus, preferenceStatus, votingStatus } from '../src/domain/voting';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
-import { clubPriorities, clubStatuses, groupSlotsByMonth, memberMeetingCalendar, memberScheduleMeetings, memberVotes, monthsInRange, priorityCellsForTitle, priorityMatrix, priorityRowsForClub, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
+import { clubPriorities, clubStatuses, groupSlotsByMonth, memberMeetingCalendar, memberScheduleMeetings, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
 
 test('voting status explains whether member voting is open and why it is not', () => {
   const collecting = { status: 'collecting' as const, deadline: '2026-11-20' };
@@ -298,7 +298,7 @@ test('priority matrix retains all ranks in a large selected-club grid', () => {
   assert.deepEqual(selected.clubIds, ['c0', 'c1']);
 });
 
-test('native preference list orders titles for one club and compares all shown clubs', () => {
+test('priority matrix sorts rows by one club and cells by one title, with unranked entries last', () => {
   const matrix = {
     clubIds: ['c1', 'c2', 'c3'],
     rows: [
@@ -313,13 +313,14 @@ test('native preference list orders titles for one club and compares all shown c
       ] },
     ],
   };
-  assert.deepEqual(priorityRowsForClub(matrix, 'c1', [], 'ascending').map((row) => row.titleId), ['b', 'a', 'c']);
-  assert.deepEqual(priorityRowsForClub(matrix, 'c1', [], 'descending').map((row) => row.titleId), ['a', 'b', 'c']);
-  assert.deepEqual(priorityRowsForClub(matrix, 'c2', ['a'], 'ascending').map((row) => row.titleId), ['b', 'c']);
-  assert.deepEqual(priorityRowsForClub(matrix, 'hidden', [], 'ascending'), []);
-  assert.deepEqual(priorityCellsForTitle(matrix, matrix.rows[0], 'ascending').map((cell) => cell.clubId), ['c2', 'c1', 'c3']);
-  assert.deepEqual(priorityCellsForTitle(matrix, matrix.rows[0], 'descending').map((cell) => cell.clubId), ['c1', 'c2', 'c3']);
-  assert.equal(priorityCellsForTitle(matrix, matrix.rows[0], 'ascending')[0].month, '2027-01');
+  const rowIds = (sort: { id: string; direction: 'ascending' | 'descending' }) => sortPriorityMatrix(matrix, sort, null).rows.map((row) => row.titleId);
+  assert.deepEqual(rowIds({ id: 'c1', direction: 'ascending' }), ['b', 'a', 'c']);
+  assert.deepEqual(rowIds({ id: 'c1', direction: 'descending' }), ['a', 'b', 'c']);
+  assert.deepEqual(rowIds({ id: 'c2', direction: 'ascending' }), ['a', 'b', 'c']);
+  const cellIds = (direction: 'ascending' | 'descending') => sortPriorityMatrix(matrix, null, { id: 'a', direction }).rows[0].cells.map((cell) => cell.clubId);
+  assert.deepEqual(cellIds('ascending'), ['c2', 'c1', 'c3']);
+  assert.deepEqual(cellIds('descending'), ['c1', 'c2', 'c3']);
+  assert.equal(sortPriorityMatrix(matrix, null, { id: 'a', direction: 'ascending' }).rows[0].cells[0].month, '2027-01');
 });
 
 test('priority comparison sorts each axis by rank without losing cells or changing the default order', () => {

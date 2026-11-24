@@ -206,20 +206,23 @@ export function priorityMatrix(data: Data, cycle: Cycle, clubIds: string[], assi
 
 export type PrioritySort = { id: string; direction: 'ascending' | 'descending' };
 
+function rankOrder(a: number | null, b: number | null, direction: PrioritySort['direction']): number {
+  return a === null ? (b === null ? 0 : 1) : b === null ? -1 : direction === 'ascending' ? a - b : b - a;
+}
+
+function sortRowsByClubRank(rows: PriorityRow[], clubSort: PrioritySort): PriorityRow[] {
+  const ranks = new Map(rows.map((row) => [row, row.cells.find((cell) => cell.clubId === clubSort.id)?.rank ?? null] as const));
+  return [...rows].sort((a, b) => rankOrder(ranks.get(a) ?? null, ranks.get(b) ?? null, clubSort.direction));
+}
+
 export function sortPriorityMatrix(matrix: PriorityMatrix, clubSort: PrioritySort | null, titleSort: PrioritySort | null): PriorityMatrix {
-  const rankOrder = (a: number | null, b: number | null, direction: PrioritySort['direction']) =>
-    a === null ? (b === null ? 0 : 1) : b === null ? -1 : direction === 'ascending' ? a - b : b - a;
   const targetRow = matrix.rows.find((row) => row.titleId === titleSort?.id);
   const targetRanks = new Map(targetRow?.cells.map((cell) => [cell.clubId, cell.rank]));
   const clubIds = targetRow && titleSort
     ? [...matrix.clubIds].sort((a, b) => rankOrder(targetRanks.get(a) ?? null, targetRanks.get(b) ?? null, titleSort.direction))
     : matrix.clubIds;
   const rows = clubSort && matrix.clubIds.includes(clubSort.id)
-    ? [...matrix.rows].sort((a, b) => rankOrder(
-      a.cells.find((cell) => cell.clubId === clubSort.id)?.rank ?? null,
-      b.cells.find((cell) => cell.clubId === clubSort.id)?.rank ?? null,
-      clubSort.direction,
-    ))
+    ? sortRowsByClubRank(matrix.rows, clubSort)
     : matrix.rows;
   const positions = new Map(clubIds.map((id, index) => [id, index]));
   return {
@@ -230,17 +233,6 @@ export function sortPriorityMatrix(matrix: PriorityMatrix, clubSort: PrioritySor
       return { ...row, cells: [...row.cells].sort((a, b) => (positions.get(a.clubId) ?? clubIds.length) - (positions.get(b.clubId) ?? clubIds.length)) };
     }),
   };
-}
-
-export function priorityRowsForClub(matrix: PriorityMatrix, clubId: string, hiddenTitleIds: readonly string[], direction: PrioritySort['direction']): PriorityRow[] {
-  if (!matrix.clubIds.includes(clubId)) return [];
-  const hidden = new Set(hiddenTitleIds);
-  const visible = { ...matrix, rows: matrix.rows.filter((row) => !hidden.has(row.titleId)) };
-  return sortPriorityMatrix(visible, { id: clubId, direction }, null).rows;
-}
-
-export function priorityCellsForTitle(matrix: PriorityMatrix, row: PriorityRow, direction: PrioritySort['direction']): PriorityCell[] {
-  return sortPriorityMatrix({ clubIds: matrix.clubIds, rows: [row] }, null, { id: row.titleId, direction }).rows[0].cells;
 }
 
 export function titleDemand(data: Data, cycleId: string, clubIds: string[]): Map<string, number> {
