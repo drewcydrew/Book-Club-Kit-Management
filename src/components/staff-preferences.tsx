@@ -6,21 +6,23 @@ import { PriorityGridView } from "./priority-grid";
 import { NativePriorityGridView } from "./priority-grid-native";
 import { PreferencesExportActions } from "./preferences-export";
 import { priorityMatrix, titleDemand, type PriorityMatrix, type PrioritySort } from "../domain/cycle-overview";
+import { sortClubs, type ClubSortOrder } from "../domain/club-list";
 import { visiblePreferencesMatrix } from "../domain/preferences-export";
 import { preferences as clubPreferences } from "../domain/logic";
 import type { Club, Cycle, Data } from "../domain/model";
 
-export function useStaffPreferences({ data, cycle, availableClubs, enabled }: {
-  data: Data; cycle: Cycle | undefined; availableClubs: Club[]; enabled: boolean;
+export function useStaffPreferences({ data, cycle, availableClubs, enabled, order, onOrderChange }: {
+  data: Data; cycle: Cycle | undefined; availableClubs: Club[]; enabled: boolean; order: ClubSortOrder; onOrderChange: (order: ClubSortOrder) => void;
 }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [summariesOpen, setSummariesOpen] = useState(false);
   const [demandOpen, setDemandOpen] = useState(false);
   const [expandedClubs, setExpandedClubs] = useState<string[]>([]);
   const [reviewClubIds, setReviewClubIds] = useState<string[] | null>(null);
-  const shownClubIds = useMemo(() => availableClubs
+  const sortedClubs = useMemo(() => sortClubs(availableClubs, order), [availableClubs, order]);
+  const shownClubIds = useMemo(() => sortedClubs
     .filter((value) => reviewClubIds === null || reviewClubIds.includes(value.id))
-    .map((value) => value.id), [availableClubs, reviewClubIds]);
+    .map((value) => value.id), [sortedClubs, reviewClubIds]);
   const demand = useMemo(() => enabled ? titleDemand(data, cycle?.id ?? "", shownClubIds) : new Map<string, number>(), [data, cycle?.id, shownClubIds, enabled]);
   const matrix = useMemo(() => enabled && cycle ? priorityMatrix(data, cycle, shownClubIds, data.assignments) : null, [data, cycle, shownClubIds, enabled]);
   const clubsById = useMemo(() => enabled ? new Map(data.clubs.map((club) => [club.id, club])) : new Map<string, Club>(), [data.clubs, enabled]);
@@ -30,16 +32,16 @@ export function useStaffPreferences({ data, cycle, availableClubs, enabled }: {
   const hideClub = useCallback((id: string) => setReviewClubIds(shownClubIds.filter((clubId) => clubId !== id)), [shownClubIds]);
   return { data, cycle, availableClubs, filtersOpen, setFiltersOpen, summariesOpen, setSummariesOpen,
     demandOpen, setDemandOpen, expandedClubs, setExpandedClubs, setReviewClubIds, shownClubIds, demand,
-    matrix, clubNameFor, titleFor, hideClub };
+    matrix, clubNameFor, titleFor, hideClub, sortedClubs, order, onOrderChange };
 }
 
 export function StaffPreferences({ controller, nativeHeader }: { controller: ReturnType<typeof useStaffPreferences>; nativeHeader?: ReactNode }) {
   const { data, cycle, filtersOpen, setFiltersOpen, summariesOpen, setSummariesOpen,
     demandOpen, setDemandOpen, expandedClubs, setExpandedClubs, setReviewClubIds, shownClubIds, demand,
-    matrix, clubNameFor, titleFor, hideClub } = controller;
+    matrix, clubNameFor, titleFor, hideClub, sortedClubs, order, onOrderChange } = controller;
   if (!cycle) return null;
-  const filters = <ClubFilterCard title="Clubs shown" clubs={data.clubs} selectedIds={shownClubIds}
-    onChange={setReviewClubIds} open={filtersOpen} onOpenChange={setFiltersOpen} />;
+  const filters = <ClubFilterCard title="Clubs shown" clubs={sortedClubs} selectedIds={shownClubIds}
+    onChange={setReviewClubIds} open={filtersOpen} onOpenChange={setFiltersOpen} order={order} onOrderChange={onOrderChange} />;
   const intro = <>
       <Label>Preferences · {cycle.name}</Label>
       <Note>

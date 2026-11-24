@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Platform, StyleSheet, Text, useWindowDimensions } from "react-native";
 import { ClubPicker } from "../components/club-picker";
+import type { ClubSortOrder } from "../domain/club-list";
 import { MemberPreferences, syncMessages, useMemberPreferences } from "../components/member-preferences";
 import { StaffPreferences, useStaffPreferences } from "../components/staff-preferences";
 import { SCHEDULE_DESKTOP_WIDTH } from "../components/schedule-layout";
@@ -24,6 +25,7 @@ function PreferencesContent() {
   const [clubId, setClubId] = useState("");
   const [cycleOpen, setCycleOpen] = useState(false);
   const [clubOpen, setClubOpen] = useState(false);
+  const [clubOrder, setClubOrder] = useState<ClubSortOrder>("az");
   const cycle = data.cycles.find((c) => c.id === selectedId) ?? data.cycles[0];
   const membershipClubs = person
     ? data.memberships
@@ -55,7 +57,7 @@ function PreferencesContent() {
   const editable = !!voting?.editable;
 
   const member = useMemberPreferences({ data, shared, person, cycle, club, isMember, isLeader, editable });
-  const staffView = useStaffPreferences({ data, cycle, availableClubs, enabled: staff });
+  const staffView = useStaffPreferences({ data, cycle, availableClubs, enabled: staff, order: clubOrder, onOrderChange: setClubOrder });
   const { sync, syncRefreshError, resetContext, mode, currentDraft, stagedCount, draftSaving } = member;
 
   function chooseClub(value: string) {
@@ -132,6 +134,8 @@ function PreferencesContent() {
           <Label>Choose a club</Label>
           <ClubPicker
             clubs={availableClubs}
+            order={clubOrder}
+            onOrderChange={setClubOrder}
             isSelected={(value) => value.id === club?.id}
             disabled={draftSaving}
             onPress={(value) => chooseClub(value.id)}
