@@ -33,19 +33,20 @@ interface ScheduleGridProps {
 
 export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId, showProblems, onToggle, renderDetail, selectedSlotId, onSelectSlot, onAddSlot, onGenerateClub, clubActionsDisabled = false, priorityFor, clubResult = null, clubSummaryFor, onHideClub, sharedLayout = false, highlightTitleId = null }: ScheduleGridProps) {
   const [containerWidth, setContainerWidth] = useState(0);
+  const [detailHeight, setDetailHeight] = useState(0);
   const reduceMotion = useReduceMotion();
   const { cellWidth, gap } = scheduleGridSizing(containerWidth, wide);
   if (grid.rows.length === 0) return null;
   const highlighting = !!highlightTitleId;
   const isMatch = (cell: GridCell) => highlighting && !!cell.assignment && titleFor(cell.assignment)?.id === highlightTitleId;
-  const highlight = highlighting ? highlightedGrid(grid.rows, (row) => row.cells, isMatch) : null;
+  const highlight = highlighting ? highlightedGrid(grid.rows, (row) => row.cells, isMatch, (cell) => cell.assignment?.meeting) : null;
   const rows = highlight?.rows ?? grid.rows;
-  const expandedCellFor = (row: ScheduleGridData['rows'][number]) => row.cells.find((cell) => onSelectSlot ? cell.slot?.id === selectedSlotId : cell.assignment && cell.assignment.id === expandedId);
+  const expandedCellFor = (row: ScheduleGridData['rows'][number]) => row.cells.find((cell) => cell.assignment && cell.assignment.id === expandedId);
   const cellsFor = (row: ScheduleGridData['rows'][number]) => row.cells.map((cell) => <FadeCell key={cell.month} dimmed={highlighting && !isMatch(cell)} reduceMotion={reduceMotion}
     style={{ width: cellWidth, marginRight: wide && cell === row.cells[row.cells.length - 1] ? 0 : gap }}>
     <GridCellView cell={cell} title={cell.assignment ? titleFor(cell.assignment) : undefined} cellWidth={cellWidth}
       priority={priorityFor && cell.assignment ? priorityFor(row.clubId, titleFor(cell.assignment)?.id ?? '') : undefined}
-      expanded={onSelectSlot ? cell.slot?.id === selectedSlotId : !!cell.assignment && cell.assignment.id === expandedId}
+      expanded={cell.assignment ? cell.assignment.id === expandedId : !!onSelectSlot && cell.slot?.id === selectedSlotId}
       showProblems={showProblems} onToggle={onToggle} onSelectSlot={onSelectSlot}
       onAddSlot={onAddSlot ? () => onAddSlot(row.clubId, cell.month) : undefined} clubName={clubNameFor(row.clubId)} />
   </FadeCell>);
@@ -66,7 +67,7 @@ export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId
   </View>;
   const detail = (row: ScheduleGridData['rows'][number]) => {
     const expandedCell = expandedCellFor(row);
-    return !onSelectSlot && expandedCell?.assignment ? <View style={{ marginLeft: SCHEDULE_CLUB_WIDTH }}>{renderDetail(expandedCell.assignment)}</View> : null;
+    return expandedCell?.assignment ? <View style={{ marginLeft: SCHEDULE_CLUB_WIDTH }}>{renderDetail(expandedCell.assignment)}</View> : null;
   };
 
   if (!sharedLayout) {
@@ -87,28 +88,42 @@ export function ScheduleGridView({ grid, wide, clubNameFor, titleFor, expandedId
   const coverHeight = scheduleCoverHeight(cellWidth);
   const columnStep = cellWidth + gap;
   const contentWidth = grid.months.length * columnStep;
-  const contentHeight = rows.length * (rowHeight + SCHEDULE_ROW_GAP);
+  const rowStep = rowHeight + SCHEDULE_ROW_GAP;
+  const expandedRowIndex = rows.findIndex((row) => !!expandedCellFor(row));
+  const expandedAssignment = expandedRowIndex >= 0 ? expandedCellFor(rows[expandedRowIndex])?.assignment : undefined;
+  const detailOffset = expandedAssignment ? detailHeight : 0;
+  const rowTop = (index: number) => index * rowStep + (expandedAssignment && index > expandedRowIndex ? detailOffset : 0);
+  const contentHeight = rows.length * rowStep + detailOffset;
   const stops: HighlightStop[] = [];
   highlight?.stops.forEach(({ row, column }) => stops.push({
     x: column * columnStep + cellWidth / 2,
-    y: row * (rowHeight + SCHEDULE_ROW_GAP) + SCHEDULE_CELL_LABEL_HEIGHT + coverHeight / 2,
+    y: rowTop(row) + SCHEDULE_CELL_LABEL_HEIGHT + coverHeight / 2,
   }));
   return <View onLayout={(event) => setContainerWidth(event.nativeEvent.layout.width)}>
     {highlighting && rows.length === 0 && <Text style={{ color: '#374151', marginBottom: 12 }}>No meetings use this title in the selected cycle.</Text>}
     <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
       <View>
-        {rows.map((row) => <View key={row.clubId} style={{ height: rowHeight, marginBottom: SCHEDULE_ROW_GAP }}>{clubColumn(row)}</View>)}
+        {rows.map((row, index) => <React.Fragment key={row.clubId}>
+          <View style={{ height: rowHeight, marginBottom: SCHEDULE_ROW_GAP }}>{clubColumn(row)}</View>
+          {index === expandedRowIndex && expandedAssignment && <View style={{ height: detailOffset }} />}
+        </React.Fragment>)}
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator style={wide ? { flex: 1, minWidth: 0 } : undefined}>
         <View style={{ width: contentWidth, height: contentHeight }}>
-          {rows.map((row) => <View key={row.clubId} style={{ flexDirection: 'row', height: rowHeight, marginBottom: SCHEDULE_ROW_GAP }}>{cellsFor(row)}</View>)}
+          {rows.map((row, index) => <React.Fragment key={row.clubId}>
+            <View style={{ flexDirection: 'row', height: rowHeight, marginBottom: SCHEDULE_ROW_GAP }}>{cellsFor(row)}</View>
+            {index === expandedRowIndex && expandedAssignment && <View key={expandedAssignment.id}
+              onLayout={(event) => setDetailHeight(event.nativeEvent.layout.height)}
+              style={{ width: Math.max(0, containerWidth - SCHEDULE_CLUB_WIDTH) }}>
+              {renderDetail(expandedAssignment)}
+            </View>}
+          </React.Fragment>)}
           {stops.length > 0 && <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0 }}>
             <HighlightPath key={highlightTitleId} stops={stops} width={contentWidth} height={contentHeight} reduceMotion={reduceMotion} />
           </View>}
         </View>
       </ScrollView>
     </View>
-    {rows.map((row) => <React.Fragment key={row.clubId}>{detail(row)}</React.Fragment>)}
   </View>;
 }
 
@@ -145,16 +160,15 @@ function GridCellView({ cell, title, cellWidth, priority, expanded, showProblems
         <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 12 }}>{unavailable ? 'Unavailable title' : onSelectSlot ? 'Not assigned · tap to choose a title' : 'Not assigned'}</Text>
       </View>
     </>;
+    if (cell.assignment) return <Pressable style={cellStyle} accessibilityRole="button" accessibilityLabel={`${clubName}, ${cell.month}, unavailable title`} accessibilityState={{ expanded }} onPress={() => onToggle(cell.assignment!.id)}>{content}</Pressable>;
     return onSelectSlot
-      ? <Pressable style={cellStyle} accessibilityRole="button" accessibilityLabel={`${clubName}, ${cell.month}, ${unavailable ? 'unavailable title' : 'not assigned'}`} accessibilityState={{ selected: expanded }} onPress={() => onSelectSlot(cell.slot!.id)}>{content}</Pressable>
-      : cell.assignment
-        ? <Pressable style={cellStyle} accessibilityRole="button" accessibilityLabel={`${clubName}, ${cell.month}, unavailable title`} accessibilityState={{ expanded }} onPress={() => onToggle(cell.assignment!.id)}>{content}</Pressable>
-        : <View style={cellStyle} accessibilityLabel={`${cell.month}, not yet assigned`}>{content}</View>;
+      ? <Pressable style={cellStyle} accessibilityRole="button" accessibilityLabel={`${clubName}, ${cell.month}, not assigned`} accessibilityState={{ selected: expanded }} onPress={() => onSelectSlot(cell.slot!.id)}>{content}</Pressable>
+      : <View style={cellStyle} accessibilityLabel={`${cell.month}, not yet assigned`}>{content}</View>;
   }
   const clash = showProblems && !!cell.problem;
   const assignment = cell.assignment;
-  return <Pressable accessibilityRole="button" accessibilityLabel={`${onSelectSlot ? `${clubName}, ` : ''}${title.name}, ${cell.month}${priority === undefined ? '' : priority === null ? ', unranked' : `, priority ${priority}`}${clash ? ', needs review' : ''}`}
-    accessibilityState={onSelectSlot ? { selected: expanded } : { expanded }} onPress={() => onSelectSlot ? onSelectSlot(assignment.slotId) : onToggle(assignment.id)} style={cellStyle}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${clubName}, ${title.name}, ${cell.month}${priority === undefined ? '' : priority === null ? ', unranked' : `, priority ${priority}`}${clash ? ', needs review' : ''}`}
+    accessibilityState={{ expanded }} onPress={() => onToggle(assignment.id)} style={cellStyle}>
     <Text style={{ fontSize: 11, color: '#374151', marginBottom: 4 }}>{cell.month}</Text>
     <View style={{ borderRadius: 6, borderWidth: 2, borderColor: clash ? CLASH : expanded ? '#2563eb' : 'transparent', overflow: 'hidden' }}>
       <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ width: cellWidth - 4, height: coverHeight, marginRight: 0, marginBottom: 0 }} />

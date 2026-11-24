@@ -11,7 +11,7 @@ import { reconcileBallot, saveStagedBallots, stageBallot, type StagedBallots } f
 import { memberCycleStatus, preferenceStatus, votingStatus } from '../src/domain/voting';
 import { BallotSync, type SyncStatus } from '../src/state/ballot-sync';
 import type { Assignment, Ballot, Cycle, Data } from '../src/domain/model';
-import { clubPriorities, clubStatuses, groupSlotsByMonth, memberMeetingCalendar, memberScheduleMeetings, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
+import { clubPriorities, clubStatuses, groupSlotsByMonth, highlightedGrid, memberMeetingCalendar, memberScheduleMeetings, memberVotes, monthsInRange, priorityMatrix, scheduleByKit, scheduleGrid, scheduleHasChanges, sortPriorityMatrix, titleDemand } from '../src/domain/cycle-overview';
 
 test('voting status explains whether member voting is open and why it is not', () => {
   const collecting = { status: 'collecting' as const, deadline: '2026-11-20' };
@@ -380,6 +380,20 @@ test('priority comparison sorts each axis by rank without losing cells or changi
   assert.deepEqual(sortPriorityMatrix(filtered, { id: 'c1', direction: 'descending' }, { id: 'a', direction: 'ascending' }).rows.map((row) => row.titleId), ['a', 'b', 'c']);
   assert.deepEqual(matrix.rows.map((row) => row.titleId), ['a', 'b', 'c']);
   assert.deepEqual(matrix.clubIds, ['c1', 'c2', 'c3']);
+});
+
+test('highlighted grid orders matching clubs by earliest matching meeting date', () => {
+  type Cell = { title?: string; meeting?: string };
+  const rows = [
+    { id: 'a', cells: [{ title: 'x', meeting: '2027-03-01' }, { title: 'x', meeting: '2027-01-01' }] as Cell[] },
+    { id: 'b', cells: [{ title: 'x', meeting: '2027-02-01' }, {}] as Cell[] },
+    { id: 'c', cells: [{ title: 'y', meeting: '2027-01-01' }, {}] as Cell[] },
+    { id: 'd', cells: [{ title: 'x' }, {}] as Cell[] },
+    { id: 'e', cells: [{ title: 'x', meeting: '2027-02-01' }, {}] as Cell[] },
+  ];
+  const result = highlightedGrid(rows, (row) => row.cells, (cell) => cell.title === 'x', (cell) => cell.meeting);
+  assert.deepEqual(result.rows.map((row) => row.id), ['a', 'b', 'e', 'd']);
+  assert.deepEqual(result.stops, [{ row: 0, column: 0 }, { row: 1, column: 0 }, { row: 2, column: 0 }, { row: 3, column: 0 }, { row: 0, column: 1 }]);
 });
 
 test('schedule preview checks conflicts against proposed assignments, not replaced saved assignments', () => {

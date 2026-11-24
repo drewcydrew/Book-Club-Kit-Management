@@ -117,7 +117,7 @@ export function makeScheduleExport(data: Data, clubIds: string[], staffCycle?: C
       const selected = highlightedGrid(source.rows, (row) => row.cells, (cell) => {
         const titleId = cell.assignment ? kitsById.get(cell.assignment.kitId)?.titleId : undefined;
         return !!titleId && titlesById.get(titleId)?.id === highlightTitleId;
-      });
+      }, (cell) => cell.assignment?.meeting);
       highlight = {
         titleId: highlightTitleId, title: titlesById.get(highlightTitleId)?.name ?? 'Unavailable title',
         months: source.months, stops: selected.stops,

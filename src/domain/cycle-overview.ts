@@ -23,8 +23,21 @@ export function highlightedGrid<Row, Cell>(
   rows: readonly Row[],
   cellsFor: (row: Row) => readonly Cell[],
   matches: (cell: Cell) => boolean,
+  dateFor?: (cell: Cell) => string | undefined,
 ): { rows: Row[]; stops: { row: number; column: number }[] } {
-  const visible = rows.filter((row) => cellsFor(row).some(matches));
+  let visible = rows.filter((row) => cellsFor(row).some(matches));
+  if (dateFor) {
+    const earliest = new Map(visible.map((row) => {
+      const dates = cellsFor(row).filter(matches).map(dateFor).filter((date): date is string => !!date).sort();
+      return [row, dates[0]] as const;
+    }));
+    visible = [...visible].sort((a, b) => {
+      const left = earliest.get(a);
+      const right = earliest.get(b);
+      if (left === undefined || right === undefined) return Number(left === undefined) - Number(right === undefined);
+      return left < right ? -1 : left > right ? 1 : 0;
+    });
+  }
   const stops: { row: number; column: number }[] = [];
   const columns = visible.length ? cellsFor(visible[0]).length : 0;
   for (let column = 0; column < columns; column++) {

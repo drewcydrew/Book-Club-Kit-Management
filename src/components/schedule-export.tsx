@@ -6,24 +6,13 @@ import { makeSchedulePdf } from '../domain/schedule-pdf';
 import { Action, Actions, Label, Note } from './ui';
 import { deliver, fontData, loadCovers } from './export-files';
 
-type ScheduleExportPreview = {
-  label: string;
-  mode?: ScheduleExport['mode'];
-  hasMeetings: boolean;
-  highlight?: { title: string; count: number };
-};
+type ExportProps = { schedule: ScheduleExport; disabled: boolean; staffClubCount?: number };
 
-type ExportProps = { disabled: boolean; staffClubCount?: number } & (
-  | { schedule: ScheduleExport; preview?: never; makeSchedule?: never }
-  | { schedule?: never; preview: ScheduleExportPreview; makeSchedule: () => ScheduleExport }
-);
-
-export function ScheduleExportActions(props: ExportProps) {
-  const { disabled, staffClubCount } = props;
-  const preview: ScheduleExportPreview = props.schedule ? {
-    label: props.schedule.label, mode: props.schedule.mode, hasMeetings: props.schedule.meetings.length > 0,
-    highlight: props.schedule.highlight && { title: props.schedule.highlight.title, count: props.schedule.highlight.rows.length },
-  } : props.preview;
+export function ScheduleExportActions({ schedule, disabled, staffClubCount }: ExportProps) {
+  const preview = {
+    label: schedule.label, mode: schedule.mode, hasMeetings: schedule.meetings.length > 0,
+    highlight: schedule.highlight && { title: schedule.highlight.title, count: schedule.highlight.rows.length },
+  };
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -33,7 +22,6 @@ export function ScheduleExportActions(props: ExportProps) {
     setMessage('');
     setError('');
     try {
-      const schedule = props.schedule ?? props.makeSchedule();
       const date = new Date().toISOString().slice(0, 10);
       let content: string | Uint8Array;
       let missing = 0;
