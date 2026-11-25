@@ -3,6 +3,7 @@ import test from 'node:test';
 import { meetingDate, meetingRuleLabel, pickupDate, pickupOffsetLabel, preserveUnassignedMeetingDates, returnDate } from '../src/domain/meeting-rule';
 import { draft, loanOverrun, meetingFor } from '../src/domain/logic';
 import { slotChanges } from '../src/domain/cycle-overview';
+import { moveSlotDate } from '../src/domain/schedule-redate';
 import { seed } from '../src/domain/seed';
 import type { MeetingWeekday } from '../src/domain/model';
 
@@ -92,6 +93,22 @@ test('slotChanges reports fixed meetings that move to another date or month', ()
   assert.deepEqual(slotChanges([fixed], [{ ...fixed }]).datedSlots, []);
   assert.deepEqual(slotChanges([fixed], [{ ...fixed, meeting: '2027-01-18' }]).datedSlots, [{ id: 's', meeting: '2027-01-18' }]);
   assert.deepEqual(slotChanges([fixed], [{ ...fixed, month: '2027-02', meeting: '2027-02-08' }]).datedSlots, [{ id: 's', meeting: '2027-02-08' }]);
+});
+
+test('moving a dated meeting validates against its new date, not the saved one', () => {
+  const data = seed();
+  data.clubs = data.clubs.map((club) => ({ ...club, history: [], meetingWeekday: 1, meetingOccurrence: 1 }));
+  data.kits = data.kits.filter((kit) => kit.id === 'k1');
+  data.ballots = [];
+  data.assignments = [];
+  const cycle = { ...data.cycles[0], deadline: '2026-12-01', startsOn: '2027-01-01', endsOn: '2027-02-28',
+   finalized: { c1: ['t1'] }, slots: [{ id: 'jan', clubId: 'c1', month: '2027-01', meeting: '2027-01-11' }] };
+  data.cycles = [cycle];
+  const generated = draft(data, cycle, false);
+  assert.equal(generated.assignments.length, 1);
+  const moved = moveSlotDate({ base: data, cycle, assignments: generated.assignments }, 'jan', '2027-01-18');
+  assert.ok(!('error' in moved));
+  assert.ok(!moved.problems.some((problem) => problem.includes('no longer matches')));
 });
 
 test('both generation modes respect rule dates, deadline, staged dates and actual loan overlap', () => {
