@@ -2,8 +2,9 @@ import { assignmentProblems, loanOverrun, previousMeetingFor, windowFor } from '
 import { validDate } from './dates';
 import type { Assignment, Cycle, Data, Slot } from './model';
 
-// Re-dates one fixed meeting and recalculates its pickup and return. Returns the problems the new date would create.
-export function moveSlotDate(workspace: { base: Data; cycle: Cycle; assignments: Assignment[] }, slotId: string, date: string):
+// Re-dates one fixed meeting and recalculates its pickup and return. A blank pickup date uses the automatic rule.
+// Returns the problems the new dates would create.
+export function moveSlotDate(workspace: { base: Data; cycle: Cycle; assignments: Assignment[] }, slotId: string, date: string, pickupDate?: string):
   { error: string } | { cycle: Cycle; assignments: Assignment[]; problems: string[] } {
   const { base, cycle, assignments } = workspace;
   const slot = cycle.slots.find((item) => item.id === slotId);
@@ -23,8 +24,14 @@ export function moveSlotDate(workspace: { base: Data; cycle: Cycle; assignments:
   if (current.locked) return { error: 'Unlock this assignment before moving its meeting.' };
   const previousMeeting = previousMeetingFor(nextCycle, moved, club, (slotId) => assignments.find((item) => item.slotId === slotId)?.meeting);
   const pickup = windowFor(base, club, date, previousMeeting);
-  if (pickup.ready <= cycle.deadline) return { error: `The pickup date ${pickup.ready} must be after the preference deadline.` };
-  const next: Assignment = { ...current, ...pickup };
+  const manualPickup = pickupDate?.trim() ? pickupDate.trim() : null;
+  if (manualPickup !== null) {
+    if (!validDate(manualPickup)) return { error: 'Enter a valid pickup date (YYYY-MM-DD).' };
+    if (manualPickup > date) return { error: 'The pickup date must be on or before the meeting.' };
+  }
+  const ready = manualPickup ?? pickup.ready;
+  if (ready <= cycle.deadline) return { error: `The pickup date ${ready} must be after the preference deadline.` };
+  const next: Assignment = { ...current, ...pickup, ready };
   const nextAssignments = assignments.map((item) => item.id === next.id ? next : item);
   const others = [...base.assignments.filter((item) => item.cycleId !== cycle.id), ...nextAssignments];
   // Validate against the moved cycle so the slot's new meeting date is the one checked.

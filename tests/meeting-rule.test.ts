@@ -4,8 +4,9 @@ import { meetingDate, meetingRuleLabel, pickupDate, pickupOffsetLabel, preserveU
 import { draft, loanOverrun, meetingFor } from '../src/domain/logic';
 import { slotChanges } from '../src/domain/cycle-overview';
 import { moveSlotDate } from '../src/domain/schedule-redate';
+import { staffCalendarMonths } from '../src/domain/staff-calendar';
 import { seed } from '../src/domain/seed';
-import type { MeetingWeekday } from '../src/domain/model';
+import type { Assignment, Cycle, MeetingWeekday } from '../src/domain/model';
 
 test('monthly rules calculate every weekday and the last occurrence in leap and ordinary years', () => {
   for (const weekday of [0, 1, 2, 3, 4, 5, 6] as MeetingWeekday[]) {
@@ -95,7 +96,7 @@ test('slotChanges reports fixed meetings that move to another date or month', ()
   assert.deepEqual(slotChanges([fixed], [{ ...fixed, month: '2027-02', meeting: '2027-02-08' }]).datedSlots, [{ id: 's', meeting: '2027-02-08' }]);
 });
 
-test('moving a dated meeting validates against its new date, not the saved one', () => {
+test('moving a dated meeting validates against its new date and supports a manual pickup', () => {
   const data = seed();
   data.clubs = data.clubs.map((club) => ({ ...club, history: [], meetingWeekday: 1, meetingOccurrence: 1 }));
   data.kits = data.kits.filter((kit) => kit.id === 'k1');
@@ -109,6 +110,35 @@ test('moving a dated meeting validates against its new date, not the saved one',
   const moved = moveSlotDate({ base: data, cycle, assignments: generated.assignments }, 'jan', '2027-01-18');
   assert.ok(!('error' in moved));
   assert.ok(!moved.problems.some((problem) => problem.includes('no longer matches')));
+
+  const manual = moveSlotDate({ base: data, cycle, assignments: generated.assignments }, 'jan', '2027-01-11', '2027-01-04');
+  assert.ok(!('error' in manual));
+  assert.equal(manual.assignments[0].ready, '2027-01-04');
+  assert.ok('error' in moveSlotDate({ base: data, cycle, assignments: generated.assignments }, 'jan', '2027-01-11', '2027-01-12'));
+  assert.ok('error' in moveSlotDate({ base: data, cycle, assignments: generated.assignments }, 'jan', '2027-01-11', '2026-11-30'));
+
+  const reset = moveSlotDate({ base: data, cycle: manual.cycle, assignments: manual.assignments }, 'jan', '2027-01-18');
+  assert.ok(!('error' in reset));
+  assert.equal(reset.assignments[0].ready, moved.assignments[0].ready);
+});
+
+test('staff calendar marks meeting, pickup and return dates for shown clubs and lists undated meetings separately', () => {
+  const base = seed().cycles[0];
+  const cycle: Cycle = { ...base, startsOn: '2027-01-01', endsOn: '2027-01-31', slots: [
+    { id: 'jan', clubId: 'c1', month: '2027-01', meeting: '2027-01-11' },
+    { id: 'undated', clubId: 'c2', month: '2027-01', meeting: null },
+    { id: 'hidden', clubId: 'c3', month: '2027-01', meeting: '2027-01-18' },
+  ] };
+  const assignment: Assignment = { id: 'a', cycleId: cycle.id, slotId: 'jan', clubId: 'c1', kitId: 'k1',
+    ready: '2026-12-31', meeting: '2027-01-11', due: '2027-01-18', locked: false };
+  const months = staffCalendarMonths(cycle, [assignment], ['c1', 'c2']);
+  assert.deepEqual(months.map((month) => month.month), ['2026-12', '2027-01']);
+  const [december, january] = months;
+  assert.deepEqual(december.markers.get('2026-12-31')?.map((marker) => marker.kind), ['ready']);
+  assert.deepEqual(january.markers.get('2027-01-11')?.map((marker) => marker.kind), ['meeting']);
+  assert.deepEqual(january.markers.get('2027-01-18')?.map((marker) => marker.kind), ['due']);
+  assert.ok(![...january.markers.values()].flat().some((marker) => marker.meeting.slotId === 'hidden'));
+  assert.deepEqual(january.undated.map((meeting) => meeting.slotId), ['undated']);
 });
 
 test('both generation modes respect rule dates, deadline, staged dates and actual loan overlap', () => {

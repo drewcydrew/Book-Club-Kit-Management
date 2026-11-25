@@ -55,6 +55,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   const [meeting, setMeeting] = useState('');
   const [initialMeeting, setInitialMeeting] = useState('');
   const [moveDate, setMoveDate] = useState('');
+  const [movePickup, setMovePickup] = useState('');
   const [kitId, setKitId] = useState('');
   const [swapId, setSwapId] = useState('');
   const [activePicker, setActivePicker] = useState<'title' | 'swap' | null>(null);
@@ -133,7 +134,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   }
 
   function closeSlot() {
-    setSelectedSlotId(null); setMeeting(''); setInitialMeeting(''); setMoveDate(''); setKitId(''); setSwapId(''); setActivePicker(null);
+    setSelectedSlotId(null); setMeeting(''); setInitialMeeting(''); setMoveDate(''); setMovePickup(''); setKitId(''); setSwapId(''); setActivePicker(null);
   }
 
   function requestCloseSlot() {
@@ -158,7 +159,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     setSelectedSlotId(slotId);
     setMeeting(meetingFor(slot, club, assignment?.meeting));
     setInitialMeeting(meetingFor(slot, club, assignment?.meeting));
-    setMoveDate(slot.meeting ?? '');
+    setMoveDate(slot.meeting ?? ''); setMovePickup('');
     setKitId(assignment?.kitId ?? '');
     setSwapId('');
     setMessage('');
@@ -400,13 +401,14 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
       if (selected && selected.meeting === meeting) { next.ready = selected.ready; next.due = selected.due; }
       change([...assignments.filter((item) => item.slotId !== selectedSlot.id), next]);
     }
-    const movePreview = slot.meeting && moveDate && moveDate !== slot.meeting ? moveSlotDate(workspace, selectedSlot.id, moveDate) : null;
+    const moveChanged = !!slot.meeting && (moveDate !== slot.meeting || movePickup.trim() !== '');
+    const movePreview = moveChanged ? moveSlotDate(workspace, selectedSlot.id, moveDate, movePickup) : null;
     const requestMove = () => {
-      const result = moveSlotDate(workspace, selectedSlot.id, moveDate);
+      const result = moveSlotDate(workspace, selectedSlot.id, moveDate, movePickup);
       if ('error' in result) { setMessage(result.error); return; }
       const apply = () => {
         setWorkspace({ ...workspace, cycle: result.cycle, assignments: result.assignments, generationProblems: [] });
-        setMeeting(moveDate); setInitialMeeting(moveDate); setValidation(null); setMessage('');
+        setMeeting(moveDate); setInitialMeeting(moveDate); setMovePickup(''); setValidation(null); setMessage('');
       };
       if (result.problems.length) setPendingAction({ description: [...result.problems, 'Move this meeting anyway?'].join('\n'), confirmLabel: 'Move anyway', run: apply });
       else apply();
@@ -456,10 +458,14 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
       </View>}
       {!slot.meeting && <Field label="Meeting date (YYYY-MM-DD)" value={meeting} onChangeText={setMeeting} editable={!busy && !selected?.locked} />}
       {slot.meeting && <View style={{ gap: 5 }}>
-        <Field label="Move meeting to (YYYY-MM-DD)" value={moveDate} onChangeText={setMoveDate} editable={!busy && !selected?.locked} />
+        <Field label="Move meeting to (YYYY-MM-DD)" value={moveDate} onChangeText={(value) => { setMoveDate(value); setMovePickup(''); }} editable={!busy && !selected?.locked} />
+        <Field label="Pickup date (YYYY-MM-DD, blank for automatic)" value={movePickup} onChangeText={setMovePickup} editable={!busy && !selected?.locked && !!selected} />
+        {movePreview && !('error' in movePreview) && movePreview.assignments.find((item) => item.slotId === selectedSlot.id) && <Note>
+          Pickup {movePreview.assignments.find((item) => item.slotId === selectedSlot.id)?.ready} to {movePreview.assignments.find((item) => item.slotId === selectedSlot.id)?.due}
+        </Note>}
         {movePreview && 'error' in movePreview && <Text style={{ color: '#a22525' }}>{movePreview.error}</Text>}
         {movePreview && !('error' in movePreview) && movePreview.problems.map((problem) => <Text key={problem} style={{ color: '#9a5b00' }}>{problem}</Text>)}
-        <Action title="Move meeting" tone="primary" disabled={busy || hasPending || !movePreview || 'error' in movePreview} onPress={requestMove} />
+        <Action title="Move meeting" tone="primary" disabled={busy || hasPending || !movePreview || 'error' in movePreview || !moveChanged} onPress={requestMove} />
       </View>}
       {selectionChanged && <Action title="Save selection" tone="primary" disabled={busy || !!selected?.locked} onPress={setKit} />}
       {selected && !selected.locked && <View style={{ gap: 8 }}>

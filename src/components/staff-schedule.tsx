@@ -8,6 +8,7 @@ import { SCHEDULE_DESKTOP_WIDTH } from './schedule-layout';
 import { ScheduleInstructions } from './schedule-instructions';
 import { ScheduleExportActions } from './schedule-export';
 import { ScheduleHandouts } from './schedule-handouts';
+import { StaffMeetingCalendar } from './staff-meeting-calendar';
 import { KitCalendarList } from './kit-calendar-list';
 import { scheduleStyles } from './schedule-styles';
 import { useScheduleConfirmation, type ScheduleEditor } from './schedule-confirmation';
@@ -47,7 +48,6 @@ export function StaffSchedule({ editor, selectedCycle, onSelectCycle }: { editor
   const [staffFiltersOpen, setStaffFiltersOpen] = useState(false);
   const [cycleOpen, setCycleOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [expandedClubs, setExpandedClubs] = useState<string[]>([]);
   const viewData = editor.proposalData ?? data;
   const cycle = editor.workspace && (editor.dirty || editor.selectedSlotId) ? editor.workspace.cycle : selectedCycle;
   const mode = staffViewMode;
@@ -266,7 +266,7 @@ export function StaffSchedule({ editor, selectedCycle, onSelectCycle }: { editor
       {generationScope.excludedClubIds.length > 0 && <Note>After confirmation, regeneration clears hidden clubs&apos; assignments locally, including locked assignments. Their meetings and ballots remain. Saving shares these removals; every meeting must be assigned before publication.</Note>}
       <Note>Full generation creates or rebuilds meetings for all shown clubs using their current cadence, skipped-month offset and meeting-day rule, replacing existing dates. Every 6 weeks spaces meetings 42 days apart from the first meeting of the cycle, treating skipped months as if they do not exist; a step that lands in a skipped month moves to the rule date in the next active month. Single-club generation creates missing meetings, moves existing meetings to the club&apos;s current rule, removes assignments for removed or moved meetings after confirmation, and redrafts this club&apos;s unlocked assignments. Locked assignments and other clubs&apos; assignments are retained.</Note>
       <Note>Rule dates on or before the preference deadline remain undated and unassigned. Other rule dates are kept even when no kit is assigned. Review the local proposal before saving.</Note>
-      <Note>To correct one fixed meeting, open it and use Move meeting. Its pickup and return dates are recalculated, other meetings are unchanged, and any conflicts are shown before you move it. Unlock the assignment first if it is locked.</Note>
+      <Note>To correct one fixed meeting, open it and use Move meeting. Its pickup and return dates are recalculated, other meetings are unchanged, and any conflicts are shown before you move it. You can also set a manual pickup date; leave it blank to return to the automatic pickup. Unlock the assignment first if it is locked. The Meetings view shows a calendar of pickup, meeting and return dates for the clubs shown; select a day there to edit its meeting in the same way.</Note>
       {generationScope.shownCount === 0 && <Note>Show at least one club before generating a schedule.</Note>}
       {generationScope.missingClubIds.length > 0 && <Text style={{ color: '#a22525' }}>Some meetings or assignments reference unavailable clubs. Refresh the schedule before generating.</Text>}
       <Actions>
@@ -305,32 +305,11 @@ export function StaffSchedule({ editor, selectedCycle, onSelectCycle }: { editor
     </Card>
     {mode === 'meetings' && <Card>
       <Label>Meetings</Label>
+      <Note>Each day shows the pickup, meeting and return dates for the clubs shown. Select a day to see its details{canEditMeetings ? ', then edit a meeting' : ''}.</Note>
       {clubChoices.length > 0 && gridClubs.length === 0 && <Note>Select clubs to see meetings.</Note>}
-      <View style={wide ? scheduleStyles.columns : scheduleStyles.singleColumn}>{gridClubs.map((club) => {
-        const clubAssignments = cycleAssignments.filter((a) => a.clubId === club.id).sort((a, b) => a.meeting.localeCompare(b.meeting) || a.id.localeCompare(b.id));
-        const assigned = new Set(clubAssignments.map((a) => a.slotId));
-        const missing = cycle.slots.filter((slot) => slot.clubId === club.id && !assigned.has(slot.id));
-        const expanded = expandedClubs.includes(club.id);
-        const needsReview = clubAssignments.filter((assignment) => problems.get(assignment.id)).length;
-        const visible = expanded ? clubAssignments : clubAssignments.slice(0, 3);
-        return <View key={club.id} style={[{ gap: 4, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#d6ddd9' }, wide && scheduleStyles.column]}>
-          <Text style={{ fontWeight: '700', color: '#183a36' }}>{club.name} · {clubAssignments.length} assigned{missing.length ? ` · ${missing.length} unassigned` : ''}{needsReview ? ` · ${needsReview} need review` : ''}</Text>
-          {visible.map((assignment) => {
-            const kit = kitById.get(assignment.kitId);
-            const expanded = expandedId === assignment.id;
-            return <View key={assignment.id}>
-              <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpandedId(expanded ? null : assignment.id)} style={{ paddingVertical: 8 }}>
-                <Text>{assignment.meeting} · {titleById.get(kit?.titleId ?? '')?.name ?? 'Unavailable title'}{problems.get(assignment.id) ? ' · Needs review' : ''}</Text>
-              </Pressable>
-              {expanded && renderDetail(assignment)}
-            </View>;
-          })}
-          {(expanded ? missing : missing.slice(0, Math.max(0, 3 - visible.length))).map((slot) => <Text key={slot.id}>{slot.meeting ?? slot.month} · Not assigned</Text>)}
-          {clubAssignments.length + missing.length > 3 && <Action title={expanded ? `Show fewer meetings for ${club.name}` : `Show all meetings for ${club.name}`} onPress={() =>
-            setExpandedClubs(expanded ? expandedClubs.filter((id) => id !== club.id) : [...expandedClubs, club.id])} />}
-          {!clubAssignments.length && !missing.length && <Note>No meetings for this club in this cycle.</Note>}
-        </View>;
-      })}</View>
+      <StaffMeetingCalendar cycle={cycle} assignments={cycleAssignments} clubIds={gridClubs.map((club) => club.id)} today={today()} canEdit={canEditMeetings}
+        titleFor={(assignment) => titleById.get(kitById.get(assignment.kitId)?.titleId ?? '')}
+        clubNameFor={(clubId) => clubById.get(clubId)?.name ?? 'Unavailable club'} onEditMeeting={editor.selectSlot} />
     </Card>}
     {gridContent}
     {mode === 'kits' && <Card>

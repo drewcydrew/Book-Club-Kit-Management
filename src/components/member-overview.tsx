@@ -7,8 +7,8 @@ import type { MemberScheduleMeeting } from '../domain/cycle-overview';
 import { calendarDateLabel, calendarMonthLabel, type MemberOverviewMonth, type OverviewMarker, type OverviewMarkerKind } from '../domain/member-calendar';
 import type { Assignment, Title } from '../domain/model';
 
-const markerColors: Record<OverviewMarkerKind, string> = { ready: '#b45309', meeting: '#245e51', due: '#9a3412' };
-const markerLabels: Record<OverviewMarkerKind, string> = { ready: 'Pickup', meeting: 'Meeting', due: 'Return' };
+export const markerColors: Record<OverviewMarkerKind, string> = { ready: '#b45309', meeting: '#245e51', due: '#9a3412' };
+export const markerLabels: Record<OverviewMarkerKind, string> = { ready: 'Pickup', meeting: 'Meeting', due: 'Return' };
 const weekdayLetters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const previewWidth = 240;
 
@@ -27,7 +27,7 @@ type Props = {
   onOpenMeeting: (meeting: MemberScheduleMeeting) => void;
 };
 
-function MarkerLegend() {
+export function MarkerLegend() {
   return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }}>
     {(Object.keys(markerLabels) as OverviewMarkerKind[]).map((kind) => <View key={kind} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: markerColors[kind] }} />
