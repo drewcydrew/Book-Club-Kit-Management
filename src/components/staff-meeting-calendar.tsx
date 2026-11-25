@@ -3,6 +3,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note } from './ui';
 import { MarkerLegend, markerColors, markerLabels } from './member-overview';
 import { radius } from './design';
+import { TitleCover } from './title-cover';
 import { calendarDateLabel, calendarMonthLabel } from '../domain/member-calendar';
 import { staffCalendarMonths, type StaffCalendarMarker, type StaffCalendarMeeting, type StaffCalendarMonth } from '../domain/staff-calendar';
 import type { Assignment, Cycle, Title } from '../domain/model';
@@ -58,9 +59,20 @@ function DayDialog({ date, markers, titleFor, clubNameFor, canEdit, onEdit, onCl
       <Pressable accessibilityRole="button" accessibilityLabel="Close day details" onPress={onClose} style={StyleSheet.absoluteFill} />
       <View accessibilityViewIsModal accessibilityLabel={`Meetings on ${calendarDateLabel(date)}`} style={styles.dialog}>
         <Text style={{ fontWeight: '700', fontSize: 14, color: '#183a36' }}>{calendarDateLabel(date)}</Text>
-        {markers.map((marker) => <Text key={`${marker.kind}:${marker.meeting.slotId}`} style={{ fontSize: 13, color: '#334e47' }}>
-          {markerLabels[marker.kind]}: {meetingTitle(marker.meeting, titleFor)} · {clubNameFor(marker.meeting.clubId)}
-        </Text>)}
+        {meetings.map((meeting) => {
+          const title = meeting.assignment ? titleFor(meeting.assignment) : undefined;
+          return <View key={meeting.slotId} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+            {title && (title.coverUrl || title.isbn.trim())
+              ? <TitleCover coverUrl={title.coverUrl} isbn={title.isbn} style={{ width: 56, height: 84, marginRight: 0 }} />
+              : null}
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: '#183a36' }}>{clubNameFor(meeting.clubId)} · {meetingTitle(meeting, titleFor)}</Text>
+              {markers.filter((marker) => marker.meeting.slotId === meeting.slotId).map((marker) => <Text key={marker.kind} style={{ fontSize: 13, color: '#334e47' }}>
+                {markerLabels[marker.kind]}
+              </Text>)}
+            </View>
+          </View>;
+        })}
         {!canEdit && <Note>Meetings can be edited while the cycle is collecting or drafted.</Note>}
         <Actions>
           {canEdit && meetings.map((meeting) => <Action key={meeting.slotId} title={`Edit meeting · ${clubNameFor(meeting.clubId)}`}
