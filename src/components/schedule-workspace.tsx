@@ -8,7 +8,7 @@ import { dateRegeneratedSlots, prepareFullRegeneration, regenerationUnlockIds } 
 import { scheduleHasChanges, slotChanges } from '../domain/cycle-overview';
 import { validDate } from '../domain/dates';
 import { generationConfirmation, scheduleSelectionPending } from '../domain/schedule-pending';
-import type { Assignment, Cycle, Data, Title } from '../domain/model';
+import type { Assignment, Cycle, Data, Slot, Title } from '../domain/model';
 import { saveValidatedSchedule, validateSchedule, type ScheduleBasis, type ScheduleValidation } from '../state/api';
 import { useShared } from '../state/shared';
 import { useNavigationGuard } from './navigation-guard';
@@ -46,6 +46,36 @@ function unassignedInScope(cycle: Cycle, assignments: Assignment[], scope: Draft
   return cycle.slots.filter((slot) => slot.clubId === scope.clubId && !assignments.some((item) => item.slotId === slot.id)).length;
 }
 
+// Re-dates one fixed meeting and recalculates its pickup and return. Returns the problems the new date would create.
+function moveSlotDate(workspace: Workspace, slotId: string, date: string):
+  { error: string } | { cycle: Cycle; assignments: Assignment[]; problems: string[] } {
+  const { base, cycle, assignments } = workspace;
+  const slot = cycle.slots.find((item) => item.id === slotId);
+  const club = base.clubs.find((item) => item.id === slot?.clubId);
+  if (!slot || !club) return { error: 'This meeting is no longer available. Refresh the schedule.' };
+  if (!validDate(date)) return { error: 'Enter a valid meeting date (YYYY-MM-DD).' };
+  const month = date.slice(0, 7);
+  if (month < cycle.startsOn.slice(0, 7) || month > cycle.endsOn.slice(0, 7)) return { error: 'The meeting must fall within the cycle range.' };
+  if (date <= cycle.deadline) return { error: 'The meeting must be after the voting deadline.' };
+  if (cycle.slots.some((item) => item.id !== slot.id && item.clubId === slot.clubId && item.month === month)) {
+    return { error: 'This club already has a meeting in that month.' };
+  }
+  const moved: Slot = { ...slot, month, meeting: date };
+  const nextCycle: Cycle = { ...cycle, slots: cycle.slots.map((item) => item.id === slot.id ? moved : item) };
+  const current = assignments.find((item) => item.slotId === slot.id);
+  if (!current) return { cycle: nextCycle, assignments, problems: [] };
+  if (current.locked) return { error: 'Unlock this assignment before moving its meeting.' };
+  const previousMeeting = previousMeetingFor(nextCycle, moved, club, (slotId) => assignments.find((item) => item.slotId === slotId)?.meeting);
+  const pickup = windowFor(base, club, date, previousMeeting);
+  if (pickup.ready <= cycle.deadline) return { error: `The pickup date ${pickup.ready} must be after the preference deadline.` };
+  const next: Assignment = { ...current, ...pickup };
+  const nextAssignments = assignments.map((item) => item.id === next.id ? next : item);
+  const others = [...base.assignments.filter((item) => item.cycleId !== cycle.id), ...nextAssignments];
+  const overrun = loanOverrun(base, next);
+  const problems = [...assignmentProblems(base, next, others), ...(overrun ? [overrun] : [])];
+  return { cycle: nextCycle, assignments: nextAssignments, problems };
+}
+
 export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined) {
   const shared = useShared();
   const navigationGuard = useNavigationGuard();
@@ -53,6 +83,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
   const [meeting, setMeeting] = useState('');
   const [initialMeeting, setInitialMeeting] = useState('');
+  const [moveDate, setMoveDate] = useState('');
   const [kitId, setKitId] = useState('');
   const [swapId, setSwapId] = useState('');
   const [activePicker, setActivePicker] = useState<'title' | 'swap' | null>(null);
@@ -131,7 +162,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
   }
 
   function closeSlot() {
-    setSelectedSlotId(null); setMeeting(''); setInitialMeeting(''); setKitId(''); setSwapId(''); setActivePicker(null);
+    setSelectedSlotId(null); setMeeting(''); setInitialMeeting(''); setMoveDate(''); setKitId(''); setSwapId(''); setActivePicker(null);
   }
 
   function requestCloseSlot() {
@@ -156,6 +187,7 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
     setSelectedSlotId(slotId);
     setMeeting(meetingFor(slot, club, assignment?.meeting));
     setInitialMeeting(meetingFor(slot, club, assignment?.meeting));
+    setMoveDate(slot.meeting ?? '');
     setKitId(assignment?.kitId ?? '');
     setSwapId('');
     setMessage('');
@@ -397,6 +429,17 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
       if (selected && selected.meeting === meeting) { next.ready = selected.ready; next.due = selected.due; }
       change([...assignments.filter((item) => item.slotId !== selectedSlot.id), next]);
     }
+    const movePreview = slot.meeting && moveDate && moveDate !== slot.meeting ? moveSlotDate(workspace, selectedSlot.id, moveDate) : null;
+    const requestMove = () => {
+      const result = moveSlotDate(workspace, selectedSlot.id, moveDate);
+      if ('error' in result) { setMessage(result.error); return; }
+      const apply = () => {
+        setWorkspace({ ...workspace, cycle: result.cycle, assignments: result.assignments, generationProblems: [] });
+        setMeeting(moveDate); setInitialMeeting(moveDate); setValidation(null); setMessage('');
+      };
+      if (result.problems.length) setPendingAction({ description: [...result.problems, 'Move this meeting anyway?'].join('\n'), confirmLabel: 'Move anyway', run: apply });
+      else apply();
+    };
     return <Card>
       <Label>{club?.name ?? 'Unavailable club'} · {slot.month}</Label>
       <Note>Changes are local until Save draft. Save selection applies the choice locally.</Note>
@@ -441,6 +484,12 @@ export function useScheduleWorkspace(data: Data, currentCycle: Cycle | undefined
         <View style={{ flex: 1 }}><Label>Pending selection</Label><Text>{pendingTitle?.name ?? 'Unavailable title'} · {pendingKit.barcode}</Text></View>
       </View>}
       {!slot.meeting && <Field label="Meeting date (YYYY-MM-DD)" value={meeting} onChangeText={setMeeting} editable={!busy && !selected?.locked} />}
+      {slot.meeting && <View style={{ gap: 5 }}>
+        <Field label="Move meeting to (YYYY-MM-DD)" value={moveDate} onChangeText={setMoveDate} editable={!busy && !selected?.locked} />
+        {movePreview && 'error' in movePreview && <Text style={{ color: '#a22525' }}>{movePreview.error}</Text>}
+        {movePreview && !('error' in movePreview) && movePreview.problems.map((problem) => <Text key={problem} style={{ color: '#9a5b00' }}>{problem}</Text>)}
+        <Action title="Move meeting" tone="primary" disabled={busy || hasPending || !movePreview || 'error' in movePreview} onPress={requestMove} />
+      </View>}
       {selectionChanged && <Action title="Save selection" tone="primary" disabled={busy || !!selected?.locked} onPress={setKit} />}
       {selected && !selected.locked && <View style={{ gap: 8 }}>
         <Pressable accessibilityRole="button" accessibilityLabel="Swap with meeting" disabled={busy}

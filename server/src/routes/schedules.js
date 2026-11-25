@@ -91,9 +91,11 @@ async function schedule(req, res, validateOnly) {
     const slotById = new Map(slots.map((r) => [r.id,r]));
     for (const change of datedSlots) {
       const slot = found(slotById,change.id,'Slot');
-      if (slot.meeting || change.meeting.slice(0,7) !== slot.month || change.meeting <= cycle.deadline) {
-        throw new HttpError(409,'A date can only be set on an undated meeting in its month and after the voting deadline.');
-      }
+      const month = change.meeting.slice(0,7);
+      if (month < cycle.startMonth || month > cycle.endMonth) throw new HttpError(409,'The meeting must fall within the cycle range.');
+      if (change.meeting <= cycle.deadline) throw new HttpError(409,'A meeting must fall after the voting deadline.');
+      if (kept.some((k) => k.id !== slot.id && k.clubId === slot.clubId && k.month === month)) throw new HttpError(409,'This club already has a meeting in that month.');
+      slot.month = month;
       slot.meeting = change.meeting;
     }
     const activeByKit = new Map(active.map((r) => [r.kitId,r]));
@@ -151,7 +153,7 @@ async function schedule(req, res, validateOnly) {
     await c.query('DELETE FROM schedule_assignments WHERE cycle_id=$1',[cycleId]);
     if (removedSlotIds.length) await c.query('DELETE FROM meeting_slots WHERE cycle_id=$1 AND id=ANY($2)',[cycleId,removedSlotIds]);
     for (const s of newSlots) await c.query('INSERT INTO meeting_slots(id,cycle_id,club_id,month,meeting) VALUES($1,$2,$3,$4,NULL)',[s.id,cycleId,s.clubId,s.month]);
-    for (const d of datedSlots) await c.query('UPDATE meeting_slots SET meeting=$3 WHERE cycle_id=$1 AND id=$2',[cycleId,d.id,d.meeting]);
+    for (const d of datedSlots) await c.query('UPDATE meeting_slots SET meeting=$3,month=$4 WHERE cycle_id=$1 AND id=$2',[cycleId,d.id,d.meeting,d.meeting.slice(0,7)]);
     for (const d of dateless) await c.query('UPDATE meeting_slots SET meeting=$3 WHERE cycle_id=$1 AND id=$2',[cycleId,d.slotId,d.meeting]);
     const column = (key) => assignments.map((a) => a[key]);
     await c.query(`INSERT INTO schedule_assignments(id,cycle_id,slot_id,club_id,kit_id,ready,meeting,due,locked)

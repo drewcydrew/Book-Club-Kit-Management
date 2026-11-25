@@ -9,19 +9,34 @@ import { dateRegeneratedSlots, prepareFullRegeneration } from '../src/domain/sch
 
 const skipMonths = (...months: number[]) => months.reduce((mask, month) => mask | (1 << (month - 1)), 0);
 
-test('skipped months are excluded per club, and every-6-weeks meetings keep their step across them', () => {
+test('every-6-weeks meetings start in the first active month and never fall in a skipped month', () => {
   const data = seed();
   const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-12-31' };
-  const club = { ...data.clubs[0], cadence: 1 as const, skipMonths: skipMonths(1, 12) };
-  assert.deepEqual(cadenceMonths(cycle, club), ['2027-02', '2027-03', '2027-04', '2027-05', '2027-06',
+  const monthly = { ...data.clubs[0], cadence: 1 as const, skipMonths: skipMonths(1, 12) };
+  assert.deepEqual(cadenceMonths(cycle, monthly), ['2027-02', '2027-03', '2027-04', '2027-05', '2027-06',
     '2027-07', '2027-08', '2027-09', '2027-10', '2027-11']);
-  assert.equal(cadenceMonths(cycle, { ...club, skipMonths: 0 }).length, 12);
-  const every6 = { ...club, cadence: 2 as const };
-  const all = recurringMeetingDates(cycle, { ...every6, skipMonths: 0 });
-  const kept = recurringMeetingDates(cycle, every6);
-  assert.deepEqual(kept, all.filter((date) => !isSkippedMonth(date, skipMonths(1, 12))));
-  assert.ok(kept.every((date) => !['2027-01', '2027-12'].includes(date.slice(0, 7))));
+  assert.equal(cadenceMonths(cycle, { ...monthly, skipMonths: 0 }).length, 12);
+  const club = { ...monthly, cadence: 2 as const };
+  const dates = recurringMeetingDates(cycle, club);
+  assert.equal(dates[0], meetingDate('2027-02', club));
+  assert.ok(dates.every((date) => !isSkippedMonth(date, club.skipMonths)));
+  assert.ok(dates.every((date) => date.startsWith('2027-')));
 });
+
+test('a skipped January moves the every-6-weeks schedule to the first Thursday of February', () => {
+  const data = seed();
+  const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-12-31' };
+  const club = { ...data.clubs[0], cadence: 2 as const, meetingWeekday: 4 as const, meetingOccurrence: 1 as const, skipMonths: skipMonths(1) };
+  assert.deepEqual(recurringMeetingDates(cycle, club).slice(0, 3), ['2027-02-04', '2027-03-18', '2027-04-29']);
+});
+
+test('a 42-day step that lands in a skipped month moves the meeting to the next active month', () => {
+  const data = seed();
+  const cycle = { ...data.cycles[0], startsOn: '2027-01-01', endsOn: '2027-06-30' };
+  const club = { ...data.clubs[0], cadence: 2 as const, meetingWeekday: 4 as const, meetingOccurrence: 1 as const, skipMonths: skipMonths(3) };
+  assert.deepEqual(recurringMeetingDates(cycle, club), ['2027-01-07', '2027-02-18', '2027-04-01', '2027-05-13', '2027-06-24']);
+});
+
 
 test('reconciliation applies skipped months only to selected clubs and preserves retained dates', () => {
   const data = seed();

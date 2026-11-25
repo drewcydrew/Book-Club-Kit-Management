@@ -87,6 +87,13 @@ test('explicit and staged dates take precedence over a changed club rule', () =>
   assert.equal(preserveUnassignedMeetingDates(cycle, [staged], [staged]).slots[0].meeting, null);
 });
 
+test('slotChanges reports fixed meetings that move to another date or month', () => {
+  const fixed = { id: 's', clubId: 'c', month: '2027-01', meeting: '2027-01-11' };
+  assert.deepEqual(slotChanges([fixed], [{ ...fixed }]).datedSlots, []);
+  assert.deepEqual(slotChanges([fixed], [{ ...fixed, meeting: '2027-01-18' }]).datedSlots, [{ id: 's', meeting: '2027-01-18' }]);
+  assert.deepEqual(slotChanges([fixed], [{ ...fixed, month: '2027-02', meeting: '2027-02-08' }]).datedSlots, [{ id: 's', meeting: '2027-02-08' }]);
+});
+
 test('both generation modes respect rule dates, deadline, staged dates and actual loan overlap', () => {
   const data = seed();
   data.clubs = data.clubs.map((club) => ({ ...club, history: [], meetingWeekday: 1, meetingOccurrence: 1 }));

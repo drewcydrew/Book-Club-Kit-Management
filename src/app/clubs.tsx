@@ -1343,7 +1343,7 @@ function ClubsContent() {
                       <Action title="Monthly" selected={draft.club.cadence === 1} onPress={() => changeDetails({ cadence: 1 })} />
                       <Action title="Every 6 weeks" selected={draft.club.cadence === 2} onPress={() => changeDetails({ cadence: 2 })} />
                     </Actions>
-                    {draft.club.cadence === 2 && <Note>Every 6 weeks starts on the club&apos;s meeting week-of-month rule in the first month of the cycle, then repeats every 42 days within the cycle.</Note>}
+                    {draft.club.cadence === 2 && <Note>Every 6 weeks starts on the club&apos;s meeting week-of-month rule in the first active month of the cycle, then repeats every 42 days. Skipped months are treated as if they do not exist: a step that lands in a skipped month moves to the rule date in the next active month.</Note>}
                     <RuleEditor
                       title="Meeting"
                       summary={meetingRuleLabel(draft.club)}

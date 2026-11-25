@@ -22,7 +22,8 @@
     "import-demo-preferences": "node --env-file-if-exists=../.env src/import-demo-preferences.js",
     "reconcile-demo-preferences": "node --env-file-if-exists=../.env src/reconcile-demo-preferences.js",
     "reconcile-club-meeting-rules": "node --env-file-if-exists=../.env src/reconcile-club-meeting-rules.js",
-    "align-hume-club-rules": "node --env-file-if-exists=../.env src/align-hume-club-rules.js"
+    "align-hume-club-rules": "node --env-file-if-exists=../.env src/align-hume-club-rules.js",
+    "copy-hume-library-service": "node --env-file-if-exists=../.env src/copy-hume-library-service.js"
   },
   "dependencies": {
     "express": "^5.3.0",

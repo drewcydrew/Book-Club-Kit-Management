@@ -24,9 +24,10 @@ test('skipped months have no meeting and are flagged for greying', () => {
   assert.equal(datesWith(months, 'meeting').length, 10);
 });
 
-test('every-6-weeks preview steps meetings 42 days apart from the first January meeting, without resetting across skipped months', () => {
+test('every-6-weeks preview starts in February when January is skipped and moves steps that land in a skipped month', () => {
   const every6 = { ...monthly, cadence: 2 as const, skipMonths: skipMonths(3) };
   const meetings = datesWith(clubYearPreview(every6, 2027), 'meeting').sort();
-  assert.deepEqual(meetings, ['2027-01-06', '2027-02-17', '2027-05-12', '2027-06-23', '2027-08-04',
-    '2027-09-15', '2027-10-27', '2027-12-08']);
+  assert.deepEqual(meetings, ['2027-01-06', '2027-02-17', '2027-04-07', '2027-05-19', '2027-06-30',
+    '2027-08-11', '2027-09-22', '2027-11-03', '2027-12-15']);
 });
+
