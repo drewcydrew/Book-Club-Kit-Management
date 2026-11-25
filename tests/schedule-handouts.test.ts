@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { unzipSync } from 'fflate';
 import { PDFDocument } from 'pdf-lib';
-import { makeClubOverviewPdf } from '../src/domain/club-overview-pdf';
+import { makeClubPdf } from '../src/domain/club-overview-pdf';
 import { makeHandoutClubs } from '../src/domain/schedule-handouts';
 import { handoutsZip } from '../src/domain/schedule-handouts-pdf';
 import { seed } from '../src/domain/seed';
@@ -54,18 +54,21 @@ test('handout badges show the club priority for each assigned title, or a dash w
   assert.equal(clubs[1].months.find((entry) => entry.month === '2027-01')?.book?.priority, null);
 });
 
-test('combined and ZIP handouts contain exactly one page per shown club', async () => {
-  const { data, cycle } = fixture();
-  data.clubs[0].name = '../Same/club';
-  data.clubs[1].name = '../Same/club';
-  const { clubs } = makeHandoutClubs(data, cycle, ['c1', 'c2'], '2027-01-01');
-  const fontBytes = await readFile('node_modules/@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf');
-  const result = await makeClubOverviewPdf({ clubs, fontBytes, covers: new Map(), exportedAt: '2027-01-01' });
-  assert.equal((await PDFDocument.load(result.bytes)).getPageCount(), 2);
+for (const format of ['overview', 'compact'] as const) {
+  test(`combined and ZIP ${format} handouts contain exactly one page per shown club`, async () => {
+    const { data, cycle } = fixture();
+    data.clubs[0].name = '../Same/club';
+    data.clubs[1].name = '../Same/club';
+    const { clubs } = makeHandoutClubs(data, cycle, ['c1', 'c2'], '2027-01-01');
+    const fontBytes = await readFile('node_modules/@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf');
+    const boldFontBytes = await readFile('node_modules/@expo-google-fonts/noto-sans/700Bold/NotoSans_700Bold.ttf');
+    const result = await makeClubPdf(format, { clubs, fontBytes, boldFontBytes, covers: new Map(), exportedAt: '2027-01-01' });
+    assert.equal((await PDFDocument.load(result.bytes)).getPageCount(), 2);
 
-  const archive = unzipSync(await handoutsZip(result.bytes, clubs.map((club) => club.club)));
-  assert.deepEqual(Object.keys(archive), ['001-Same-club.pdf', '002-Same-club.pdf']);
-  for (const bytes of Object.values(archive)) {
-    assert.equal((await PDFDocument.load(bytes)).getPageCount(), 1);
-  }
-});
+    const archive = unzipSync(await handoutsZip(result.bytes, clubs.map((club) => club.club)));
+    assert.deepEqual(Object.keys(archive), ['001-Same-club.pdf', '002-Same-club.pdf']);
+    for (const bytes of Object.values(archive)) {
+      assert.equal((await PDFDocument.load(bytes)).getPageCount(), 1);
+    }
+  });
+}

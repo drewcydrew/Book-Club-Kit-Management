@@ -13,10 +13,11 @@ const pageWidth = 595.28;
 const pageHeight = 841.89;
 const margin = 28;
 const contentWidth = pageWidth - 2 * margin;
-const cardHeight = 96;
+const maxCardHeight = 150;
+const minDayRowHeight = 8.2;
+const overviewBottom = 33;
 const cardGap = 10;
 const rowGap = 6;
-const minScale = 0.6;
 const ink = rgb(0.09, 0.23, 0.21);
 const muted = rgb(0.27, 0.36, 0.33);
 const paper = rgb(0.96, 0.98, 0.96);
@@ -141,12 +142,12 @@ async function clubPdfDocument(clubs: ClubOverviewPdfClub[], fontBytes: Uint8Arr
   return { doc, font, bold, images, invalidCovers };
 }
 
-export async function makeClubOverviewPdf({ clubs, fontBytes, covers, exportedAt }: {
-  clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string;
+export async function makeClubOverviewPdf({ clubs, fontBytes, boldFontBytes, covers, exportedAt }: {
+  clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string;
 }) {
-  const { doc, font, images, invalidCovers } = await clubPdfDocument(clubs, fontBytes, covers, exportedAt);
+  const { doc, font, bold, images, invalidCovers } = await clubPdfDocument(clubs, fontBytes, covers, exportedAt, { boldFontBytes });
   for (const club of clubs) {
-    drawClubPage(doc.addPage([pageWidth, pageHeight]), font, images, { ...club, exportedAt });
+    drawClubPage(doc.addPage([pageWidth, pageHeight]), { regular: font, bold }, images, { ...club, exportedAt });
   }
   return { bytes: await doc.save(), invalidCovers };
 }
@@ -190,7 +191,24 @@ export function readingPeriodLabel(months: Pick<OverviewPdfMonth, 'month'>[]): s
 }
 
 export type CompactPdfOptions = { showPriority: boolean; showPickup: boolean; showReturn: boolean };
-const allCompactElements: CompactPdfOptions = { showPriority: true, showPickup: true, showReturn: true };
+export const defaultCompactOptions: CompactPdfOptions = { showPriority: true, showPickup: true, showReturn: true };
+const allCompactElements = defaultCompactOptions;
+
+// The elements a user can switch off in the compact PDF, in display order.
+export const compactOptionChoices: { key: keyof CompactPdfOptions; label: string }[] = [
+  { key: 'showPickup', label: 'Pickup dates' },
+  { key: 'showReturn', label: 'Return dates' },
+  { key: 'showPriority', label: 'Priority badges' },
+];
+
+export type ClubPdfFormat = 'overview' | 'compact';
+
+export type ClubPdfInput = { clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string };
+
+// One entry point for both layouts, so every screen that exports club PDFs picks a format the same way.
+export function makeClubPdf(format: ClubPdfFormat, input: ClubPdfInput, options: CompactPdfOptions = defaultCompactOptions) {
+  return format === 'compact' ? makeCompactClubPdf({ ...input, options }) : makeClubOverviewPdf(input);
+}
 
 const compactText = ['READING PLAN', 'Titles', 'Calendar', 'colours match each cover', 'Exported', ...weekdayNames, ...shortMonths, '–', '·', '…'];
 
@@ -230,112 +248,105 @@ export function drawCalendarGrid(page: PDFPage, font: PDFFont, weeks: (string | 
   }));
 }
 
-function drawClubPage(page: PDFPage, font: PDFFont, images: Map<string, PDFImage>, { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }) {
-  const draw = (value: string, x: number, y: number, size: number, color = ink) => {
-    if (value) page.drawText(value, { x, y, size, font, color });
+function drawClubPage(page: PDFPage, fonts: PdfFonts, images: Map<string, PDFImage>, { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }) {
+  const { regular, bold } = fonts;
+  const draw = (value: string, x: number, y: number, size: number, color: Color = slateInk, face: PDFFont = regular) => {
+    if (value) page.drawText(value, { x, y, size, font: face, color });
   };
-  const drawCentered = (value: string, x: number, width: number, y: number, size: number, color = ink) => {
-    draw(value, x + (width - font.widthOfTextAtSize(value, size)) / 2, y, size, color);
+  const drawCentered = (value: string, x: number, width: number, y: number, size: number, color: Color = slateMuted) => {
+    draw(value, x + (width - regular.widthOfTextAtSize(value, size)) / 2, y, size, color);
   };
-  const fitLines = (value: string, size: number, width: number, count: number) =>
-    shorten(wrap(value, font, size, width), count, font, size, width);
+  const fitLines = (value: string, size: number, width: number, count: number, face: PDFFont = regular) =>
+    shorten(wrap(value, face, size, width), count, face, size, width);
 
-  page.drawRectangle({ x: 0, y: pageHeight - 8, width: pageWidth, height: 8, color: ink });
-  const top = pageHeight - margin;
-  draw(fitLines(club, 16, contentWidth, 1)[0] ?? '', margin, top - 16, 16);
-  draw(fitLines(details, 8.5, contentWidth, 1)[0] ?? '', margin, top - 30, 8.5, muted);
-  draw(`Exported ${exportedAt}`, margin, top - 41, 7, muted);
+  const links = titleLinks(months);
+  const linkByKey = new Map(links.map((link) => [link.key, link] as const));
+  const hueFor = titleHueLookup(links);
+  drawPageHeader(page, fonts, { club, details, months, links, showDetails: false });
+  drawPageFooter(page, regular, club, exportedAt);
 
-  const overviewTop = top - 50;
-  const listRows = Math.max(1, Math.ceil(months.length / 2));
-  const overviewHeight = 24 + listRows * 11 + 4;
-  page.drawRectangle({ x: margin, y: overviewTop - overviewHeight, width: contentWidth, height: overviewHeight, color: paper, borderColor: rule, borderWidth: 0.5 });
-  draw('Overview', margin + 8, overviewTop - 12, 8.5);
-  let legendRight = margin + contentWidth - 8;
-  for (const kind of [...markerKinds].reverse()) {
-    const label = markerLabels[kind];
-    const labelWidth = font.widthOfTextAtSize(label, 7);
-    draw(label, legendRight - labelWidth, overviewTop - 12, 7, muted);
-    page.drawCircle({ x: legendRight - labelWidth - 6, y: overviewTop - 9.5, size: 2.5, color: markerColors[kind] });
-    legendRight -= labelWidth + 16;
+  const contentTop = pageHeight - slimBandHeight - stripeHeight - 10;
+  if (!months.length) {
+    draw(details, margin, contentTop - 10, 9, slateMuted);
+    draw('No meetings are scheduled for this club.', margin, contentTop - 24, 9, slateMuted);
+    return;
   }
-  if (!months.length) draw('No meetings are scheduled for this club.', margin + 8, overviewTop - 24, 8, muted);
-  const columnWidth = (contentWidth - 16) / 2;
-  months.forEach((entry, index) => {
-    const row = Math.floor(index / 2);
-    const label = `${calendarMonthLabel(entry.month)} · ${entry.book?.name ?? 'No book chosen'}`;
-    draw(fitLines(label, 7.5, columnWidth, 1)[0] ?? '', margin + 8 + (index % 2) * columnWidth, overviewTop - 24 - row * 11, 7.5);
-  });
+  // The meeting details take the heading row, truncated to leave room for the legend.
+  const headingY = contentTop - 9;
+  const legendWidth = markerKinds.reduce((sum, kind) => sum + regular.widthOfTextAtSize(markerLabels[kind], 7) + 23, 0);
+  drawSectionHeading(page, bold, fitLines(details, 10, contentWidth - legendWidth - 24, 1, bold)[0] ?? '', headingY);
+  drawLegend(page, fonts, [...markerKinds], headingY);
 
-  if (!months.length) return;
-
-  const gridTop = overviewTop - overviewHeight - 10;
+  const gridTop = contentTop - 20;
   const rows = Math.ceil(months.length / 2);
-  const scale = Math.min(1, (gridTop - margin - rowGap * (rows - 1)) / (rows * cardHeight));
-  if (scale < minScale) throw new Error(`The overview for ${club} is too long to fit on one A4 page. Reduce the number of months shown.`);
-  const cardWidth = ((contentWidth - cardGap) / 2) * scale;
-  const cardH = cardHeight * scale;
-  const gridLeft = margin + contentWidth * (1 - scale) / 2;
+  const cardH = Math.min(maxCardHeight, (gridTop - overviewBottom - rowGap * (rows - 1)) / rows);
+  const cardWidth = (contentWidth - cardGap) / 2;
+  const pad = 5;
+  const leftWidth = 66;
+  const calendarLeft = pad + leftWidth + 8;
+  const dayWidth = (cardWidth - calendarLeft - pad) / 7;
+  const monthHeader = 13;
+  const weekdayRow = 8;
+  const fittedRowHeight = (cardH - 2 * pad - monthHeader - weekdayRow) / 6;
+  if (fittedRowHeight < minDayRowHeight) throw new Error(`The overview for ${club} is too long to fit on one A4 page. Reduce the number of months shown.`);
+  const rowHeight = Math.min(22, fittedRowHeight);
+  const labelSize = Math.max(5, Math.min(7.5, rowHeight * 0.52));
 
-  const drawPriorityBadge = (coverRight: number, coverTop: number, priority: number | null, k: number) => {
+  const drawPriorityBadge = (coverRight: number, coverTop: number, priority: number | null) => {
     const label = priority === null ? '—' : `#${priority}`;
-    const size = 6 * k;
-    const labelWidth = font.widthOfTextAtSize(label, size);
-    const radius = Math.max(6.5 * k, labelWidth / 2 + 2 * k);
-    const centerX = coverRight - 2 * k;
-    const centerY = coverTop - 2 * k;
-    page.drawCircle({ x: centerX, y: centerY, size: radius, color: ink, borderColor: paper, borderWidth: 0.6 * k });
-    page.drawText(label, { x: centerX - labelWidth / 2, y: centerY - size * 0.35, size, font, color: paper });
+    const size = 6;
+    const labelWidth = bold.widthOfTextAtSize(label, size);
+    const radius = Math.max(6.5, labelWidth / 2 + 2);
+    const centerX = coverRight - 2;
+    const centerY = coverTop - 2;
+    page.drawCircle({ x: centerX, y: centerY, size: radius, color: slateInk, borderColor: white, borderWidth: 0.8 });
+    page.drawText(label, { x: centerX - labelWidth / 2, y: centerY - size * 0.35, size, font: bold, color: white });
   };
 
-  const drawCard = (entry: OverviewPdfMonth, x: number, yTop: number, k: number) => {
-    const bottom = yTop - cardH;
-    page.drawRectangle({ x, y: bottom, width: cardWidth, height: cardH, color: paper, borderColor: rule, borderWidth: 0.5 });
-    const pad = 5 * k;
-    const coverWidth = 36 * k;
-    const coverHeight = 50 * k;
-    const calendarWidth = 130 * k;
-    const calendarX = x + cardWidth - pad - calendarWidth;
-    const textX = x + pad + coverWidth + 5 * k;
-    const textWidth = calendarX - textX - 6 * k;
-
+  const drawCard = (entry: OverviewPdfMonth, x: number, yTop: number) => {
+    roundedRect(page, x, yTop - cardH, cardWidth, cardH, 5, { color: white, borderColor: slateLine, borderWidth: 0.8 });
     const book = entry.book;
-    let coverRight = x + pad + coverWidth;
+    const link = book && linkByKey.get(titleKey(book.titleId, book.name));
+    const leftX = x + pad;
     if (book) {
+      const titleLines = fitLines(book.name, 7.6, leftWidth, cardH >= 100 ? 3 : 2, bold);
+      const authorLines = book.author ? fitLines(book.author, 6.6, leftWidth, 1) : [];
+      const textHeight = titleLines.length * 9 + authorLines.length * 8.4 + 5;
+      const boxHeight = Math.min(cardH - 2 * pad - textHeight, leftWidth * 50 / 36);
+      const boxWidth = Math.min(leftWidth, boxHeight * 36 / 50);
       const image = book.titleId ? images.get(book.titleId) : undefined;
+      let coverWidth = boxWidth;
+      let coverHeight = boxHeight;
+      const coverBottom = (height: number) => yTop - pad - height;
       if (image) {
-        const s = Math.min(coverWidth / image.width, coverHeight / image.height);
-        const w = image.width * s;
-        const h = image.height * s;
-        page.drawImage(image, { x: x + pad + (coverWidth - w) / 2, y: yTop - pad - h, width: w, height: h });
-        coverRight = x + pad + (coverWidth + w) / 2;
+        const s = Math.min(boxWidth / image.width, boxHeight / image.height);
+        coverWidth = image.width * s;
+        coverHeight = image.height * s;
+        page.drawImage(image, { x: leftX, y: coverBottom(coverHeight), width: coverWidth, height: coverHeight });
+        page.drawRectangle({ x: leftX, y: coverBottom(coverHeight), width: coverWidth, height: coverHeight, borderColor: slateLine, borderWidth: 0.6 });
       } else {
-        page.drawRectangle({ x: x + pad, y: yTop - pad - coverHeight, width: coverWidth, height: coverHeight, color: placeholder });
-        drawCentered('No cover', x + pad, coverWidth, yTop - pad - coverHeight / 2, 5.5 * k, muted);
+        page.drawRectangle({ x: leftX, y: coverBottom(coverHeight), width: coverWidth, height: coverHeight, color: link ? hueTint(linkHue(link), 0.14) : placeholder });
+        drawCentered('No cover', leftX, coverWidth, yTop - pad - coverHeight / 2 - 2, 5.5, slateMuted);
       }
-      if (book.priority !== undefined) drawPriorityBadge(coverRight, yTop - pad, book.priority, k);
+      if (book.priority !== undefined) drawPriorityBadge(leftX + coverWidth, yTop - pad, book.priority);
+      const textColor = link ? hueFill(linkHue(link)) : slateInk;
+      let cursor = coverBottom(coverHeight) - 5;
+      for (const value of titleLines) { cursor -= 9; draw(value, leftX, cursor + 1.8, 7.6, textColor, bold); }
+      for (const value of authorLines) { cursor -= 8.4; draw(value, leftX, cursor + 1.8, 6.6, textColor); }
+    } else if (!entry.markers.size) {
+      draw('No book chosen', leftX, yTop - pad - 8, 6.6, slateFaint);
     }
 
-    let cursor = yTop - pad - 2 * k;
-    const line = (value: string, size: number, leading: number, color = ink) => {
-      draw(value, textX, cursor - size, size, color);
-      cursor -= leading;
-    };
-    line(calendarMonthLabel(entry.month), 7 * k, 9 * k, muted);
-    if (book) {
-      fitLines(book.name, 8 * k, textWidth, 3).forEach((value) => line(value, 8 * k, 10 * k));
-      if (book.author) line(fitLines(book.author, 7 * k, textWidth, 2)[0] ?? '', 7 * k, 9 * k, muted);
-    } else {
-      line('No book chosen', 7 * k, 9 * k, muted);
-    }
-
-    drawCalendarGrid(page, font, entry.weeks, entry.markers, { left: calendarX, top: yTop - pad, width: calendarWidth, k });
+    const calendarX = x + calendarLeft;
+    const monthLabel = fitLines(calendarMonthLabel(entry.month), 8.5, dayWidth * 7, 1, bold)[0] ?? '';
+    draw(monthLabel, calendarX, yTop - pad - 8, 8.5, slateInk, bold);
+    drawDayGrid(page, fonts, entry, [...markerKinds], hueFor, {
+      left: calendarX, top: yTop - pad - monthHeader, dayWidth, rowHeight, weekdayRow, labelSize, weekdaySize: 5.6,
+    });
   };
 
   months.forEach((entry, index) => {
-    const row = Math.floor(index / 2);
-    const col = index % 2;
-    drawCard(entry, gridLeft + col * (cardWidth + cardGap * scale), gridTop - row * (cardH + rowGap), scale);
+    drawCard(entry, margin + (index % 2) * (cardWidth + cardGap), gridTop - Math.floor(index / 2) * (cardH + rowGap));
   });
 }
 
@@ -357,6 +368,15 @@ const hueFill = (hue: Hue) => rgb(hue[0], hue[1], hue[2]);
 const hueTint = (hue: Hue, strength: number) => rgb(1 - (1 - hue[0]) * strength, 1 - (1 - hue[1]) * strength, 1 - (1 - hue[2]) * strength);
 const linkHue = (link: TitleLink): Hue => titleHues[(link.number - 1) % titleHues.length];
 
+// Maps a title key to its colour; days owned by an unknown title use a neutral slate.
+function titleHueLookup(links: TitleLink[]) {
+  const byKey = new Map(links.map((link) => [link.key, link] as const));
+  return (key?: string): Hue => {
+    const link = key ? byKey.get(key) : undefined;
+    return link ? linkHue(link) : neutralHue;
+  };
+}
+
 // x/y is the bottom-left corner, like drawRectangle.
 function roundedRect(page: PDFPage, x: number, y: number, width: number, height: number, radius: number,
   style: { color?: Color; borderColor?: Color; borderWidth?: number }) {
@@ -366,7 +386,101 @@ function roundedRect(page: PDFPage, x: number, y: number, width: number, height:
   page.drawSvgPath(path, { x, y: y + height, ...style });
 }
 
+type PdfFonts = { regular: PDFFont; bold: PDFFont };
+
+// One day cell: a solid rounded square for meetings, an outline for pickups and a tint for returns.
+function drawMarkerCell(page: PDFPage, fonts: PdfFonts, kind: OverviewMarkerKind, x: number, y: number, size: number, hue: Hue, label?: string, labelSize = 6.8) {
+  const radius = Math.min(3, size / 3);
+  if (kind === 'meeting') roundedRect(page, x, y, size, size, radius, { color: hueFill(hue) });
+  else if (kind === 'ready') roundedRect(page, x, y, size, size, radius, { color: white, borderColor: hueFill(hue), borderWidth: 1.1 });
+  else roundedRect(page, x, y, size, size, radius, { color: hueTint(hue, 0.24) });
+  if (label) {
+    const width = fonts.bold.widthOfTextAtSize(label, labelSize);
+    page.drawText(label, { x: x + (size - width) / 2, y: y + size / 2 - labelSize * 0.35, size: labelSize, font: fonts.bold, color: kind === 'meeting' ? white : hueFill(hue) });
+  }
+}
+
+// Weekday row and day cells for one month. `top` is the top of the weekday row; `hueFor` maps a title key to its colour.
+function drawDayGrid(page: PDFPage, fonts: PdfFonts, month: Pick<OverviewPdfMonth, 'weeks' | 'markers' | 'markerOwners'>,
+  shownKinds: OverviewMarkerKind[], hueFor: (key?: string) => Hue,
+  { left, top, dayWidth, rowHeight, weekdayRow = 9, labelSize = 6.8, weekdaySize = 5.8 }:
+  { left: number; top: number; dayWidth: number; rowHeight: number; weekdayRow?: number; labelSize?: number; weekdaySize?: number }) {
+  const centered = (value: string, x: number, y: number, size: number, color: Color, face: PDFFont) => {
+    page.drawText(value, { x: x + (dayWidth - face.widthOfTextAtSize(value, size)) / 2, y, size, font: face, color });
+  };
+  weekdays.forEach((day, index) => centered(day, left + index * dayWidth, top - weekdaySize - 0.7, weekdaySize, slateFaint, fonts.bold));
+  month.weeks.forEach((week, weekIndex) => week.forEach((date, dayIndex) => {
+    if (!date) return;
+    const cellX = left + dayIndex * dayWidth;
+    const cellY = top - weekdayRow - (weekIndex + 1) * rowHeight;
+    const label = String(Number(date.slice(8)));
+    const kinds = (month.markers.get(date) ?? []).filter((kind) => shownKinds.includes(kind));
+    const primary = (['meeting', 'due', 'ready'] as const).find((kind) => kinds.includes(kind));
+    if (!primary) {
+      centered(label, cellX, cellY + rowHeight / 2 - labelSize * 0.35, labelSize, dayIndex >= 5 ? slateFaint : slateMuted, fonts.regular);
+      return;
+    }
+    const owners = month.markerOwners?.get(date);
+    const size = Math.min(dayWidth, rowHeight) - 1.6;
+    const boxX = cellX + (dayWidth - size) / 2;
+    const boxY = cellY + (rowHeight - size) / 2;
+    drawMarkerCell(page, fonts, primary, boxX, boxY, size, hueFor(owners?.[primary]), label, labelSize);
+    const secondary = kinds.find((kind) => kind !== primary);
+    if (secondary) page.drawCircle({ x: boxX + size - 0.5, y: boxY + size - 0.5, size: 1.9, color: hueFill(hueFor(owners?.[secondary])), borderColor: white, borderWidth: 0.6 });
+  }));
+}
+
 const compactBottom = 36;
+const bandHeight = 76;
+// Without the details line the band can be shorter, which the overview uses to save space.
+const slimBandHeight = 60;
+const stripeHeight = 3;
+
+// Indigo header band with a stripe of the title colours beneath it; shared by the overview and compact pages.
+function drawPageHeader(page: PDFPage, fonts: PdfFonts, { club, details, months, links, showDetails = true }:
+  { club: string; details: string; months: OverviewPdfMonth[]; links: TitleLink[]; showDetails?: boolean }) {
+  const { regular, bold } = fonts;
+  const height = showDetails ? bandHeight : slimBandHeight;
+  const fit = (value: string, size: number, width: number, face: PDFFont) => shorten(wrap(value, face, size, width), 1, face, size, width)[0] ?? '';
+  page.drawRectangle({ x: 0, y: pageHeight - height, width: pageWidth, height, color: hueFill(accentHue) });
+  (links.length ? links.map(linkHue) : [accentHue]).forEach((hue, index, all) => page.drawRectangle({
+    x: pageWidth * index / all.length, y: pageHeight - height - stripeHeight, width: pageWidth / all.length, height: stripeHeight, color: hueFill(hue),
+  }));
+  const period = readingPeriodLabel(months.filter((entry) => entry.book));
+  const periodWidth = period ? bold.widthOfTextAtSize(period, 12) + 16 : 0;
+  const nameY = showDetails ? 50 : 45;
+  page.drawText('READING PLAN', { x: margin, y: pageHeight - (showDetails ? 25 : 19), size: 7.5, font: bold, color: rgb(0.78, 0.79, 0.98) });
+  page.drawText(fit(club, 22, contentWidth - periodWidth, bold), { x: margin, y: pageHeight - nameY, size: 22, font: bold, color: white });
+  if (showDetails) page.drawText(fit(details, 9, contentWidth, regular), { x: margin, y: pageHeight - 66, size: 9, font: regular, color: rgb(0.84, 0.85, 0.99) });
+  if (period) page.drawText(period, { x: pageWidth - margin - bold.widthOfTextAtSize(period, 12), y: pageHeight - nameY, size: 12, font: bold, color: white });
+}
+
+function drawPageFooter(page: PDFPage, font: PDFFont, club: string, exportedAt: string) {
+  page.drawLine({ start: { x: margin, y: 28 }, end: { x: pageWidth - margin, y: 28 }, thickness: 0.5, color: slateLine });
+  const name = shorten(wrap(club, font, 6.8, contentWidth / 2), 1, font, 6.8, contentWidth / 2)[0] ?? '';
+  page.drawText(name, { x: margin, y: 17, size: 6.8, font, color: slateMuted });
+  const exported = `Exported ${exportedAt}`;
+  page.drawText(exported, { x: pageWidth - margin - font.widthOfTextAtSize(exported, 6.8), y: 17, size: 6.8, font, color: slateMuted });
+}
+
+// Accent-bar section heading; returns the x where the heading text ends.
+function drawSectionHeading(page: PDFPage, bold: PDFFont, label: string, y: number) {
+  page.drawRectangle({ x: margin, y: y - 2, width: 3, height: 11, color: hueFill(accentHue) });
+  page.drawText(label, { x: margin + 9, y, size: 10, font: bold, color: slateInk });
+  return margin + 9 + bold.widthOfTextAtSize(label, 10);
+}
+
+// Right-aligned legend of the marker shapes in use.
+function drawLegend(page: PDFPage, fonts: PdfFonts, kinds: OverviewMarkerKind[], y: number) {
+  let right = pageWidth - margin;
+  for (const kind of [...kinds].reverse()) {
+    const label = markerLabels[kind];
+    const labelX = right - fonts.regular.widthOfTextAtSize(label, 7);
+    page.drawText(label, { x: labelX, y, size: 7, font: fonts.regular, color: slateMuted });
+    drawMarkerCell(page, fonts, kind, labelX - 13, y - 2, 9, accentHue);
+    right = labelX - 13 - 10;
+  }
+}
 
 function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDFFont }, images: Map<string, PDFImage>,
   { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }, options: CompactPdfOptions) {
@@ -383,47 +497,19 @@ function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDF
 
   const links = titleLinks(months);
   const linkByKey = new Map(links.map((link) => [link.key, link] as const));
-  const hueFor = (key?: string): Hue => {
-    const link = key ? linkByKey.get(key) : undefined;
-    return link ? linkHue(link) : neutralHue;
-  };
+  const hueFor = titleHueLookup(links);
   const shownKinds = markerKinds.filter((kind) => kind === 'meeting' || (kind === 'ready' ? options.showPickup : options.showReturn));
 
-  // Header band, with a stripe of the title colours beneath it.
-  const bandHeight = 76;
-  page.drawRectangle({ x: 0, y: pageHeight - bandHeight, width: pageWidth, height: bandHeight, color: hueFill(accentHue) });
-  (links.length ? links.map(linkHue) : [accentHue]).forEach((hue, index, all) => page.drawRectangle({
-    x: pageWidth * index / all.length, y: pageHeight - bandHeight - 3, width: pageWidth / all.length, height: 3, color: hueFill(hue),
-  }));
-  const period = readingPeriodLabel(months.filter((entry) => entry.book));
-  const periodWidth = period ? textWidth(period, 12, bold) + 16 : 0;
-  draw('READING PLAN', margin, pageHeight - 25, 7.5, rgb(0.78, 0.79, 0.98), bold);
-  draw(fitLines(club, 22, contentWidth - periodWidth, 1, bold)[0] ?? '', margin, pageHeight - 50, 22, white, bold);
-  draw(fitLines(details, 9, contentWidth, 1)[0] ?? '', margin, pageHeight - 66, 9, rgb(0.84, 0.85, 0.99));
-  if (period) draw(period, pageWidth - margin - textWidth(period, 12, bold), pageHeight - 50, 12, white, bold);
+  drawPageHeader(page, fonts, { club, details, months, links, showDetails: false });
+  drawPageFooter(page, regular, club, exportedAt);
 
-  page.drawLine({ start: { x: margin, y: 28 }, end: { x: pageWidth - margin, y: 28 }, thickness: 0.5, color: slateLine });
-  draw(fitLines(club, 6.8, contentWidth / 2, 1)[0] ?? '', margin, 17, 6.8, slateMuted);
-  const exported = `Exported ${exportedAt}`;
-  draw(exported, pageWidth - margin - textWidth(exported, 6.8), 17, 6.8, slateMuted);
-
-  const contentTop = pageHeight - bandHeight - 3 - 16;
+  const contentTop = pageHeight - slimBandHeight - stripeHeight - 14;
   if (!months.length) {
-    draw('No meetings are scheduled for this club.', margin, contentTop - 10, 9, slateMuted);
+    draw(details, margin, contentTop - 10, 9, slateMuted);
+    draw('No meetings are scheduled for this club.', margin, contentTop - 24, 9, slateMuted);
     return;
   }
-  const drawHeading = (label: string, y: number) => {
-    page.drawRectangle({ x: margin, y: y - 2, width: 3, height: 11, color: hueFill(accentHue) });
-    draw(label, margin + 9, y, 10, slateInk, bold);
-    return margin + 9 + textWidth(label, 10, bold);
-  };
-  const drawMarkerCell = (kind: OverviewMarkerKind, x: number, y: number, size: number, hue: Hue, label?: string, labelSize = 6.8) => {
-    const radius = Math.min(3, size / 3);
-    if (kind === 'meeting') roundedRect(page, x, y, size, size, radius, { color: hueFill(hue) });
-    else if (kind === 'ready') roundedRect(page, x, y, size, size, radius, { color: white, borderColor: hueFill(hue), borderWidth: 1.1 });
-    else roundedRect(page, x, y, size, size, radius, { color: hueTint(hue, 0.24) });
-    if (label) drawCentered(label, x, size, y + size / 2 - labelSize * 0.35, labelSize, kind === 'meeting' ? white : hueFill(hue), bold);
-  };
+  const drawHeading = (label: string, y: number) => drawSectionHeading(page, bold, label, y);
 
   // Title cards: cover, name, author and the dates to remember.
   drawHeading('Titles', contentTop - 9);
@@ -432,7 +518,7 @@ function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDF
   const coverRows = Math.max(1, Math.ceil(links.length / coverColumns));
   const coverGap = 8;
   const dateRowCount = links.some((link) => link.dates) ? 1 + (options.showPickup ? 1 : 0) + (options.showReturn ? 1 : 0) : 0;
-  const captionHeight = 3 + 10 + 2 * 9 + 8.4 + (dateRowCount ? 2 + dateRowCount * 8 : 0) + 4;
+  const captionHeight = 4 + 10 + 2 * 9 + 8.4 + (dateRowCount ? 2 + dateRowCount * 8 : 0) + 4;
   const coverBudget = (gridTop - compactBottom - 34) * 0.48;
   const slotWidth = (contentWidth - coverGap * (coverColumns - 1)) / coverColumns;
   const boxHeight = Math.min(190, slotWidth * 50 / 36, (coverBudget - coverRows * captionHeight - coverGap * (coverRows - 1)) / coverRows);
@@ -457,7 +543,6 @@ function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDF
       page.drawRectangle({ x: slotX, y: boxBottom, width: coverWidth, height: coverHeight, color: hueTint(hue, 0.14) });
       drawCentered('No cover', slotX, coverWidth, boxBottom + coverHeight / 2 - 2, 6, slateMuted);
     }
-    page.drawRectangle({ x: slotX, y: boxBottom - 3, width: coverWidth, height: 3, color: hueFill(hue) });
     if (link.priority !== undefined && options.showPriority) {
       const label = link.priority === null ? '—' : `#${link.priority}`;
       const radius = Math.max(6.5, textWidth(label, 6.6, bold) / 2 + 2.5);
@@ -467,13 +552,13 @@ function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDF
       draw(label, centerX - textWidth(label, 6.6, bold) / 2, centerY - 6.6 * 0.35, 6.6, white, bold);
     }
 
-    let y = boxBottom - 3 - 10;
+    let y = boxBottom - 10;
     for (const line of fitLines(link.name, 7.8, slotWidth, 2, bold)) {
-      draw(line, slotX, y, 7.8, slateInk, bold);
+      draw(line, slotX, y, 7.8, hueFill(hue), bold);
       y -= 9;
     }
     if (link.author) {
-      draw(fitLines(link.author, 6.9, slotWidth, 1)[0] ?? '', slotX, y, 6.9, slateMuted);
+      draw(fitLines(link.author, 6.9, slotWidth, 1)[0] ?? '', slotX, y, 6.9, hueFill(hue));
       y -= 8.4;
     }
     y -= 2;
@@ -489,16 +574,9 @@ function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDF
 
   // Calendar: one tile per month; meeting days are solid, pickups outlined, returns tinted, all in the title's colour.
   const headingY = coversBottom - 16;
-  const headingEnd = drawHeading('Calendar', headingY);
-  draw('colours match each cover', headingEnd + 8, headingY, 7, slateMuted);
-  let legendRight = pageWidth - margin;
-  for (const kind of [...shownKinds].reverse()) {
-    const label = markerLabels[kind];
-    const labelX = legendRight - textWidth(label, 7);
-    draw(label, labelX, headingY, 7, slateMuted);
-    drawMarkerCell(kind, labelX - 13, headingY - 2, 9, accentHue);
-    legendRight = labelX - 13 - 10;
-  }
+  const legendWidth = shownKinds.reduce((sum, kind) => sum + regular.widthOfTextAtSize(markerLabels[kind], 7) + 23, 0);
+  drawHeading(fitLines(details, 10, contentWidth - legendWidth - 24, 1, bold)[0] ?? '', headingY);
+  drawLegend(page, fonts, shownKinds, headingY);
   const calendarTop = coversBottom - 26;
   const calendarHeight = calendarTop - compactBottom;
   const gap = 8;
@@ -514,7 +592,6 @@ function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDF
   if (tileHeight < 92) throw new Error(`The overview for ${club} is too long to fit on one A4 page. Reduce the number of months shown.`);
   const dayWidth = (tileWidth - 2 * pad) / 7;
   const rowHeight = Math.min(maxRowHeight, (tileHeight - tileHeader - weekdayRow - pad + 2) / 6);
-  const weekendInk = slateFaint;
 
   months.forEach((entry, index) => {
     const tileX = margin + (index % columns) * (tileWidth + gap);
@@ -524,35 +601,12 @@ function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDF
     const book = entry.book;
     const link = book && linkByKey.get(titleKey(book.titleId, book.name));
     draw(fitLines(calendarMonthLabel(entry.month), 8.5, tileWidth - 2 * pad, 1, bold)[0] ?? '', tileX + pad, tileTop - pad - 7, 8.5, slateInk, bold);
-    let nameX = tileX + pad;
-    if (link) {
-      page.drawCircle({ x: nameX + 2.4, y: tileTop - pad - 15.6, size: 2.4, color: hueFill(linkHue(link)) });
-      nameX += 8;
-    }
-    draw(book ? fitLines(book.name, 6.6, tileX + tileWidth - pad - nameX, 1)[0] ?? '' : entry.markers.size ? '' : 'No book chosen', nameX, tileTop - pad - 18, 6.6, book ? slateMuted : slateFaint);
+    draw(book ? fitLines(book.name, 6.6, tileWidth - 2 * pad, 1)[0] ?? '' : entry.markers.size ? '' : 'No book chosen', tileX + pad, tileTop - pad - 18, 6.6,
+      book ? (link ? hueFill(linkHue(link)) : slateMuted) : slateFaint);
 
-    const gridLeft = tileX + pad;
-    const gridTopY = tileTop - tileHeader - weekdayRow;
-    weekdays.forEach((day, dayIndex) => drawCentered(day, gridLeft + dayIndex * dayWidth, dayWidth, tileTop - tileHeader - 6.5, 5.8, slateFaint, bold));
-    entry.weeks.forEach((week, weekIndex) => week.forEach((date, dayIndex) => {
-      if (!date) return;
-      const cellX = gridLeft + dayIndex * dayWidth;
-      const cellY = gridTopY - (weekIndex + 1) * rowHeight;
-      const label = String(Number(date.slice(8)));
-      const kinds = (entry.markers.get(date) ?? []).filter((kind) => shownKinds.includes(kind));
-      const primary = (['meeting', 'due', 'ready'] as const).find((kind) => kinds.includes(kind));
-      if (!primary) {
-        drawCentered(label, cellX, dayWidth, cellY + rowHeight / 2 - 6.8 * 0.35, 6.8, dayIndex >= 5 ? weekendInk : slateMuted);
-        return;
-      }
-      const owners = entry.markerOwners?.get(date);
-      const size = Math.min(dayWidth, rowHeight) - 1.6;
-      const boxX = cellX + (dayWidth - size) / 2;
-      const boxY = cellY + (rowHeight - size) / 2;
-      drawMarkerCell(primary, boxX, boxY, size, hueFor(owners?.[primary]), label);
-      const secondary = kinds.find((kind) => kind !== primary);
-      if (secondary) page.drawCircle({ x: boxX + size - 0.5, y: boxY + size - 0.5, size: 1.9, color: hueFill(hueFor(owners?.[secondary])), borderColor: white, borderWidth: 0.6 });
-    }));
+    drawDayGrid(page, fonts, entry, shownKinds, hueFor, {
+      left: tileX + pad, top: tileTop - tileHeader, dayWidth, rowHeight, weekdayRow,
+    });
   });
 }
 

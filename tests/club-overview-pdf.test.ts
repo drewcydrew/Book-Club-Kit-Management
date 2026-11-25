@@ -35,6 +35,12 @@ test('overview PDF is one page for a club with no meetings', async () => {
   assert.equal(await pages(result.bytes), 1);
 });
 
+test('overview PDF fits a year plus pickup and return months on one page, with the bold font', async () => {
+  const months = Array.from({ length: 14 }, (_, index) => month(`${2026 + Math.floor((index + 11) / 12)}-${String((index + 11) % 12 + 1).padStart(2, '0')}`, `Book ${index}`));
+  const result = await makeClubOverviewPdf({ clubs: [club(months)], fontBytes: await fontBytes(), boldFontBytes: await boldFontBytes(), covers: new Map(), exportedAt: '2027-01-01' });
+  assert.equal(await pages(result.bytes), 1);
+});
+
 test('overview PDF rejects overviews too long for one page', async () => {
   const months = Array.from({ length: 24 }, (_, index) => month(`2027-${String(index % 12 + 1).padStart(2, '0')}`, `Book ${index}`));
   await assert.rejects(
