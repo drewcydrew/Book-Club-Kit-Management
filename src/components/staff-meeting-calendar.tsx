@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Action, Actions, Card, Label, Note } from './ui';
-import { MarkerLegend, markerColors, markerLabels } from './member-overview';
+import { markerColors, markerLabels } from './member-overview';
 import { radius } from './design';
 import { TitleCover } from './title-cover';
-import { calendarDateLabel, calendarMonthLabel } from '../domain/member-calendar';
+import { calendarDateLabel, calendarMonthLabel, type OverviewMarkerKind } from '../domain/member-calendar';
 import { staffCalendarMonths, type StaffCalendarMarker, type StaffCalendarMeeting, type StaffCalendarMonth } from '../domain/staff-calendar';
 import type { Assignment, Cycle, Title } from '../domain/model';
 
@@ -108,11 +108,25 @@ function MonthCard({ entry, today, canEdit, titleFor, clubNameFor, onEdit }: {
 }
 
 export function StaffMeetingCalendar({ cycle, assignments, clubIds, today, canEdit, titleFor, clubNameFor, onEditMeeting }: Props) {
-  const months = staffCalendarMonths(cycle, assignments, clubIds);
+  const [shownKinds, setShownKinds] = useState<OverviewMarkerKind[]>(['meeting', 'ready', 'due']);
+  const months = staffCalendarMonths(cycle, assignments, clubIds, shownKinds);
   const undated = months.flatMap((entry) => entry.undated);
   if (clubIds.length === 0) return null;
+  const toggleKind = (kind: OverviewMarkerKind) => setShownKinds((current) => current.includes(kind)
+    ? current.filter((item) => item !== kind)
+    : [...current, kind]);
   return <View style={{ gap: 14 }}>
-    <MarkerLegend />
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }}>
+      {(Object.keys(markerLabels) as OverviewMarkerKind[]).map((kind) => {
+        const checked = shownKinds.includes(kind);
+        return <Pressable key={kind} accessibilityRole="checkbox" accessibilityState={{ checked }}
+          accessibilityLabel={`Show ${markerLabels[kind].toLowerCase()} dates`} onPress={() => toggleKind(kind)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, opacity: checked ? 1 : 0.45 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: markerColors[kind] }} />
+          <Text style={{ fontSize: 12, color: '#465c56', textDecorationLine: checked ? 'none' : 'line-through' }}>{markerLabels[kind]}</Text>
+        </Pressable>;
+      })}
+    </View>
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
       {months.map((entry) => <View key={entry.month} style={{ flexGrow: 1, flexBasis: 320 }}>
         <MonthCard entry={entry} today={today} canEdit={canEdit} titleFor={titleFor} clubNameFor={clubNameFor} onEdit={onEditMeeting} />

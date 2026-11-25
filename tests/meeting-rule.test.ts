@@ -141,6 +141,20 @@ test('staff calendar marks meeting, pickup and return dates for shown clubs and 
   assert.deepEqual(january.undated.map((meeting) => meeting.slotId), ['undated']);
 });
 
+test('staff calendar kind filter hides pickup and return markers but keeps meetings and undated entries', () => {
+  const base = seed().cycles[0];
+  const cycle: Cycle = { ...base, startsOn: '2027-01-01', endsOn: '2027-01-31', slots: [
+    { id: 'jan', clubId: 'c1', month: '2027-01', meeting: '2027-01-11' },
+    { id: 'undated', clubId: 'c2', month: '2027-01', meeting: null },
+  ] };
+  const assignment: Assignment = { id: 'a', cycleId: cycle.id, slotId: 'jan', clubId: 'c1', kitId: 'k1',
+    ready: '2026-12-31', meeting: '2027-01-11', due: '2027-01-18', locked: false };
+  const [december, january] = staffCalendarMonths(cycle, [assignment], ['c1', 'c2'], ['meeting']);
+  assert.equal(december.markers.size, 0);
+  assert.deepEqual([...january.markers.keys()], ['2027-01-11']);
+  assert.deepEqual(january.undated.map((meeting) => meeting.slotId), ['undated']);
+});
+
 test('both generation modes respect rule dates, deadline, staged dates and actual loan overlap', () => {
   const data = seed();
   data.clubs = data.clubs.map((club) => ({ ...club, history: [], meetingWeekday: 1, meetingOccurrence: 1 }));

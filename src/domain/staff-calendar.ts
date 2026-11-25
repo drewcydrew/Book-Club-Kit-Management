@@ -19,7 +19,9 @@ export type StaffCalendarMonth = {
   undated: StaffCalendarMeeting[];
 };
 
-export function staffCalendarMonths(cycle: Cycle, assignments: Assignment[], clubIds: string[]): StaffCalendarMonth[] {
+export function staffCalendarMonths(cycle: Cycle, assignments: Assignment[], clubIds: string[],
+  kinds: readonly OverviewMarkerKind[] = ['meeting', 'ready', 'due']): StaffCalendarMonth[] {
+  const shown = new Set(kinds);
   const clubs = new Set(clubIds);
   const assignmentBySlot = new Map(assignments.filter((assignment) => assignment.cycleId === cycle.id)
     .map((assignment) => [assignment.slotId, assignment] as const));
@@ -37,7 +39,7 @@ export function staffCalendarMonths(cycle: Cycle, assignments: Assignment[], clu
     .map((month) => [month, { month, weeks: calendarWeeks(month), markers: new Map(), undated: [] }] as const));
 
   const mark = (meeting: StaffCalendarMeeting, date: string | undefined, kind: OverviewMarkerKind) => {
-    if (!date) return;
+    if (!date || !shown.has(kind)) return;
     const entry = entries.get(date.slice(0, 7));
     if (!entry) return;
     const day = entry.markers.get(date) ?? [];
