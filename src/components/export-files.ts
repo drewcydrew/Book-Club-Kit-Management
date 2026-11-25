@@ -5,10 +5,11 @@ import * as Sharing from 'expo-sharing';
 import { fetchIsbnCover } from '../state/api';
 
 const fontAsset = require('@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf');
+const boldFontAsset = require('@expo-google-fonts/noto-sans/700Bold/NotoSans_700Bold.ttf');
 const maxCoverBytes = 5 * 1024 * 1024;
 
-export async function fontData(): Promise<Uint8Array> {
-  const asset = Asset.fromModule(fontAsset);
+async function loadFont(source: number): Promise<Uint8Array> {
+  const asset = Asset.fromModule(source);
   if (Platform.OS === 'web') {
     const response = await fetch(asset.uri);
     if (!response.ok) throw new Error('Unable to load the PDF font.');
@@ -18,6 +19,9 @@ export async function fontData(): Promise<Uint8Array> {
   if (!asset.localUri) throw new Error('Unable to load the PDF font.');
   return new File(asset.localUri).bytes();
 }
+
+export const fontData = (): Promise<Uint8Array> => loadFont(fontAsset);
+export const boldFontData = (): Promise<Uint8Array> => loadFont(boldFontAsset);
 
 async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
