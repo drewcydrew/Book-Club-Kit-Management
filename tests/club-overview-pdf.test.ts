@@ -19,8 +19,25 @@ function month(value: string, book?: string): OverviewPdfMonth {
 
 const club = (months: OverviewPdfMonth[]): ClubOverviewPdfClub => ({ club: 'Thursday Readers', details: 'Central · Monday · Monthly', months });
 
+const logoBytes = () => readFile('assets/Hume Libraries Logo - White Background.png');
+
 async function pages(bytes: Uint8Array) {
   return (await PDFDocument.load(bytes)).getPageCount();
+}
+
+for (const make of [makeClubOverviewPdf, makeCompactClubPdf]) {
+  test(`${make === makeClubOverviewPdf ? 'overview' : 'compact'} PDF embeds the logo, and ignores an unreadable one`, async () => {
+    const months = [month('2027-01', 'Dune'), month('2027-02', 'Emma')];
+    const input = { clubs: [club(months), club(months)], fontBytes: await fontBytes(), boldFontBytes: await boldFontBytes(), covers: new Map(), exportedAt: '2027-01-01' };
+    const plain = await make(input);
+    const branded = await make({ ...input, logoBytes: await logoBytes() });
+    const broken = await make({ ...input, logoBytes: new Uint8Array([1, 2, 3]) });
+    assert.equal(await pages(branded.bytes), 2);
+    assert.ok(branded.bytes.length > plain.bytes.length + 50_000, 'the logo is embedded once for the whole document');
+    assert.ok(branded.bytes.length < plain.bytes.length + 400_000);
+    assert.equal(await pages(broken.bytes), 2);
+    assert.ok(broken.bytes.length < plain.bytes.length + 1_000);
+  });
 }
 
 test('overview PDF fits a normal club on one page', async () => {

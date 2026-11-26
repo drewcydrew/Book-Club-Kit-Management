@@ -6,22 +6,24 @@ import { fetchIsbnCover } from '../state/api';
 
 const fontAsset = require('@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf');
 const boldFontAsset = require('@expo-google-fonts/noto-sans/700Bold/NotoSans_700Bold.ttf');
+const logoAsset = require('../../assets/Hume Libraries Logo - White Background.png');
 const maxCoverBytes = 5 * 1024 * 1024;
 
-async function loadFont(source: number): Promise<Uint8Array> {
+async function loadAssetBytes(source: number, failure: string): Promise<Uint8Array> {
   const asset = Asset.fromModule(source);
   if (Platform.OS === 'web') {
     const response = await fetch(asset.uri);
-    if (!response.ok) throw new Error('Unable to load the PDF font.');
+    if (!response.ok) throw new Error(failure);
     return new Uint8Array(await response.arrayBuffer());
   }
   await asset.downloadAsync();
-  if (!asset.localUri) throw new Error('Unable to load the PDF font.');
+  if (!asset.localUri) throw new Error(failure);
   return new File(asset.localUri).bytes();
 }
 
-export const fontData = (): Promise<Uint8Array> => loadFont(fontAsset);
-export const boldFontData = (): Promise<Uint8Array> => loadFont(boldFontAsset);
+export const fontData = (): Promise<Uint8Array> => loadAssetBytes(fontAsset, 'Unable to load the PDF font.');
+export const boldFontData = (): Promise<Uint8Array> => loadAssetBytes(boldFontAsset, 'Unable to load the PDF font.');
+export const logoData = (): Promise<Uint8Array> => loadAssetBytes(logoAsset, 'Unable to load the logo.');
 
 async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;

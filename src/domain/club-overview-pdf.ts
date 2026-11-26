@@ -126,7 +126,7 @@ export async function embedCovers(doc: import('pdf-lib').PDFDocument, covers: Ma
 }
 
 async function clubPdfDocument(clubs: ClubOverviewPdfClub[], fontBytes: Uint8Array, covers: Map<string, Uint8Array>, exportedAt: string,
-  { boldFontBytes, extraText = [] }: { boldFontBytes?: Uint8Array; extraText?: string[] } = {}) {
+  { boldFontBytes, logoBytes, extraText = [] }: { boldFontBytes?: Uint8Array; logoBytes?: Uint8Array; extraText?: string[] } = {}) {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const font = await doc.embedFont(fontBytes);
@@ -139,15 +139,17 @@ async function clubPdfDocument(clubs: ClubOverviewPdfClub[], fontBytes: Uint8Arr
   if (unsupported) throw new Error(`The PDF font cannot display the character "${unsupported}".`);
 
   const { images, invalidCovers } = await embedCovers(doc, covers);
-  return { doc, font, bold, images, invalidCovers };
+  // The logo is branding only; an unreadable image is skipped rather than failing the export.
+  const logo = logoBytes ? await doc.embedPng(logoBytes).catch(() => undefined) : undefined;
+  return { doc, font, bold, images, invalidCovers, logo };
 }
 
-export async function makeClubOverviewPdf({ clubs, fontBytes, boldFontBytes, covers, exportedAt }: {
-  clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string;
+export async function makeClubOverviewPdf({ clubs, fontBytes, boldFontBytes, logoBytes, covers, exportedAt }: {
+  clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; logoBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string;
 }) {
-  const { doc, font, bold, images, invalidCovers } = await clubPdfDocument(clubs, fontBytes, covers, exportedAt, { boldFontBytes });
+  const { doc, font, bold, images, invalidCovers, logo } = await clubPdfDocument(clubs, fontBytes, covers, exportedAt, { boldFontBytes, logoBytes });
   for (const club of clubs) {
-    drawClubPage(doc.addPage([pageWidth, pageHeight]), { regular: font, bold }, images, { ...club, exportedAt });
+    drawClubPage(doc.addPage([pageWidth, pageHeight]), { regular: font, bold }, images, { ...club, exportedAt }, logo);
   }
   return { bytes: await doc.save(), invalidCovers };
 }
@@ -203,7 +205,7 @@ export const compactOptionChoices: { key: keyof CompactPdfOptions; label: string
 
 export type ClubPdfFormat = 'overview' | 'compact';
 
-export type ClubPdfInput = { clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string };
+export type ClubPdfInput = { clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; logoBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string };
 
 // One entry point for both layouts, so every screen that exports club PDFs picks a format the same way.
 export function makeClubPdf(format: ClubPdfFormat, input: ClubPdfInput, options: CompactPdfOptions = defaultCompactOptions) {
@@ -213,12 +215,12 @@ export function makeClubPdf(format: ClubPdfFormat, input: ClubPdfInput, options:
 const compactText = ['READING PLAN', 'Titles', 'Calendar', 'colours match each cover', 'Exported', ...weekdayNames, ...shortMonths, '–', '·', '…'];
 
 // Compact layout: a header band, a grid of title cards (cover, author and dates), then a colour-matched calendar.
-export async function makeCompactClubPdf({ clubs, fontBytes, boldFontBytes, covers, exportedAt, options = allCompactElements }: {
-  clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string; options?: CompactPdfOptions;
+export async function makeCompactClubPdf({ clubs, fontBytes, boldFontBytes, logoBytes, covers, exportedAt, options = allCompactElements }: {
+  clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; logoBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string; options?: CompactPdfOptions;
 }) {
-  const { doc, font, bold, images, invalidCovers } = await clubPdfDocument(clubs, fontBytes, covers, exportedAt, { boldFontBytes, extraText: compactText });
+  const { doc, font, bold, images, invalidCovers, logo } = await clubPdfDocument(clubs, fontBytes, covers, exportedAt, { boldFontBytes, logoBytes, extraText: compactText });
   for (const club of clubs) {
-    drawCompactClubPage(doc.addPage([pageWidth, pageHeight]), { regular: font, bold }, images, { ...club, exportedAt }, options);
+    drawCompactClubPage(doc.addPage([pageWidth, pageHeight]), { regular: font, bold }, images, { ...club, exportedAt }, options, logo);
   }
   return { bytes: await doc.save(), invalidCovers };
 }
@@ -248,7 +250,7 @@ export function drawCalendarGrid(page: PDFPage, font: PDFFont, weeks: (string | 
   }));
 }
 
-function drawClubPage(page: PDFPage, fonts: PdfFonts, images: Map<string, PDFImage>, { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }) {
+function drawClubPage(page: PDFPage, fonts: PdfFonts, images: Map<string, PDFImage>, { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }, logo?: PDFImage) {
   const { regular, bold } = fonts;
   const draw = (value: string, x: number, y: number, size: number, color: Color = slateInk, face: PDFFont = regular) => {
     if (value) page.drawText(value, { x, y, size, font: face, color });
@@ -262,7 +264,7 @@ function drawClubPage(page: PDFPage, fonts: PdfFonts, images: Map<string, PDFIma
   const links = titleLinks(months);
   const linkByKey = new Map(links.map((link) => [link.key, link] as const));
   const hueFor = titleHueLookup(links);
-  drawPageHeader(page, fonts, { club, details, months, links, showDetails: false });
+  drawPageHeader(page, fonts, { club, details, months, links, showDetails: false, logo });
   drawPageFooter(page, regular, club, exportedAt);
 
   const contentTop = pageHeight - slimBandHeight - stripeHeight - 10;
@@ -437,8 +439,9 @@ const slimBandHeight = 60;
 const stripeHeight = 3;
 
 // Indigo header band with a stripe of the title colours beneath it; shared by the overview and compact pages.
-function drawPageHeader(page: PDFPage, fonts: PdfFonts, { club, details, months, links, showDetails = true }:
-  { club: string; details: string; months: OverviewPdfMonth[]; links: TitleLink[]; showDetails?: boolean }) {
+// With a logo, a white badge holds it at the right and the reading period moves up beside the kicker.
+function drawPageHeader(page: PDFPage, fonts: PdfFonts, { club, details, months, links, showDetails = true, logo }:
+  { club: string; details: string; months: OverviewPdfMonth[]; links: TitleLink[]; showDetails?: boolean; logo?: PDFImage }) {
   const { regular, bold } = fonts;
   const height = showDetails ? bandHeight : slimBandHeight;
   const fit = (value: string, size: number, width: number, face: PDFFont) => shorten(wrap(value, face, size, width), 1, face, size, width)[0] ?? '';
@@ -447,12 +450,21 @@ function drawPageHeader(page: PDFPage, fonts: PdfFonts, { club, details, months,
     x: pageWidth * index / all.length, y: pageHeight - height - stripeHeight, width: pageWidth / all.length, height: stripeHeight, color: hueFill(hue),
   }));
   const period = readingPeriodLabel(months.filter((entry) => entry.book));
-  const periodWidth = period ? bold.widthOfTextAtSize(period, 12) + 16 : 0;
+  const badgeHeight = Math.min(height - 16, 44);
+  const badgeWidth = logo ? badgeHeight * logo.width / logo.height : 0;
+  const badgeLeft = pageWidth - margin - badgeWidth;
+  const periodWidth = period && !logo ? bold.widthOfTextAtSize(period, 12) + 16 : 0;
   const nameY = showDetails ? 50 : 45;
-  page.drawText('READING PLAN', { x: margin, y: pageHeight - (showDetails ? 25 : 19), size: 7.5, font: bold, color: rgb(0.78, 0.79, 0.98) });
-  page.drawText(fit(club, 22, contentWidth - periodWidth, bold), { x: margin, y: pageHeight - nameY, size: 22, font: bold, color: white });
+  const kicker = logo && period ? `READING PLAN  ·  ${period}` : 'READING PLAN';
+  page.drawText(kicker, { x: margin, y: pageHeight - (showDetails ? 25 : 19), size: 7.5, font: bold, color: rgb(0.78, 0.79, 0.98) });
+  page.drawText(fit(club, 22, (logo ? badgeLeft - 16 - margin : contentWidth) - periodWidth, bold), { x: margin, y: pageHeight - nameY, size: 22, font: bold, color: white });
   if (showDetails) page.drawText(fit(details, 9, contentWidth, regular), { x: margin, y: pageHeight - 66, size: 9, font: regular, color: rgb(0.84, 0.85, 0.99) });
-  if (period) page.drawText(period, { x: pageWidth - margin - bold.widthOfTextAtSize(period, 12), y: pageHeight - nameY, size: 12, font: bold, color: white });
+  if (logo) {
+    roundedRect(page, badgeLeft, pageHeight - (height + badgeHeight) / 2, badgeWidth, badgeHeight, 6, { color: white });
+    page.drawImage(logo, { x: badgeLeft, y: pageHeight - (height + badgeHeight) / 2, width: badgeWidth, height: badgeHeight });
+  } else if (period) {
+    page.drawText(period, { x: pageWidth - margin - bold.widthOfTextAtSize(period, 12), y: pageHeight - nameY, size: 12, font: bold, color: white });
+  }
 }
 
 function drawPageFooter(page: PDFPage, font: PDFFont, club: string, exportedAt: string) {
@@ -483,7 +495,7 @@ function drawLegend(page: PDFPage, fonts: PdfFonts, kinds: OverviewMarkerKind[],
 }
 
 function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDFFont }, images: Map<string, PDFImage>,
-  { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }, options: CompactPdfOptions) {
+  { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }, options: CompactPdfOptions, logo?: PDFImage) {
   const { regular, bold } = fonts;
   const draw = (value: string, x: number, y: number, size: number, color: Color = slateInk, face: PDFFont = regular) => {
     if (value) page.drawText(value, { x, y, size, font: face, color });
@@ -500,7 +512,7 @@ function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDF
   const hueFor = titleHueLookup(links);
   const shownKinds = markerKinds.filter((kind) => kind === 'meeting' || (kind === 'ready' ? options.showPickup : options.showReturn));
 
-  drawPageHeader(page, fonts, { club, details, months, links, showDetails: false });
+  drawPageHeader(page, fonts, { club, details, months, links, showDetails: false, logo });
   drawPageFooter(page, regular, club, exportedAt);
 
   const contentTop = pageHeight - slimBandHeight - stripeHeight - 14;
