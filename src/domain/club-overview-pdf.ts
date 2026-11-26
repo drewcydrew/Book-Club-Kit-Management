@@ -144,12 +144,12 @@ async function clubPdfDocument(clubs: ClubOverviewPdfClub[], fontBytes: Uint8Arr
   return { doc, font, bold, images, invalidCovers, logo };
 }
 
-export async function makeClubOverviewPdf({ clubs, fontBytes, boldFontBytes, logoBytes, covers, exportedAt }: {
-  clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; logoBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string;
+export async function makeClubOverviewPdf({ clubs, fontBytes, boldFontBytes, logoBytes, covers, exportedAt, options = defaultClubPdfOptions }: {
+  clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; logoBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string; options?: ClubPdfOptions;
 }) {
   const { doc, font, bold, images, invalidCovers, logo } = await clubPdfDocument(clubs, fontBytes, covers, exportedAt, { boldFontBytes, logoBytes });
   for (const club of clubs) {
-    drawClubPage(doc.addPage([pageWidth, pageHeight]), { regular: font, bold }, images, { ...club, exportedAt }, logo);
+    drawClubPage(doc.addPage([pageWidth, pageHeight]), { regular: font, bold }, images, { ...club, exportedAt }, options, logo);
   }
   return { bytes: await doc.save(), invalidCovers };
 }
@@ -192,31 +192,35 @@ export function readingPeriodLabel(months: Pick<OverviewPdfMonth, 'month'>[]): s
   return `${name(first)} ${first.slice(0, 4)} – ${name(last)} ${last.slice(0, 4)}`;
 }
 
-export type CompactPdfOptions = { showPriority: boolean; showPickup: boolean; showReturn: boolean };
-export const defaultCompactOptions: CompactPdfOptions = { showPriority: true, showPickup: true, showReturn: true };
-const allCompactElements = defaultCompactOptions;
+export type ClubPdfOptions = { showPriority: boolean; showPickup: boolean; showReturn: boolean };
+export const defaultClubPdfOptions: ClubPdfOptions = { showPriority: true, showPickup: true, showReturn: true };
 
-// The elements a user can switch off in the compact PDF, in display order.
-export const compactOptionChoices: { key: keyof CompactPdfOptions; label: string }[] = [
+// The elements a user can switch off in either PDF layout, in display order.
+export const clubPdfOptionChoices: { key: keyof ClubPdfOptions; label: string }[] = [
   { key: 'showPickup', label: 'Pickup dates' },
   { key: 'showReturn', label: 'Return dates' },
   { key: 'showPriority', label: 'Priority badges' },
 ];
+
+// Meetings always show; pickup and return follow the options.
+export function shownMarkerKinds(options: ClubPdfOptions): OverviewMarkerKind[] {
+  return markerKinds.filter((kind) => kind === 'meeting' || (kind === 'ready' ? options.showPickup : options.showReturn));
+}
 
 export type ClubPdfFormat = 'overview' | 'compact';
 
 export type ClubPdfInput = { clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; logoBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string };
 
 // One entry point for both layouts, so every screen that exports club PDFs picks a format the same way.
-export function makeClubPdf(format: ClubPdfFormat, input: ClubPdfInput, options: CompactPdfOptions = defaultCompactOptions) {
-  return format === 'compact' ? makeCompactClubPdf({ ...input, options }) : makeClubOverviewPdf(input);
+export function makeClubPdf(format: ClubPdfFormat, input: ClubPdfInput, options: ClubPdfOptions = defaultClubPdfOptions) {
+  return format === 'compact' ? makeCompactClubPdf({ ...input, options }) : makeClubOverviewPdf({ ...input, options });
 }
 
 const compactText = ['READING PLAN', 'Titles', 'Calendar', 'colours match each cover', 'Exported', ...weekdayNames, ...shortMonths, '–', '·', '…'];
 
 // Compact layout: a header band, a grid of title cards (cover, author and dates), then a colour-matched calendar.
-export async function makeCompactClubPdf({ clubs, fontBytes, boldFontBytes, logoBytes, covers, exportedAt, options = allCompactElements }: {
-  clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; logoBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string; options?: CompactPdfOptions;
+export async function makeCompactClubPdf({ clubs, fontBytes, boldFontBytes, logoBytes, covers, exportedAt, options = defaultClubPdfOptions }: {
+  clubs: ClubOverviewPdfClub[]; fontBytes: Uint8Array; boldFontBytes?: Uint8Array; logoBytes?: Uint8Array; covers: Map<string, Uint8Array>; exportedAt: string; options?: ClubPdfOptions;
 }) {
   const { doc, font, bold, images, invalidCovers, logo } = await clubPdfDocument(clubs, fontBytes, covers, exportedAt, { boldFontBytes, logoBytes, extraText: compactText });
   for (const club of clubs) {
@@ -250,7 +254,7 @@ export function drawCalendarGrid(page: PDFPage, font: PDFFont, weeks: (string | 
   }));
 }
 
-function drawClubPage(page: PDFPage, fonts: PdfFonts, images: Map<string, PDFImage>, { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }, logo?: PDFImage) {
+function drawClubPage(page: PDFPage, fonts: PdfFonts, images: Map<string, PDFImage>, { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }, options: ClubPdfOptions, logo?: PDFImage) {
   const { regular, bold } = fonts;
   const draw = (value: string, x: number, y: number, size: number, color: Color = slateInk, face: PDFFont = regular) => {
     if (value) page.drawText(value, { x, y, size, font: face, color });
@@ -264,6 +268,7 @@ function drawClubPage(page: PDFPage, fonts: PdfFonts, images: Map<string, PDFIma
   const links = titleLinks(months);
   const linkByKey = new Map(links.map((link) => [link.key, link] as const));
   const hueFor = titleHueLookup(links);
+  const shownKinds = shownMarkerKinds(options);
   drawPageHeader(page, fonts, { club, details, months, links, showDetails: false, logo });
   drawPageFooter(page, regular, club, exportedAt);
 
@@ -277,7 +282,7 @@ function drawClubPage(page: PDFPage, fonts: PdfFonts, images: Map<string, PDFIma
   const headingY = contentTop - 9;
   const legendWidth = markerKinds.reduce((sum, kind) => sum + regular.widthOfTextAtSize(markerLabels[kind], 7) + 23, 0);
   drawSectionHeading(page, bold, fitLines(details, 10, contentWidth - legendWidth - 24, 1, bold)[0] ?? '', headingY);
-  drawLegend(page, fonts, [...markerKinds], headingY);
+  drawLegend(page, fonts, shownKinds, headingY);
 
   const gridTop = contentTop - 20;
   const rows = Math.ceil(months.length / 2);
@@ -330,7 +335,7 @@ function drawClubPage(page: PDFPage, fonts: PdfFonts, images: Map<string, PDFIma
         page.drawRectangle({ x: leftX, y: coverBottom(coverHeight), width: coverWidth, height: coverHeight, color: link ? hueTint(linkHue(link), 0.14) : placeholder });
         drawCentered('No cover', leftX, coverWidth, yTop - pad - coverHeight / 2 - 2, 5.5, slateMuted);
       }
-      if (book.priority !== undefined) drawPriorityBadge(leftX + coverWidth, yTop - pad, book.priority);
+      if (book.priority !== undefined && options.showPriority) drawPriorityBadge(leftX + coverWidth, yTop - pad, book.priority);
       const textColor = link ? hueFill(linkHue(link)) : slateInk;
       let cursor = coverBottom(coverHeight) - 5;
       for (const value of titleLines) { cursor -= 9; draw(value, leftX, cursor + 1.8, 7.6, textColor, bold); }
@@ -342,7 +347,7 @@ function drawClubPage(page: PDFPage, fonts: PdfFonts, images: Map<string, PDFIma
     const calendarX = x + calendarLeft;
     const monthLabel = fitLines(calendarMonthLabel(entry.month), 8.5, dayWidth * 7, 1, bold)[0] ?? '';
     draw(monthLabel, calendarX, yTop - pad - 8, 8.5, slateInk, bold);
-    drawDayGrid(page, fonts, entry, [...markerKinds], hueFor, {
+    drawDayGrid(page, fonts, entry, shownKinds, hueFor, {
       left: calendarX, top: yTop - pad - monthHeader, dayWidth, rowHeight, weekdayRow, labelSize, weekdaySize: 5.6,
     });
   };
@@ -495,7 +500,7 @@ function drawLegend(page: PDFPage, fonts: PdfFonts, kinds: OverviewMarkerKind[],
 }
 
 function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDFFont }, images: Map<string, PDFImage>,
-  { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }, options: CompactPdfOptions, logo?: PDFImage) {
+  { club, details, months, exportedAt }: ClubOverviewPdfClub & { exportedAt: string }, options: ClubPdfOptions, logo?: PDFImage) {
   const { regular, bold } = fonts;
   const draw = (value: string, x: number, y: number, size: number, color: Color = slateInk, face: PDFFont = regular) => {
     if (value) page.drawText(value, { x, y, size, font: face, color });
@@ -510,7 +515,7 @@ function drawCompactClubPage(page: PDFPage, fonts: { regular: PDFFont; bold: PDF
   const links = titleLinks(months);
   const linkByKey = new Map(links.map((link) => [link.key, link] as const));
   const hueFor = titleHueLookup(links);
-  const shownKinds = markerKinds.filter((kind) => kind === 'meeting' || (kind === 'ready' ? options.showPickup : options.showReturn));
+  const shownKinds = shownMarkerKinds(options);
 
   drawPageHeader(page, fonts, { club, details, months, links, showDetails: false, logo });
   drawPageFooter(page, regular, club, exportedAt);

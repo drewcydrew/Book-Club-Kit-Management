@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { PDFDocument } from 'pdf-lib';
-import { makeClubOverviewPdf, makeCompactClubPdf, pdfDateLabel, readingPeriodLabel, titleLinks, type ClubOverviewPdfClub, type OverviewPdfMonth } from '../src/domain/club-overview-pdf';
+import { makeClubOverviewPdf, makeClubPdf, makeCompactClubPdf, pdfDateLabel, readingPeriodLabel, shownMarkerKinds, titleLinks, type ClubOverviewPdfClub, type OverviewPdfMonth } from '../src/domain/club-overview-pdf';
 import { calendarWeeks } from '../src/domain/member-calendar';
 
 const fontBytes = () => readFile('node_modules/@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf');
@@ -110,3 +110,24 @@ test('reading period spans the shown months', () => {
   assert.equal(readingPeriodLabel([{ month: '2027-01' }, { month: '2027-12' }]), 'Jan – Dec 2027');
   assert.equal(readingPeriodLabel([{ month: '2027-11' }, { month: '2028-02' }]), 'Nov 2027 – Feb 2028');
 });
+
+test('meetings always show, while pickup and return follow the PDF options', () => {
+  assert.deepEqual(shownMarkerKinds({ showPickup: true, showReturn: true, showPriority: true }), ['ready', 'meeting', 'due']);
+  assert.deepEqual(shownMarkerKinds({ showPickup: false, showReturn: true, showPriority: true }), ['meeting', 'due']);
+  assert.deepEqual(shownMarkerKinds({ showPickup: true, showReturn: false, showPriority: false }), ['ready', 'meeting']);
+  assert.deepEqual(shownMarkerKinds({ showPickup: false, showReturn: false, showPriority: true }), ['meeting']);
+});
+
+for (const format of ['overview', 'compact'] as const) {
+  test(`${format} PDF drops badges and pickup/return markers when those options are off`, async () => {
+    const months = Array.from({ length: 6 }, (_, index) => ({
+      ...month(`2027-0${index + 1}`, `Book ${index}`),
+      book: { name: `Book ${index}`, author: 'Author', titleId: `t${index}`, priority: index + 1, dates: { ready: '2027-01-01', meeting: '2027-01-15', due: '2027-01-22' } },
+    }));
+    const input = { clubs: [club(months)], fontBytes: await fontBytes(), boldFontBytes: await boldFontBytes(), covers: new Map(), exportedAt: '2027-01-01' };
+    const all = await makeClubPdf(format, input);
+    const none = await makeClubPdf(format, input, { showPickup: false, showReturn: false, showPriority: false });
+    assert.equal(await pages(none.bytes), 1);
+    assert.ok(none.bytes.length < all.bytes.length, 'hidden elements are not drawn');
+  });
+}

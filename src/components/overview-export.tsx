@@ -4,7 +4,7 @@ import type { MemberOverviewMonth } from '../domain/member-calendar';
 import { overviewPdfMonths, type ClubPdfFormat } from '../domain/club-overview-pdf';
 import type { Assignment, Title } from '../domain/model';
 import { buildClubPdf, coverMissingNote } from './club-pdf-export';
-import { CompactOptionsPicker, useCompactOptions } from './compact-pdf-options';
+import { ClubPdfOptionsPicker, useClubPdfOptions } from './club-pdf-options';
 import { deliver } from './export-files';
 import { Action, Actions, Label, Note } from './ui';
 
@@ -16,7 +16,7 @@ export function OverviewExport({ club, details, months, titleFor, priorities }: 
   const busyRef = useRef(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const { options, toggle } = useCompactOptions();
+  const { options, toggle } = useClubPdfOptions();
   async function exportPdf(format: ClubPdfFormat) {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -41,8 +41,8 @@ export function OverviewExport({ club, details, months, titleFor, priorities }: 
   }
   return <View style={{ gap: 8 }}>
     <Label>Print overview</Label>
-    <Note>A one-page A4 PDF with the covers, assigned books and calendars shown in this overview, for future reference. The compact PDF is a share-ready reading plan: each title&apos;s cover, author and dates, with a colour-matched calendar of the whole year.</Note>
-    <CompactOptionsPicker options={options} onToggle={toggle} />
+    <Note>A one-page A4 PDF with the covers, assigned books and calendars shown in this overview, for future reference. The compact PDF is a share-ready reading plan: each title&apos;s cover, author and dates, with a colour-matched calendar of the whole year. The checkboxes below apply to both PDFs.</Note>
+    <ClubPdfOptionsPicker options={options} onToggle={toggle} />
     <Actions>
       <Action title={busy ? 'Preparing PDF…' : 'Export overview PDF'} disabled={busy} onPress={() => { void exportPdf('overview'); }} />
       <Action title={busy ? 'Preparing PDF…' : 'Export compact PDF'} disabled={busy} onPress={() => { void exportPdf('compact'); }} />

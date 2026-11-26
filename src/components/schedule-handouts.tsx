@@ -6,7 +6,7 @@ import type { Cycle, Data } from '../domain/model';
 import { makeHandoutClubs } from '../domain/schedule-handouts';
 import { handoutsZip } from '../domain/schedule-handouts-pdf';
 import { buildClubPdf, coverMissingNote, formatLabels } from './club-pdf-export';
-import { CompactOptionsPicker, useCompactOptions } from './compact-pdf-options';
+import { ClubPdfOptionsPicker, useClubPdfOptions } from './club-pdf-options';
 import { deliver } from './export-files';
 import { Action, Actions, Label, Note } from './ui';
 
@@ -20,7 +20,7 @@ export function ScheduleHandouts({ data, cycle, clubIds, unsaved, pending, disab
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [format, setFormat] = useState<ClubPdfFormat>('overview');
-  const { options, toggle } = useCompactOptions();
+  const { options, toggle } = useClubPdfOptions();
   async function generate(fileFormat: 'pdf' | 'zip') {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -38,11 +38,11 @@ export function ScheduleHandouts({ data, cycle, clubIds, unsaved, pending, disab
   }
   return <View style={{ gap: 8 }}>
     <Label>Generate handouts</Label>
-    <Note>One page per shown club for {cycle.name}, regardless of the selected view or title highlight. Unassigned meetings are included. Choose the Overview or Compact layout, then a combined PDF or a ZIP of separate PDFs.</Note>
+    <Note>One page per shown club for {cycle.name}, regardless of the selected view or title highlight. Unassigned meetings are included.     Choose the Overview or Compact layout, then choose what each page includes and a combined PDF or a ZIP of separate PDFs.</Note>
     <Actions>
       {formats.map((value) => <Action key={value} selected={value === format} title={`${formatLabels[value]} layout`} disabled={busy} onPress={() => setFormat(value)} />)}
     </Actions>
-    {format === 'compact' && <CompactOptionsPicker options={options} onToggle={toggle} />}
+        <ClubPdfOptionsPicker options={options} onToggle={toggle} />
     {unsaved && <Note>These handouts include unsaved local schedule changes. Check them before sharing.</Note>}
     {pending && <Note>Unapplied editor selections are not included. Apply them first if needed.</Note>}
     <Actions>
